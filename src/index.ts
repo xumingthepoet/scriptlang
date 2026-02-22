@@ -1,7 +1,7 @@
 export const SCRIPT_LANG_VERSION = "0.1.0";
 
-export * from "./core/errors";
-export type * from "./core/types";
-export * from "./compiler";
-export * from "./runtime";
-export * from "./api";
+export * from "./core/errors.js";
+export type * from "./core/types.js";
+export * from "./compiler/index.js";
+export * from "./runtime/index.js";
+export * from "./api.js";

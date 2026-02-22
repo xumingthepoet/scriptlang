@@ -1,0 +1,10 @@
+<script name="main.script.xml">
+  <vars>
+    <var name="hp" type="number" value="1"/>
+  </vars>
+  <step>
+    <text value="before hp=${hp}"/>
+    <call script="buff.script.xml" args="amount:3,target:ref:hp"/>
+    <text value="after hp=${hp}"/>
+  </step>
+</script>

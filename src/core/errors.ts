@@ -1,4 +1,4 @@
-import type { SourceSpan } from "./types";
+import type { SourceSpan } from "./types.js";
 
 export class ScriptLangError extends Error {
   readonly code: string;
@@ -11,4 +11,3 @@ export class ScriptLangError extends Error {
     this.span = span;
   }
 }
-

@@ -1,4 +1,4 @@
-import type { SourceSpan } from "../core/types";
+import type { SourceSpan } from "../core/types.js";
 
 export interface XmlTextNode {
   kind: "text";
@@ -19,4 +19,3 @@ export type XmlNode = XmlElementNode | XmlTextNode;
 export interface XmlDocument {
   root: XmlElementNode;
 }
-

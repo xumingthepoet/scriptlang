@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
 
-import { ScriptLangEngine, ScriptLangError, compileScript, createEngineFromXml, parseXmlDocument } from "../src";
+import {
+  ScriptLangEngine,
+  ScriptLangError,
+  compileScript,
+  createEngineFromXml,
+  parseXmlDocument,
+} from "../src/index.js";
 
 const compile = (path: string, body: string): ReturnType<typeof compileScript> =>
   compileScript(

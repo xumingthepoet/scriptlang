@@ -1,6 +1,6 @@
 import vm from "node:vm";
 
-import { ScriptLangError } from "../core/errors";
+import { ScriptLangError } from "../core/errors.js";
 import type {
   ChoiceItem,
   ChoiceNode,
@@ -12,7 +12,7 @@ import type {
   SnapshotFrameV1,
   SnapshotV1,
   VarDeclaration,
-} from "../core/types";
+} from "../core/types.js";
 
 export type HostFunctionMap = Record<string, (...args: unknown[]) => unknown>;
 

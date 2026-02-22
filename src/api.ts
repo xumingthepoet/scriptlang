@@ -1,6 +1,6 @@
-import { compileScript } from "./compiler";
-import type { SnapshotV1 } from "./core/types";
-import { ScriptLangEngine, type HostFunctionMap } from "./runtime";
+import { compileScript } from "./compiler/index.js";
+import type { SnapshotV1 } from "./core/types.js";
+import { ScriptLangEngine, type HostFunctionMap } from "./runtime/index.js";
 
 export interface CreateEngineFromXmlOptions {
   scriptsXml: Record<string, string>;

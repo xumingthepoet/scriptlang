@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
 
-import { compileScriptsFromXmlMap, createEngineFromXml, resumeEngineFromXml } from "../src";
+import { compileScriptsFromXmlMap, createEngineFromXml, resumeEngineFromXml } from "../src/index.js";
 
 test("createEngineFromXml and resumeEngineFromXml", () => {
   const scriptsXml = {

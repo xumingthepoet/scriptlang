@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
 
-import { ScriptLangError, compileScript } from "../src";
+import { ScriptLangError, compileScript } from "../src/index.js";
 
 test("compile script into implicit groups", () => {
   const xml = `

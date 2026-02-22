@@ -1,3 +1,2 @@
-export * from "./compiler";
-export * from "./xml";
-
+export * from "./compiler.js";
+export * from "./xml.js";

@@ -1,7 +1,7 @@
 import { SaxesParser } from "saxes";
 
-import { ScriptLangError } from "../core/errors";
-import type { XmlDocument, XmlElementNode, XmlTextNode } from "./xml-types";
+import { ScriptLangError } from "../core/errors.js";
+import type { XmlDocument, XmlElementNode, XmlTextNode } from "./xml-types.js";
 
 const normalizeLoc = (line: number, column: number) => {
   return {

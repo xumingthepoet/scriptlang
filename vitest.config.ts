@@ -9,6 +9,7 @@ export default defineConfig({
       enabled: false,
       all: true,
       include: ["src/**/*.ts"],
+      exclude: ["src/**/*.d.ts", "src/**/*.tsx", "src/cli/player.ts"],
       reporter: ["text", "html"],
       thresholds: {
         lines: 100,

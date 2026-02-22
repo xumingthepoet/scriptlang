@@ -1,0 +1,17 @@
+<script name="main.script.xml">
+  <vars>
+    <var name="hp" type="number" value="3"/>
+  </vars>
+  <step>
+    <if when="hp > 2">
+      <text value="strong"/>
+      <else>
+        <text value="weak"/>
+      </else>
+    </if>
+    <while when="hp > 0">
+      <code>hp = hp - 1;</code>
+    </while>
+    <text value="hp=${hp}"/>
+  </step>
+</script>

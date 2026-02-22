@@ -1,4 +1,4 @@
-import { ScriptLangError } from "../core/errors";
+import { ScriptLangError } from "../core/errors.js";
 import type {
   CallArgument,
   CallNode,
@@ -15,9 +15,9 @@ import type {
   TextNode,
   VarDeclaration,
   WhileNode,
-} from "../core/types";
-import { parseXmlDocument } from "./xml";
-import type { XmlElementNode, XmlNode } from "./xml-types";
+} from "../core/types.js";
+import { parseXmlDocument } from "./xml.js";
+import type { XmlElementNode, XmlNode } from "./xml-types.js";
 
 const UNSUPPORTED_NODES = new Set(["set", "push", "remove"]);
 const PRIMITIVE_TYPES = new Set(["number", "string", "boolean", "null"]);

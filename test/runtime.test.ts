@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
 
-import { ScriptLangEngine, compileScript } from "../src";
+import { ScriptLangEngine, compileScript } from "../src/index.js";
 
 test("next/choose and snapshot/resume roundtrip", () => {
   const main = compileScript(

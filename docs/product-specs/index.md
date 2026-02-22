@@ -1,6 +1,7 @@
 # Product Specs Index
 
 - [ScriptLang Syntax Manual](./syntax-manual.md)
+- [ScriptLang Player CLI Spec](./player-cli.md)
 
 ## ScriptLang V1 Scope
 - XML-first branching narrative scripts.
