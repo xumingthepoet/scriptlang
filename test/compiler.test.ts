@@ -87,6 +87,19 @@ test("script args parser validates syntax and duplicates", () => {
     "trailing.script.xml"
   );
   assert.equal(trailingComma.params.length, 1);
+
+  assert.throws(
+    () =>
+      compileScript(
+        `<script name="x" args="r:Record&lt;string,number&gt;"><text value="x"/></script>`,
+        "record-removed.script.xml"
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof ScriptLangError);
+      assert.equal(error.code, "TYPE_PARSE_ERROR");
+      return true;
+    }
+  );
 });
 
 test("call args parser separator edge cases", () => {

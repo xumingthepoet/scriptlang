@@ -77,10 +77,6 @@ const parseType = (raw: string, span: SourceSpan): ScriptType => {
   if (source.endsWith("[]")) {
     return { kind: "array", elementType: parseType(source.slice(0, -2), span) };
   }
-  const recordMatch = source.match(/^Record<string,\s*(.+)>$/);
-  if (recordMatch) {
-    return { kind: "record", valueType: parseType(recordMatch[1], span) };
-  }
   const mapMatch = source.match(/^Map<string,\s*(.+)>$/);
   if (mapMatch) {
     return { kind: "map", keyType: "string", valueType: parseType(mapMatch[1], span) };

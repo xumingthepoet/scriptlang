@@ -204,13 +204,12 @@ test("snapshot is rejected when not waiting choice", () => {
 test("default values for arg types are initialized", () => {
   const main = compileScript(
     `
-<script name="defaults" args="s:string,b:boolean,n:null,arr:number[],rec:Record&lt;string,number&gt;,m:Map&lt;string,number&gt;">
+<script name="defaults" args="s:string,b:boolean,n:null,arr:number[],m:Map&lt;string,number&gt;">
   <code>
     if (s !== "") throw new Error("s");
     if (b !== false) throw new Error("b");
     if (n !== null) throw new Error("n");
     if (!Array.isArray(arr) || arr.length !== 0) throw new Error("arr");
-    if (Object.keys(rec).length !== 0) throw new Error("rec");
     if (!m || typeof m !== "object" || !("size" in m) || Number(m.size) !== 0) {
       throw new Error("m");
     }

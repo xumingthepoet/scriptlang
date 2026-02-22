@@ -97,7 +97,6 @@ Supported type expressions:
 
 - Primitive: `number`, `string`, `boolean`, `null`
 - Array: `T[]`
-- Record: `Record<string, T>`
 - Map: `Map<string, T>`
 
 ## 6. `<text>`

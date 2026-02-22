@@ -373,10 +373,8 @@ test("boolean, type map, and arg validation error branches", () => {
   expectCode(() => anyEngine.buildParamTypeMap("missing.script.xml"), "ENGINE_SCRIPT_NOT_FOUND");
   expectCode(() => anyEngine.createScriptRootScope("missing.script.xml", {}), "ENGINE_SCRIPT_NOT_FOUND");
 
-  // cover record/map type compatibility branches
-  const recordType = { kind: "record", valueType: { kind: "primitive", name: "number" } } as const;
+  // cover map type compatibility branches
   const mapType = { kind: "map", keyType: "string", valueType: { kind: "primitive", name: "number" } } as const;
-  expectCode(() => anyEngine.assertType("r", recordType, []), "ENGINE_TYPE_MISMATCH");
   expectCode(() => anyEngine.assertType("m", mapType, {}), "ENGINE_TYPE_MISMATCH");
   expectCode(
     () => anyEngine.assertType("m", mapType, new Map([[1 as unknown as string, 2]])),
@@ -662,7 +660,6 @@ test("engine finishFrame and executeReturn continuation branches", () => {
 test("engine variable helpers cover type, path, and extra-scope branches", () => {
   const script = compileScript(
     `<script name="state.script.xml" args="num:number">
-      <var name="bag" type="Record&lt;string,Record&lt;string,number&gt;&gt;" value="({inner:{v:1}})"/>
       <text value="x"/>
     </script>`,
     "state.script.xml"
@@ -671,12 +668,11 @@ test("engine variable helpers cover type, path, and extra-scope branches", () =>
   engine.start("state.script.xml");
   engine.next();
   const anyEngine = engine as any;
+  anyEngine.frames[0].scope.bag = { inner: { v: 1 } };
 
   const arrayType = { kind: "array", elementType: { kind: "primitive", name: "number" } } as const;
-  const recordType = { kind: "record", valueType: { kind: "primitive", name: "number" } } as const;
   expectCode(() => anyEngine.assertType("num", { kind: "primitive", name: "number" }, undefined), "ENGINE_TYPE_MISMATCH");
   anyEngine.assertType("arr", arrayType, [1]);
-  anyEngine.assertType("rec", recordType, { a: 1 });
 
   assert.equal(anyEngine.readPath("bag.inner.v"), 1);
   expectCode(() => anyEngine.readPath("bag.missing"), "ENGINE_REF_PATH_READ");

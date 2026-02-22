@@ -47,3 +47,4 @@
   - `<var>` scope is declaration-point to current block end.
   - Runtime rejects `undefined` assignments.
   - Runtime enforces declared types on script variables.
+  - Supported language types are primitives, arrays, and `Map<string, T>` (no `Record<string, T>`).

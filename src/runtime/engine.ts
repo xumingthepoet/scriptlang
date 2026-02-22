@@ -50,7 +50,6 @@ const defaultValueFromType = (type: ScriptType): unknown => {
     return null;
   }
   if (type.kind === "array") return [];
-  if (type.kind === "record") return {};
   return new Map<string, unknown>();
 };
 
@@ -71,14 +70,6 @@ const isTypeCompatible = (value: unknown, type: ScriptType): boolean => {
   }
   if (type.kind === "array") {
     return Array.isArray(value) && value.every((item) => isTypeCompatible(item, type.elementType));
-  }
-  if (type.kind === "record") {
-    if (!value || typeof value !== "object" || Array.isArray(value) || value instanceof Map) {
-      return false;
-    }
-    return Object.values(value as Record<string, unknown>).every((v) =>
-      isTypeCompatible(v, type.valueType)
-    );
   }
   if (!(value instanceof Map)) {
     return false;
