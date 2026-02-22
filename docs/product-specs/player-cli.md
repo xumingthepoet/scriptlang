@@ -19,6 +19,14 @@ Both modes run the same ScriptLang engine semantics.
   - `title`
   - `entryScript`
   - one or more `.script.xml` files.
+- Bundled examples currently include:
+  - `01-text-code`
+  - `02-if-while`
+  - `03-choice-once`
+  - `04-call-ref-return`
+  - `05-return-transfer`
+  - `06-snapshot-flow`
+  - `07-battle-duel` (multi-file battle loop demo with call/ref and ending transfer)
 
 ## 3. TUI Mode
 

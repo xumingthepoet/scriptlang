@@ -1,0 +1,6 @@
+<script name="victory">
+  <text value="Ending: Victory"/>
+  <text>
+You chose enough pressure and won the duel.
+  </text>
+</script>

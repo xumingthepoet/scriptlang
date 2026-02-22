@@ -39,6 +39,12 @@ const SCENARIOS = [
     entryScript: "main",
     files: ["main.script.xml"],
   },
+  {
+    id: "07-battle-duel",
+    title: "Battle Duel",
+    entryScript: "main",
+    files: ["main.script.xml", "battle-loop.script.xml", "victory.script.xml", "defeat.script.xml"],
+  },
 ] as const;
 
 export interface ScenarioSummary {

@@ -20,6 +20,7 @@ test("agent list returns scenario rows", () => {
   assert.equal(result.lines[1], "EVENT:TEXT");
   assert.equal(result.lines[result.lines.length - 1], "STATE_OUT:NONE");
   assert.ok(result.lines.some((line) => line.includes("01-text-code")));
+  assert.ok(result.lines.some((line) => line.includes("07-battle-duel")));
 });
 
 test("agent start emits choices and writes state", () => {
@@ -32,6 +33,19 @@ test("agent start emits choices and writes state", () => {
   assert.ok(result.lines.includes("EVENT:CHOICES"));
   assert.ok(result.lines.some((line) => line.startsWith("TEXT_JSON:")));
   assert.ok(result.lines.some((line) => line.startsWith("CHOICE:0|")));
+  assert.equal(result.lines[result.lines.length - 1], `STATE_OUT:${stateOut}`);
+  assert.equal(fs.existsSync(stateOut), true);
+});
+
+test("agent start runs battle duel to first combat choice", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "scriptlang-agent-battle-start-"));
+  const stateOut = path.join(dir, "battle.bin");
+
+  const result = runWithCapture(["start", "--example", "07-battle-duel", "--state-out", stateOut]);
+  assert.equal(result.code, 0);
+  assert.ok(result.lines.includes("EVENT:CHOICES"));
+  assert.ok(result.lines.some((line) => line.startsWith("CHOICE:0|")));
+  assert.ok(result.lines.some((line) => line.includes("Heavy Slash")));
   assert.equal(result.lines[result.lines.length - 1], `STATE_OUT:${stateOut}`);
   assert.equal(fs.existsSync(stateOut), true);
 });

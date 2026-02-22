@@ -1,0 +1,49 @@
+<script
+  name="battle-loop"
+  args="playerName:string,enemyName:string,playerHp:number:ref,enemyHp:number:ref,potions:number:ref,rounds:number:ref"
+>
+  <while when="playerHp > 0 &amp;&amp; enemyHp > 0">
+    <code>rounds = rounds + 1;</code>
+    <var name="roundBanner" type="string"/>
+    <code>roundBanner = 'Round ' + rounds;</code>
+    <text value="== ${roundBanner} ==" />
+    <text value="${playerName} hp=${playerHp}, ${enemyName} hp=${enemyHp}, potions=${potions}" />
+
+    <choice>
+      <option text="Heavy Slash (4 dmg)">
+        <var name="damage" type="number" value="4"/>
+        <text value="You use Heavy Slash for ${damage}."/>
+        <code>enemyHp = enemyHp - damage;</code>
+      </option>
+      <option text="Quick Jab (1 dmg)">
+        <var name="damage" type="number" value="1"/>
+        <text value="You use Quick Jab for ${damage}."/>
+        <code>enemyHp = enemyHp - damage;</code>
+      </option>
+      <option text="Drink Potion (+3 hp)" when="potions > 0">
+        <var name="heal" type="number" value="3"/>
+        <code>potions = potions - 1; playerHp = playerHp + heal;</code>
+        <text value="You drink a potion and recover ${heal}. hp=${playerHp}, potions=${potions}"/>
+      </option>
+    </choice>
+
+    <if when="enemyHp &lt;= 0">
+      <text value="${enemyName} is down."/>
+      <else>
+        <var name="enemyRoll" type="number" value="(rounds + playerHp + enemyHp) % 3"/>
+        <if when="enemyRoll === 0">
+          <var name="enemyDamage" type="number" value="3"/>
+          <text value="${enemyName} uses Wild Smash for ${enemyDamage}."/>
+          <code>playerHp = playerHp - enemyDamage;</code>
+          <else>
+            <var name="enemyDamage" type="number" value="2"/>
+            <text value="${enemyName} uses Guard Break for ${enemyDamage}."/>
+            <code>playerHp = playerHp - enemyDamage;</code>
+          </else>
+        </if>
+        <text value="After enemy action: ${playerName} hp=${playerHp}, ${enemyName} hp=${enemyHp}" />
+      </else>
+    </if>
+  </while>
+  <return/>
+</script>

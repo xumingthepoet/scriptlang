@@ -44,6 +44,12 @@ Play in interactive mode:
 npm run player:tui -- --example 06-snapshot-flow
 ```
 
+Play the complex battle demo:
+
+```bash
+npm run player:tui -- --example 07-battle-duel
+```
+
 List available examples in agent mode:
 
 ```bash

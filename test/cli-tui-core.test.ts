@@ -26,13 +26,19 @@ import {
 
 test("scenario registry lists and loads scenarios", () => {
   const scenarios = listScenarios();
-  assert.equal(scenarios.length, 6);
+  assert.equal(scenarios.length, 7);
   assert.equal(scenarios[0].id, "01-text-code");
+  assert.ok(scenarios.some((scenario) => scenario.id === "07-battle-duel"));
 
   const loaded = loadScenarioById("04-call-ref-return");
   assert.equal(loaded.entryScript, "main");
   assert.ok(loaded.scriptsXml["main.script.xml"].includes("<call script=\"buff\""));
   assert.ok(loaded.scriptsXml["buff.script.xml"].includes("target = target + amount"));
+
+  const battle = loadScenarioById("07-battle-duel");
+  assert.equal(battle.entryScript, "main");
+  assert.ok(battle.scriptsXml["main.script.xml"].includes("<call"));
+  assert.ok(battle.scriptsXml["battle-loop.script.xml"].includes("<while"));
 });
 
 test("scenario registry error paths", () => {
