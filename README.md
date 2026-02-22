@@ -23,7 +23,7 @@ This repository is initialized for **agent-first harness engineering**:
 
 ## Commands
 - `npm run validate:docs`: check required docs and project scaffold integrity.
-- `npm run validate:casts`: fail when `src/` contains unsafe casts (`as any`, `as unknown as`).
+- `npm run lint`: run ESLint for `src/**/*.ts(x)`.
 - `npm run typecheck`: run TypeScript checks.
 - `npm run build`: compile TypeScript output into `dist/`.
 - `npm test`: docs validation + unit tests.

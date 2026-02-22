@@ -7,7 +7,7 @@ This repository uses Vitest and a strict pre-test quality gate.
 1. Run `npm test`.
 2. `pretest` runs automatically before tests:
    - `npm run validate:docs`
-   - `npm run validate:casts`
+   - `npm run lint`
    - `npm run typecheck`
    - `npm run coverage:strict` (`vitest run --coverage`)
 3. Only if all gates pass does `test` continue.
