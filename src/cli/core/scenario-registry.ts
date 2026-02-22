@@ -17,7 +17,7 @@ const SCENARIOS = [
   },
   {
     id: "03-choice-once",
-    title: "Choice and Once",
+    title: "Choice",
     entryScript: "main",
     files: ["main.script.xml"],
   },

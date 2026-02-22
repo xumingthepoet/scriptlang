@@ -468,7 +468,6 @@ test("engine start/reset, empty-step completion, and direct return target path",
     },
   ];
   anyEngine.pendingChoice = { frameId: 99, nodeId: "x", options: [] };
-  anyEngine.selectedChoices = new Set(["x"]);
   anyEngine.ended = true;
   anyEngine.frameCounter = 123;
 

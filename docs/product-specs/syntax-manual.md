@@ -179,7 +179,7 @@ Syntax:
   <option text="Attack" when="hp > 0">
     <code>hp = hp - 1;</code>
   </option>
-  <option text="Run" once="true">
+  <option text="Run">
     <text value="You ran away."/>
   </option>
 </choice>
@@ -189,7 +189,6 @@ Syntax:
 
 - `text` (required)
 - `when` (optional)
-- `once` (optional, `true|false`)
 
 ## 11. `<call>`
 

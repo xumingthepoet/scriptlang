@@ -327,7 +327,6 @@ const compileGroup = (
           text: getAttr(option, "text", true) as string,
           whenExpr: getAttr(option, "when", false),
           groupId: optionGroupId,
-          once: getAttr(option, "once", false) === "true",
           location: option.location,
         });
       }

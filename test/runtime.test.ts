@@ -13,7 +13,7 @@ test("next/choose and snapshot/resume roundtrip", () => {
     <option text="Heal">
       <code>hp = hp + 5;</code>
     </option>
-    <option text="Hit" once="true">
+    <option text="Hit">
       <code>hp = hp - 3;</code>
     </option>
   </choice>

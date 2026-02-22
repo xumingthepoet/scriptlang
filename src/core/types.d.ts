@@ -69,7 +69,6 @@ export interface ChoiceOption {
   text: string;
   whenExpr: string | null;
   groupId: string;
-  once: boolean;
   location: SourceSpan;
 }
 
@@ -157,7 +156,6 @@ export interface SnapshotV1 {
   runtimeFrames: SnapshotFrameV1[];
   waitingChoice: boolean;
   pendingChoiceNodeId: string | null;
-  selectedChoices: string[];
 }
 
 export interface ChoiceItem {

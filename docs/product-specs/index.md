@@ -29,6 +29,7 @@
   - `<if when="...">...</if>` with optional `<else>`.
   - `<while when="...">...</while>`
   - `<choice><option ...>...</option></choice>`
+  - `<option>` supports `text` (required) and `when` (optional); `once` is not supported.
   - `<call script="..." args="name:value,name2:ref:path"/>`
   - `<return/>` and `<return script="..."/>`
 - Explicitly removed nodes: `<vars>`, `<step>`, `<set>`, `<push>`, `<remove>`.

@@ -108,7 +108,6 @@ export class ScriptLangEngine {
   private frames: RuntimeFrame[] = [];
   private pendingChoice: PendingChoice | null = null;
   public waitingChoice = false;
-  private selectedChoices = new Set<string>();
   private frameCounter = 1;
   private ended = false;
 
@@ -196,7 +195,6 @@ export class ScriptLangEngine {
         if (node.kind === "choice") {
           const options = node.options
             .filter((opt) => (opt.whenExpr ? this.evalBoolean(opt.whenExpr) : true))
-            .filter((opt) => (opt.once ? !this.selectedChoices.has(opt.id) : true))
             .map((opt, index) => ({
               index,
               id: opt.id,
@@ -250,7 +248,6 @@ export class ScriptLangEngine {
       throw new ScriptLangError("ENGINE_CHOICE_NOT_FOUND", `Choice "${item.id}" not found.`);
     }
 
-    this.selectedChoices.add(option.id);
     frame.nodeIndex += 1;
     this.pushGroupFrame(option.groupId, "resumeAfterChild");
     this.pendingChoice = null;
@@ -293,7 +290,6 @@ export class ScriptLangEngine {
       runtimeFrames,
       waitingChoice: true,
       pendingChoiceNodeId: this.pendingChoice.nodeId,
-      selectedChoices: Array.from(this.selectedChoices),
     };
   }
 
@@ -319,13 +315,11 @@ export class ScriptLangEngine {
 
     this.reset();
     this.frames = snapshot.runtimeFrames.map((frame) => this.restoreFrame(frame));
-    this.selectedChoices = new Set(snapshot.selectedChoices);
     this.frameCounter = this.frames.reduce((max, frame) => (frame.frameId > max ? frame.frameId : max), 0) + 1;
     const top = this.requireSnapshotTopFrame();
     const node = this.requirePendingChoiceNode(top, snapshot.pendingChoiceNodeId);
     const options = node.options
       .filter((opt) => (opt.whenExpr ? this.evalBoolean(opt.whenExpr) : true))
-      .filter((opt) => (opt.once ? !this.selectedChoices.has(opt.id) : true))
       .map((opt, index) => ({
         index,
         id: opt.id,
@@ -343,7 +337,6 @@ export class ScriptLangEngine {
     this.frames = [];
     this.pendingChoice = null;
     this.waitingChoice = false;
-    this.selectedChoices = new Set<string>();
     this.ended = false;
     this.frameCounter = 1;
   }
