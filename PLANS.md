@@ -39,6 +39,5 @@ Use this template for files under `/docs/exec-plans/active/`.
 - [ ] Specs updated
 - [ ] Architecture docs still valid
 - [ ] Tests added/updated and passing
-- [ ] Plan moved to completed
+- [ ] Plan moved to completed (in same delivery commit)
 ```
-

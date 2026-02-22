@@ -16,7 +16,7 @@ This project follows an agent-first harness mindset:
    - Reject invalid states as early as possible.
 5. **Execution plans are first-class artifacts**
    - Every non-trivial change starts from a decision-complete plan.
-   - Plans are moved from `active` to `completed` after delivery.
+   - Plans are moved from `active` to `completed` in the delivery commit.
 6. **Architecture docs are living references**
    - Architecture is not static prose; it is maintained alongside behavior changes.
 7. **Deterministic core behavior**
@@ -28,4 +28,3 @@ This project follows an agent-first harness mindset:
 - Variable mutation happens in `<code>` nodes only.
 - Snapshot/restore is group-stack based, not script-name based.
 - `call` semantics mirror entering a child group with continuation behavior.
-

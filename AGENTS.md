@@ -13,7 +13,7 @@ This repository is set up for agent-first engineering of `ScriptLang`.
 1. **Spec first**: product behavior belongs in `/docs/product-specs/`.
 2. **Plan next**: implementation steps belong in `/docs/exec-plans/active/`.
 3. **Code after plan**: implementation must follow the approved plan.
-4. **Move plan to completed** after merge.
+4. **Move plan to completed in the same commit** when delivering the implementation (no merge step required).
 
 ## Boundaries
 - Keep parser, compiler, runtime, and host integration isolated.
