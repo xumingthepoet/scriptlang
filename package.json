@@ -8,6 +8,7 @@
   },
   "scripts": {
     "validate:docs": "node scripts/validate-docs.mjs",
+    "validate:casts": "node scripts/validate-no-unsafe-casts.mjs",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "player:dev": "tsx src/cli/player.ts",
@@ -15,7 +16,7 @@
     "player:agent": "node dist/src/cli/player.js agent",
     "test:unit": "vitest run",
     "coverage:strict": "vitest run --coverage",
-    "quality:gate": "npm run validate:docs && npm run typecheck && npm run coverage:strict",
+    "quality:gate": "npm run validate:docs && npm run validate:casts && npm run typecheck && npm run coverage:strict",
     "pretest": "npm run quality:gate",
     "test": "npm run test:unit"
   },
