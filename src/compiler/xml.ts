@@ -1,36 +1,7 @@
 import { SaxesParser } from "saxes";
 
-import type { SourceSpan } from "../core/types";
 import { ScriptLangError } from "../core/errors";
-
-export interface XmlTextNode {
-  kind: "text";
-  value: string;
-  location: SourceSpan;
-}
-
-export interface XmlElementNode {
-  kind: "element";
-  name: string;
-  attributes: Record<string, string>;
-  children: XmlNode[];
-  location: SourceSpan;
-}
-
-export type XmlNode = XmlElementNode | XmlTextNode;
-
-export interface XmlDocument {
-  root: XmlElementNode;
-}
-
-/* node:coverage ignore next */
-interface MutableElement {
-  kind: "element";
-  name: string;
-  attributes: Record<string, string>;
-  children: XmlNode[];
-  location: SourceSpan;
-}
+import type { XmlDocument, XmlElementNode, XmlTextNode } from "./xml-types";
 
 const normalizeLoc = (line: number, column: number) => {
   return {
@@ -44,17 +15,12 @@ export const parseXmlDocument = (source: string): XmlDocument => {
     throw new ScriptLangError("XML_EMPTY", "XML document has no root element.");
   }
   const parser = new SaxesParser({ xmlns: false });
-  const stack: MutableElement[] = [];
-  let root: MutableElement | null = null;
-  let parseErrorMessage: string | null = null;
-
-  parser.on("error", (error) => {
-    parseErrorMessage = String(error);
-  });
+  const stack: XmlElementNode[] = [];
+  let root: XmlElementNode | null = null;
 
   parser.on("opentag", (tag) => {
     const start = normalizeLoc(parser.line, parser.column);
-    const node: MutableElement = {
+    const node: XmlElementNode = {
       kind: "element",
       name: tag.name,
       attributes: Object.fromEntries(
@@ -89,10 +55,7 @@ export const parseXmlDocument = (source: string): XmlDocument => {
   });
 
   parser.on("closetag", () => {
-    const node = stack.pop();
-    if (!node) {
-      return;
-    }
+    const node = stack.pop() as XmlElementNode;
     node.location.end = normalizeLoc(parser.line, parser.column);
     if (stack.length === 0) {
       root = node;
@@ -101,16 +64,11 @@ export const parseXmlDocument = (source: string): XmlDocument => {
     stack[stack.length - 1].children.push(node);
   });
 
-  /* node:coverage ignore next */
-  parser.write(source).close();
-
-  if (parseErrorMessage) {
-    throw new ScriptLangError("XML_PARSE_ERROR", parseErrorMessage);
+  try {
+    parser.write(source).close();
+  } catch (error) {
+    throw new ScriptLangError("XML_PARSE_ERROR", String(error));
   }
 
-  if (!root) {
-    throw new ScriptLangError("XML_EMPTY", "XML document has no root element.");
-  }
-
-  return { root };
+  return { root: root! };
 };

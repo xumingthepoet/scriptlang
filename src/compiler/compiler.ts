@@ -16,16 +16,12 @@ import type {
   VarDeclaration,
   WhileNode,
 } from "../core/types";
-import { parseXmlDocument, type XmlElementNode, type XmlNode } from "./xml";
+import { parseXmlDocument } from "./xml";
+import type { XmlElementNode, XmlNode } from "./xml-types";
 
 const UNSUPPORTED_NODES = new Set(["set", "push", "remove"]);
 const PRIMITIVE_TYPES = new Set(["number", "string", "boolean", "null"]);
-
-const getAttr = (
-  node: XmlElementNode,
-  name: string,
-  required = false
-): string | null => {
+function getAttr(node: XmlElementNode, name: string, required = false): string | null {
   const value = node.attributes[name];
   if (required && (value === undefined || value === "")) {
     throw new ScriptLangError(
@@ -35,7 +31,7 @@ const getAttr = (
     );
   }
   return value ?? null;
-};
+}
 
 const asElements = (nodes: XmlNode[]): XmlElementNode[] => {
   return nodes.filter((n): n is XmlElementNode => n.kind === "element");
@@ -83,7 +79,6 @@ const parseType = (raw: string, span: SourceSpan): ScriptType => {
   if (recordMatch) {
     return { kind: "record", valueType: parseType(recordMatch[1], span) };
   }
-  /* node:coverage ignore next */
   const mapMatch = source.match(/^Map<string,\s*(.+)>$/);
   if (mapMatch) {
     return { kind: "map", keyType: "string", valueType: parseType(mapMatch[1], span) };
@@ -96,7 +91,6 @@ const parseVars = (varsNode: XmlElementNode | null): VarDeclaration[] => {
     return [];
   }
   const vars: VarDeclaration[] = [];
-  /* node:coverage ignore next */
   const names = new Set<string>();
   for (const node of asElements(varsNode.children)) {
     if (node.name !== "var") {
@@ -137,7 +131,6 @@ const parseArgs = (raw: string | null): CallArgument[] => {
     .filter(Boolean)
     .map((part) => {
       const separator = part.indexOf(":");
-      /* node:coverage ignore next */
       if (separator <= 0 || separator >= part.length - 1) {
         throw new ScriptLangError("CALL_ARGS_PARSE_ERROR", `Invalid call arg segment: "${part}".`);
       }
@@ -157,17 +150,6 @@ const inlineTextContent = (node: XmlElementNode): string =>
     .join("\n")
     .trim();
 
-const ensureSupportedNode = (node: XmlElementNode): void => {
-  /* node:coverage ignore next */
-  if (UNSUPPORTED_NODES.has(node.name)) {
-    throw new ScriptLangError(
-      "XML_UNSUPPORTED_NODE",
-      `<${node.name}> is removed in ScriptLang V1; use <code> instead.`,
-      node.location
-    );
-  }
-};
-
 const compileGroup = (
   groupId: string,
   parentGroupId: string | null,
@@ -183,7 +165,13 @@ const compileGroup = (
   };
 
   for (const child of asElements(container.children)) {
-    ensureSupportedNode(child);
+    if (UNSUPPORTED_NODES.has(child.name)) {
+      throw new ScriptLangError(
+        "XML_UNSUPPORTED_NODE",
+        `<${child.name}> is removed in ScriptLang V1; use <code> instead.`,
+        child.location
+      );
+    }
     let compiled: ScriptNode | null = null;
 
     if (child.name === "text") {
@@ -262,24 +250,21 @@ const compileGroup = (
           location: option.location,
         });
       }
-      /* node:coverage disable */
       const choiceNode: ChoiceNode = {
         id: builder.nextNodeId("choice"),
         kind: "choice",
         options,
         location: child.location,
       };
-      /* node:coverage enable */
       compiled = choiceNode;
     } else if (child.name === "call") {
-      const callNode: CallNode = {
+      compiled = {
         id: builder.nextNodeId("call"),
         kind: "call",
         targetScript: getAttr(child, "script", true) as string,
         args: parseArgs(getAttr(child, "args", false)),
         location: child.location,
       };
-      compiled = callNode;
     } else if (child.name === "return") {
       const returnNode: ReturnNode = {
         id: builder.nextNodeId("return"),

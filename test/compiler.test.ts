@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 
 import { ScriptLangError, compileScript } from "../src";
 
@@ -111,6 +111,18 @@ test("compile supports map type and script without vars", () => {
     "array.script.xml"
   );
   assert.equal(arrayType.vars[0].type.kind, "array");
+
+  const noStep = compileScript(
+    `
+<script>
+  <vars>
+    <var name="hp" type="number" value="1"/>
+  </vars>
+</script>
+`,
+    "nostep.script.xml"
+  );
+  assert.equal(noStep.groups[noStep.rootGroupId].nodes.length, 0);
 });
 
 test("call args parser separator edge cases", () => {
@@ -165,4 +177,31 @@ test("call args parser separator edge cases", () => {
       return true;
     }
   );
+});
+
+test("required attributes reject empty string", () => {
+  assert.throws(
+    () => compileScript(`<script><step><call script=""/></step></script>`, "empty-attr.script.xml"),
+    (e: unknown) => {
+      assert.ok(e instanceof ScriptLangError);
+      assert.equal(e.code, "XML_MISSING_ATTR");
+      return true;
+    }
+  );
+});
+
+test("compile text node supports inline text content", () => {
+  const ir = compileScript(
+    `
+<script>
+  <step>
+    <text>inline value</text>
+  </step>
+</script>
+`,
+    "inline-text.script.xml"
+  );
+  const node = ir.groups[ir.rootGroupId].nodes[0];
+  assert.equal(node.kind, "text");
+  assert.equal(node.value, "inline value");
 });

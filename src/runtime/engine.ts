@@ -61,7 +61,6 @@ const parseRefPath = (path: string): string[] => {
     .filter(Boolean);
 };
 
-/* node:coverage disable */
 const isTypeCompatible = (value: unknown, type: ScriptType): boolean => {
   if (value === undefined) {
     return false;
@@ -91,7 +90,6 @@ const isTypeCompatible = (value: unknown, type: ScriptType): boolean => {
   }
   return true;
 };
-/* node:coverage enable */
 
 export interface ScriptLangEngineOptions {
   scripts: Record<string, ScriptIR>;
@@ -109,6 +107,7 @@ export class ScriptLangEngine {
 
   private frames: RuntimeFrame[] = [];
   private pendingChoice: PendingChoice | null = null;
+  public waitingChoice = false;
   private selectedChoices = new Set<string>();
   private frameCounter = 1;
   private ended = false;
@@ -127,10 +126,6 @@ export class ScriptLangEngine {
     }
   }
 
-  get waitingChoice(): boolean {
-    return this.pendingChoice !== null;
-  }
-
   start(entryScriptPath: string): void {
     this.reset();
     const entry = this.scripts[entryScriptPath];
@@ -141,16 +136,7 @@ export class ScriptLangEngine {
       );
     }
     const { scope: rootScope, varTypes } = this.createScriptRootScope(entryScriptPath, {});
-    this.frames.push({
-      frameId: this.frameCounter++,
-      groupId: entry.rootGroupId,
-      nodeIndex: 0,
-      scope: rootScope,
-      completion: "none",
-      scriptRoot: true,
-      returnContinuation: null,
-      varTypes,
-    });
+    this.pushRootFrame(entry.rootGroupId, rootScope, null, varTypes);
   }
 
   next(): EngineOutput {
@@ -170,72 +156,66 @@ export class ScriptLangEngine {
         return { kind: "end" };
       }
       const lookup = this.groupLookup[top.groupId];
-      if (!lookup) {
-        throw new ScriptLangError(
-          "ENGINE_GROUP_NOT_FOUND",
-          `Group "${top.groupId}" is not registered.`
-        );
-      }
+      if (!lookup) throw new ScriptLangError("ENGINE_GROUP_NOT_FOUND", `Group "${top.groupId}" is not registered.`);
       const group = lookup.group;
 
       if (top.nodeIndex >= group.nodes.length) {
         this.finishFrame(top);
-        /* node:coverage ignore next */
-        continue;
-      }
-
-      const node = group.nodes[top.nodeIndex];
-      if (node.kind === "text") {
-        top.nodeIndex += 1;
-        return { kind: "text", text: this.renderText(node.value) };
-      }
-      if (node.kind === "code") {
-        this.runCode(node.code);
-        top.nodeIndex += 1;
-        continue;
-      }
-      if (node.kind === "if") {
-        const condition = this.evalBoolean(node.whenExpr);
-        top.nodeIndex += 1;
-        const target = condition ? node.thenGroupId : (node.elseGroupId as string);
-        this.pushGroupFrame(target, "resumeAfterChild");
-        continue;
-      }
-      if (node.kind === "while") {
-        const condition = this.evalBoolean(node.whenExpr);
-        if (!condition) {
+      } else {
+        const node = group.nodes[top.nodeIndex];
+        if (node.kind === "text") {
+          top.nodeIndex += 1;
+          return { kind: "text", text: this.renderText(node.value) };
+        }
+        if (node.kind === "code") {
+          this.runCode(node.code);
           top.nodeIndex += 1;
           continue;
         }
-        this.pushGroupFrame(node.bodyGroupId, "whileBody");
-        continue;
-      }
-      if (node.kind === "choice") {
-        const options = node.options
-          .filter((opt) => (opt.whenExpr ? this.evalBoolean(opt.whenExpr) : true))
-          .filter((opt) => (opt.once ? !this.selectedChoices.has(opt.id) : true))
-          .map((opt, index) => ({
-            index,
-            id: opt.id,
-            text: this.renderText(opt.text),
-          }));
-        if (options.length === 0) {
+        if (node.kind === "if") {
+          const condition = this.evalBoolean(node.whenExpr);
           top.nodeIndex += 1;
+          const target = condition ? node.thenGroupId : (node.elseGroupId as string);
+          this.pushGroupFrame(target, "resumeAfterChild");
           continue;
         }
-        this.pendingChoice = { frameId: top.frameId, nodeId: node.id, options };
-        return { kind: "choices", items: options };
-      }
-      if (node.kind === "call") {
-        this.executeCall(node);
-        continue;
-      }
-      if (node.kind === "return") {
-        this.executeReturn(node.targetScript);
-        continue;
-      }
+        if (node.kind === "while") {
+          const condition = this.evalBoolean(node.whenExpr);
+          if (!condition) {
+            top.nodeIndex += 1;
+            continue;
+          }
+          this.pushGroupFrame(node.bodyGroupId, "whileBody");
+          continue;
+        }
+        if (node.kind === "choice") {
+          const options = node.options
+            .filter((opt) => (opt.whenExpr ? this.evalBoolean(opt.whenExpr) : true))
+            .filter((opt) => (opt.once ? !this.selectedChoices.has(opt.id) : true))
+            .map((opt, index) => ({
+              index,
+              id: opt.id,
+              text: this.renderText(opt.text),
+            }));
+          if (options.length === 0) {
+            top.nodeIndex += 1;
+            continue;
+          }
+          this.pendingChoice = { frameId: top.frameId, nodeId: node.id, options };
+          this.waitingChoice = true;
+          return { kind: "choices", items: options };
+        }
+        if (node.kind === "call") {
+          this.executeCall(node);
+          continue;
+        }
+        if (node.kind === "return") {
+          this.executeReturn(node.targetScript);
+          continue;
+        }
 
-      throw new ScriptLangError("ENGINE_NODE_UNKNOWN", `Unhandled node kind: ${(node as ScriptNode).kind}`);
+        throw new ScriptLangError("ENGINE_NODE_UNKNOWN", `Unhandled node kind: ${(node as ScriptNode).kind}`);
+      }
     }
 
     throw new ScriptLangError("ENGINE_GUARD_EXCEEDED", "Execution guard exceeded 10000 iterations.");
@@ -269,6 +249,7 @@ export class ScriptLangEngine {
     frame.nodeIndex += 1;
     this.pushGroupFrame(option.groupId, "resumeAfterChild");
     this.pendingChoice = null;
+    this.waitingChoice = false;
   }
 
   snapshot(): SnapshotV1 {
@@ -288,11 +269,7 @@ export class ScriptLangEngine {
       scriptRoot: frame.scriptRoot,
       returnContinuation: frame.returnContinuation ? deepClone(frame.returnContinuation) : null,
     }));
-    const topFrame = this.frames[this.frames.length - 1];
-    if (!topFrame) {
-      throw new ScriptLangError("SNAPSHOT_EMPTY", "Snapshot contains no runtime frames.");
-    }
-
+    const topFrame = this.requireSnapshotTopFrame();
     return {
       schemaVersion: "snapshot.v1",
       compilerVersion: this.compilerVersion,
@@ -335,37 +312,11 @@ export class ScriptLangEngine {
     }
 
     this.reset();
-    this.frames = snapshot.runtimeFrames.map((frame) => {
-      if (!this.groupLookup[frame.groupId]) {
-        throw new ScriptLangError("SNAPSHOT_GROUP_MISSING", `Group "${frame.groupId}" is unknown.`);
-      }
-      return {
-        frameId: frame.frameId,
-        groupId: frame.groupId,
-        nodeIndex: frame.nodeIndex,
-        scope: deepClone(frame.scope),
-        completion: frame.completion.kind,
-        scriptRoot: frame.scriptRoot,
-        returnContinuation: frame.returnContinuation ? deepClone(frame.returnContinuation) : null,
-        varTypes: frame.scriptRoot
-          ? this.buildVarTypeMap(this.groupLookup[frame.groupId].scriptPath)
-          : null,
-      };
-    });
+    this.frames = snapshot.runtimeFrames.map((frame) => this.restoreFrame(frame));
     this.selectedChoices = new Set(snapshot.selectedChoices);
-    this.frameCounter =
-      this.frames.reduce((max, frame) => (frame.frameId > max ? frame.frameId : max), 0) + 1;
-
-    const top = this.frames[this.frames.length - 1];
-    if (!top) {
-      throw new ScriptLangError("SNAPSHOT_EMPTY", "Snapshot contains no runtime frames.");
-    }
-    const group = this.groupLookup[top.groupId].group;
-    const node = group.nodes[top.nodeIndex];
-    if (!node || node.kind !== "choice" || node.id !== snapshot.pendingChoiceNodeId) {
-      throw new ScriptLangError("SNAPSHOT_PENDING_CHOICE", "Pending choice node cannot be reconstructed.");
-    }
-
+    this.frameCounter = this.frames.reduce((max, frame) => (frame.frameId > max ? frame.frameId : max), 0) + 1;
+    const top = this.requireSnapshotTopFrame();
+    const node = this.requirePendingChoiceNode(top, snapshot.pendingChoiceNodeId);
     const options = node.options
       .filter((opt) => (opt.whenExpr ? this.evalBoolean(opt.whenExpr) : true))
       .filter((opt) => (opt.once ? !this.selectedChoices.has(opt.id) : true))
@@ -379,11 +330,13 @@ export class ScriptLangEngine {
       nodeId: node.id,
       options,
     };
+    this.waitingChoice = true;
   }
 
   private reset(): void {
     this.frames = [];
     this.pendingChoice = null;
+    this.waitingChoice = false;
     this.selectedChoices = new Set<string>();
     this.ended = false;
     this.frameCounter = 1;
@@ -391,6 +344,42 @@ export class ScriptLangEngine {
 
   private findFrame(frameId: number): RuntimeFrame | null {
     return this.frames.find((frame) => frame.frameId === frameId) ?? null;
+  }
+
+  private pushRootFrame(
+    groupId: string,
+    scope: Record<string, unknown>,
+    returnContinuation: ContinuationFrame | null,
+    varTypes: Record<string, ScriptType>
+  ): void {
+    this.frames.push({
+      frameId: this.frameCounter++,
+      groupId,
+      nodeIndex: 0,
+      scope,
+      completion: "none",
+      scriptRoot: true,
+      returnContinuation,
+      varTypes,
+    });
+  }
+
+  private restoreFrame(frame: SnapshotFrameV1): RuntimeFrame {
+    const lookup = this.groupLookup[frame.groupId];
+    if (!lookup) {
+      throw new ScriptLangError("SNAPSHOT_GROUP_MISSING", `Group "${frame.groupId}" is unknown.`);
+    }
+    const varTypes = frame.scriptRoot ? this.buildVarTypeMap(lookup.scriptPath) : null;
+    return {
+      frameId: frame.frameId,
+      groupId: frame.groupId,
+      nodeIndex: frame.nodeIndex,
+      scope: deepClone(frame.scope),
+      completion: frame.completion.kind,
+      scriptRoot: frame.scriptRoot,
+      returnContinuation: frame.returnContinuation ? deepClone(frame.returnContinuation) : null,
+      varTypes,
+    };
   }
 
   private pushGroupFrame(groupId: string, completion: CompletionKind): void {
@@ -414,19 +403,15 @@ export class ScriptLangEngine {
     if (!frame.scriptRoot) {
       return;
     }
-
     const continuation = frame.returnContinuation;
     if (!continuation) {
-      this.ended = true;
-      this.frames = [];
-      /* node:coverage ignore next */
+      this.endExecution();
       return;
     }
 
     const resumeFrame = this.findFrame(continuation.resumeFrameId);
     if (!resumeFrame) {
-      this.ended = true;
-      this.frames = [];
+      this.endExecution();
       return;
     }
     for (const [calleeVar, callerPath] of Object.entries(continuation.refBindings)) {
@@ -481,16 +466,7 @@ export class ScriptLangEngine {
         node.targetScript,
         argValues
       );
-      this.frames.push({
-        frameId: this.frameCounter++,
-        groupId: targetScript.rootGroupId,
-        nodeIndex: 0,
-        scope: rootScope,
-        completion: "none",
-        scriptRoot: true,
-        returnContinuation: inherited,
-        varTypes,
-      });
+      this.pushRootFrame(targetScript.rootGroupId, rootScope, inherited, varTypes);
       return;
     }
 
@@ -500,16 +476,7 @@ export class ScriptLangEngine {
       refBindings,
     };
     const { scope: rootScope, varTypes } = this.createScriptRootScope(node.targetScript, argValues);
-    this.frames.push({
-      frameId: this.frameCounter++,
-      groupId: targetScript.rootGroupId,
-      nodeIndex: 0,
-      scope: rootScope,
-      completion: "none",
-      scriptRoot: true,
-      returnContinuation: continuation,
-      varTypes,
-    });
+    this.pushRootFrame(targetScript.rootGroupId, rootScope, continuation, varTypes);
   }
 
   private executeReturn(targetScript: string | null): void {
@@ -519,36 +486,19 @@ export class ScriptLangEngine {
 
     this.frames.splice(rootIndex);
     if (targetScript) {
-      const script = this.scripts[targetScript];
-      if (!script) {
-        throw new ScriptLangError(
-          "ENGINE_RETURN_TARGET",
-          `Return target script "${targetScript}" is not registered.`
-        );
-      }
+      const script = this.requireReturnTargetScript(targetScript);
       const { scope: rootScope, varTypes } = this.createScriptRootScope(targetScript, {});
-      this.frames.push({
-        frameId: this.frameCounter++,
-        groupId: script.rootGroupId,
-        nodeIndex: 0,
-        scope: rootScope,
-        completion: "none",
-        scriptRoot: true,
-        returnContinuation: inherited,
-        varTypes,
-      });
+      this.pushRootFrame(script.rootGroupId, rootScope, inherited, varTypes);
       return;
     }
 
     if (!inherited) {
-      this.ended = true;
-      this.frames = [];
+      this.endExecution();
       return;
     }
     const resumeFrame = this.findFrame(inherited.resumeFrameId);
     if (!resumeFrame) {
-      this.ended = true;
-      this.frames = [];
+      this.endExecution();
       return;
     }
     for (const [calleeVar, callerPath] of Object.entries(inherited.refBindings)) {
@@ -556,6 +506,12 @@ export class ScriptLangEngine {
       this.writePath(callerPath, value);
     }
     resumeFrame.nodeIndex = inherited.nextNodeIndex;
+  }
+
+  private requireReturnTargetScript(targetScript: string): ScriptIR {
+    const script = this.scripts[targetScript];
+    if (!script) throw new ScriptLangError("ENGINE_RETURN_TARGET", `Return target script "${targetScript}" is not registered.`);
+    return script;
   }
 
   private findCurrentRootFrameIndex(): number {
@@ -584,18 +540,16 @@ export class ScriptLangEngine {
     }
   }
 
-  private createScriptRootScope(
-    scriptPath: string,
-    argValues: Record<string, unknown>
-  ): { scope: Record<string, unknown>; varTypes: Record<string, ScriptType> } {
+  private createScriptRootScope(scriptPath: string, argValues: Record<string, unknown>): {
+    scope: Record<string, unknown>;
+    varTypes: Record<string, ScriptType>;
+  } {
     const script = this.scripts[scriptPath];
-    if (!script) {
-      throw new ScriptLangError("ENGINE_SCRIPT_NOT_FOUND", `Script "${scriptPath}" is not registered.`);
-    }
+    if (!script) throw new ScriptLangError("ENGINE_SCRIPT_NOT_FOUND", `Script "${scriptPath}" is not registered.`);
     const scope: Record<string, unknown> = {};
     const varTypes = this.buildVarTypeMap(scriptPath);
-
-    for (const decl of script.vars) {
+    for (let i = 0; i < script.vars.length; i += 1) {
+      const decl = script.vars[i];
       let value = defaultValueFromVar(decl);
       if (decl.initialValueExpr) {
         value = this.evalExpression(decl.initialValueExpr, [scope]);
@@ -627,6 +581,26 @@ export class ScriptLangEngine {
       scope[name] = value;
     }
     return { scope, varTypes };
+  }
+
+  private requireSnapshotTopFrame(): RuntimeFrame {
+    const top = this.frames[this.frames.length - 1];
+    if (!top) throw new ScriptLangError("SNAPSHOT_EMPTY", "Snapshot contains no runtime frames.");
+    return top;
+  }
+
+  private requirePendingChoiceNode(top: RuntimeFrame, pendingChoiceNodeId: string | null): ChoiceNode {
+    const group = this.groupLookup[top.groupId].group;
+    const node = group.nodes[top.nodeIndex];
+    if (!node || node.kind !== "choice" || node.id !== pendingChoiceNodeId) {
+      throw new ScriptLangError("SNAPSHOT_PENDING_CHOICE", "Pending choice node cannot be reconstructed.");
+    }
+    return node;
+  }
+
+  private endExecution(): void {
+    this.ended = true;
+    this.frames = [];
   }
 
   private renderText(template: string): string {

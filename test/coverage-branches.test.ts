@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 
 import { ScriptLangEngine, ScriptLangError, compileScript, createEngineFromXml, parseXmlDocument } from "../src";
 
@@ -46,6 +46,7 @@ test("api supports host function usage path", () => {
 test("xml parser throws parse and empty errors", () => {
   expectCode(() => parseXmlDocument("<script"), "XML_PARSE_ERROR");
   expectCode(() => parseXmlDocument(""), "XML_EMPTY");
+  expectCode(() => parseXmlDocument("<!-- only-comment -->"), "XML_PARSE_ERROR");
 });
 
 test("compiler validation error branches", () => {
@@ -101,6 +102,12 @@ test("engine start and next defensive branches", () => {
   assert.deepEqual(engine.next(), { kind: "text", text: "x" });
   assert.deepEqual(engine.next(), { kind: "end" });
   assert.deepEqual(engine.next(), { kind: "end" });
+});
+
+test("engine constructor empty scripts and waitingChoice getter", () => {
+  const engine = new ScriptLangEngine({ scripts: {}, compilerVersion: "dev" });
+  assert.equal(engine.waitingChoice, false);
+  expectCode(() => engine.start("missing.script.xml"), "ENGINE_SCRIPT_NOT_FOUND");
 });
 
 test("engine choice error branches", () => {
@@ -376,4 +383,332 @@ test("direct next with corrupted node kind hits unknown node branch", () => {
     location: { start: { line: 1, column: 1 }, end: { line: 1, column: 1 } },
   };
   expectCode(() => engine.next(), "ENGINE_NODE_UNKNOWN");
+});
+
+test("next throws when runtime frame points to unknown group", () => {
+  const s = compile("main.script.xml", `<vars/><step><text value="x"/></step>`);
+  const engine = new ScriptLangEngine({ scripts: { "main.script.xml": s }, compilerVersion: "dev" });
+  engine.start("main.script.xml");
+  const anyEngine = engine as any;
+  anyEngine.frames[0].groupId = "ghost.group";
+  expectCode(() => engine.next(), "ENGINE_GROUP_NOT_FOUND");
+});
+
+test("engine start/reset, empty-step completion, and direct return target path", () => {
+  const main = compile("main.script.xml", `<vars/><step/>`);
+  const target = compile("target.script.xml", `<vars/><step><text value="T"/></step>`);
+  const engine = new ScriptLangEngine({
+    scripts: { "main.script.xml": main, "target.script.xml": target },
+    compilerVersion: "dev",
+  });
+  const anyEngine = engine as any;
+
+  anyEngine.frames = [
+    {
+      frameId: 99,
+      groupId: "ghost",
+      nodeIndex: 5,
+      scope: { x: 1 },
+      completion: "none",
+      scriptRoot: true,
+      returnContinuation: null,
+      varTypes: null,
+    },
+  ];
+  anyEngine.pendingChoice = { frameId: 99, nodeId: "x", options: [] };
+  anyEngine.selectedChoices = new Set(["x"]);
+  anyEngine.ended = true;
+  anyEngine.frameCounter = 123;
+
+  engine.start("main.script.xml");
+  assert.equal(anyEngine.pendingChoice, null);
+  assert.equal(anyEngine.ended, false);
+  assert.equal(anyEngine.frames.length, 1);
+  assert.equal(anyEngine.frameCounter, 2);
+
+  assert.deepEqual(engine.next(), { kind: "end" });
+
+  engine.start("main.script.xml");
+  anyEngine.executeReturn("target.script.xml");
+  assert.equal(anyEngine.frames[0].groupId, target.rootGroupId);
+  assert.deepEqual(engine.next(), { kind: "text", text: "T" });
+
+  const built = anyEngine.createScriptRootScope("target.script.xml", {});
+  assert.equal(typeof built, "object");
+  assert.ok("scope" in built);
+});
+
+test("direct executeReturn missing target and createScriptRootScope var loop path", () => {
+  const script = compile(
+    "vars.script.xml",
+    `<vars><var name="hp" type="number" value="3"/></vars><step><text value="ok"/></step>`
+  );
+  const engine = new ScriptLangEngine({
+    scripts: { "vars.script.xml": script },
+    compilerVersion: "dev",
+  });
+  const anyEngine = engine as any;
+  engine.start("vars.script.xml");
+  expectCode(() => anyEngine.executeReturn("missing.script.xml"), "ENGINE_RETURN_TARGET");
+  const built = anyEngine.createScriptRootScope("vars.script.xml", {});
+  assert.equal((built.scope as Record<string, unknown>).hp, 3);
+});
+
+test("resume reconstructs continuation-bearing runtime frames", () => {
+  const main = compile(
+    "main.script.xml",
+    `<vars/><step><call script="child.script.xml"/><text value="done"/></step>`
+  );
+  const child = compile(
+    "child.script.xml",
+    `<vars/><step><choice><option text="go"><text value="ok"/></option></choice></step>`
+  );
+  const engine = new ScriptLangEngine({
+    scripts: { "main.script.xml": main, "child.script.xml": child },
+    compilerVersion: "dev",
+  });
+  engine.start("main.script.xml");
+  const out = engine.next();
+  assert.equal(out.kind, "choices");
+  const snapshot = engine.snapshot();
+  const resumed = new ScriptLangEngine({
+    scripts: { "main.script.xml": main, "child.script.xml": child },
+    compilerVersion: "dev",
+  });
+  resumed.resume(snapshot);
+  assert.equal(resumed.waitingChoice, true);
+});
+
+test("engine helper paths for return target and root scope arg assignment", () => {
+  const waiting = compile(
+    "waiting.script.xml",
+    `<vars/><step><choice><option text="ok"><text value="ok"/></option></choice></step>`
+  );
+  const target = compile(
+    "target.script.xml",
+    `<vars><var name="n" type="number" value="1"/></vars><step><text value="ok"/></step>`
+  );
+  const bad = compileScript(
+    `<script><vars><var name="n" type="number" value="undefined"/></vars><step/></script>`,
+    "bad-init.script.xml"
+  );
+  const engine = new ScriptLangEngine({
+    scripts: {
+      "waiting.script.xml": waiting,
+      "target.script.xml": target,
+      "bad-init.script.xml": bad,
+    },
+    compilerVersion: "dev",
+  });
+  const anyEngine = engine as any;
+
+  engine.start("waiting.script.xml");
+  engine.next();
+  const snap = engine.snapshot();
+  engine.resume(snap);
+  assert.equal(engine.waitingChoice, true);
+
+  const resolved = anyEngine.requireReturnTargetScript("target.script.xml");
+  assert.equal(resolved.rootGroupId, target.rootGroupId);
+  expectCode(() => anyEngine.requireReturnTargetScript("missing.script.xml"), "ENGINE_RETURN_TARGET");
+
+  const withArg = anyEngine.createScriptRootScope("target.script.xml", { n: 9 });
+  assert.equal((withArg.scope as Record<string, unknown>).n, 9);
+  expectCode(() => anyEngine.createScriptRootScope("bad-init.script.xml", {}), "ENGINE_VAR_UNDEFINED");
+});
+
+test("engine control-flow branches for pending choices and hidden options", () => {
+  const script = compileScript(
+    `
+<script name="control.script.xml">
+  <vars><var name="n" type="number" value="1"/></vars>
+  <step>
+    <while when="false">
+      <text value="never"/>
+    </while>
+    <choice>
+      <option text="hidden" when="false"><text value="nope"/></option>
+      <option text="visible"><text value="ok"/></option>
+    </choice>
+    <choice>
+      <option text="all-hidden" when="false"><text value="x"/></option>
+    </choice>
+    <if when="false">
+      <text value="then"/>
+      <else><text value="else"/></else>
+    </if>
+  </step>
+</script>
+`,
+    "control.script.xml"
+  );
+  const engine = new ScriptLangEngine({ scripts: { "control.script.xml": script }, compilerVersion: "dev" });
+  engine.start("control.script.xml");
+
+  const firstChoices = engine.next();
+  assert.equal(firstChoices.kind, "choices");
+  assert.equal(engine.waitingChoice, true);
+  const secondChoices = engine.next();
+  assert.equal(secondChoices.kind, "choices");
+
+  engine.choose(0);
+  assert.deepEqual(engine.next(), { kind: "text", text: "ok" });
+  assert.deepEqual(engine.next(), { kind: "text", text: "else" });
+});
+
+test("engine finishFrame and executeReturn continuation branches", () => {
+  const script = compile("main.script.xml", `<vars><var name="x" type="number" value="1"/></vars><step><text value="x"/></step>`);
+  const engine = new ScriptLangEngine({ scripts: { "main.script.xml": script }, compilerVersion: "dev" });
+  engine.start("main.script.xml");
+  const anyEngine = engine as any;
+
+  const resumeFrame = {
+    frameId: 11,
+    groupId: script.rootGroupId,
+    nodeIndex: 1,
+    scope: { x: 1 },
+    completion: "none",
+    scriptRoot: false,
+    returnContinuation: null,
+    varTypes: null,
+  };
+  const calleeFrame = {
+    frameId: 22,
+    groupId: script.rootGroupId,
+    nodeIndex: 0,
+    scope: { v: 8 },
+    completion: "none",
+    scriptRoot: true,
+    returnContinuation: { resumeFrameId: 11, nextNodeIndex: 7, refBindings: { v: "x" } },
+    varTypes: null,
+  };
+
+  anyEngine.frames = [resumeFrame, calleeFrame];
+  anyEngine.finishFrame(calleeFrame);
+  assert.equal(anyEngine.frames.length, 1);
+  assert.equal(anyEngine.frames[0].scope.x, 8);
+  assert.equal(anyEngine.frames[0].nodeIndex, 7);
+
+  anyEngine.frames = [
+    {
+      ...calleeFrame,
+      returnContinuation: { resumeFrameId: 999, nextNodeIndex: 0, refBindings: {} },
+    },
+  ];
+  anyEngine.ended = false;
+  anyEngine.finishFrame(anyEngine.frames[0]);
+  assert.equal(anyEngine.ended, true);
+  assert.deepEqual(anyEngine.frames, []);
+
+  engine.start("main.script.xml");
+  anyEngine.executeReturn(null);
+  assert.equal(anyEngine.ended, true);
+  assert.deepEqual(anyEngine.frames, []);
+
+  engine.start("main.script.xml");
+  anyEngine.frames[0].returnContinuation = { resumeFrameId: 999, nextNodeIndex: 0, refBindings: {} };
+  anyEngine.executeReturn(null);
+  assert.equal(anyEngine.ended, true);
+  assert.deepEqual(anyEngine.frames, []);
+});
+
+test("engine variable helpers cover type, path, and extra-scope branches", () => {
+  const script = compile(
+    "state.script.xml",
+    `<vars>
+      <var name="num" type="number" value="1"/>
+      <var name="bag" type="Record&lt;string,Record&lt;string,number&gt;&gt;" value="({inner:{v:1}})"/>
+    </vars>
+    <step><text value="x"/></step>`
+  );
+  const engine = new ScriptLangEngine({ scripts: { "state.script.xml": script }, compilerVersion: "dev" });
+  engine.start("state.script.xml");
+  const anyEngine = engine as any;
+
+  const arrayType = { kind: "array", elementType: { kind: "primitive", name: "number" } } as const;
+  const recordType = { kind: "record", valueType: { kind: "primitive", name: "number" } } as const;
+  expectCode(() => anyEngine.assertType("num", { kind: "primitive", name: "number" }, undefined), "ENGINE_TYPE_MISMATCH");
+  anyEngine.assertType("arr", arrayType, [1]);
+  anyEngine.assertType("rec", recordType, { a: 1 });
+
+  assert.equal(anyEngine.readPath("bag.inner.v"), 1);
+  expectCode(() => anyEngine.readPath("bag.missing"), "ENGINE_REF_PATH_READ");
+  anyEngine.writePath("bag.inner.v", 3);
+  assert.equal(anyEngine.readPath("bag.inner.v"), 3);
+  expectCode(() => anyEngine.writePath("bag.inner.v.k", 1), "ENGINE_REF_PATH_WRITE");
+
+  const extraRead = [{ local: 5 }];
+  assert.equal(anyEngine.readVariable("local", extraRead), 5);
+  assert.equal(anyEngine.readVariable("num", [{ ghost: 1 }]), 1);
+  const extraWrite = [{ local: 1 }];
+  anyEngine.writeVariable("local", 9, extraWrite);
+  assert.equal(extraWrite[0].local, 9);
+  anyEngine.writeVariable("num", 4, [{ ghost: 1 }]);
+  assert.equal(anyEngine.readVariable("num"), 4);
+
+  const scopedNoTypeFrame = {
+    frameId: 1000,
+    groupId: script.rootGroupId,
+    nodeIndex: 0,
+    scope: { temp: 1 },
+    completion: "none",
+    scriptRoot: false,
+    returnContinuation: null,
+    varTypes: null,
+  };
+  anyEngine.frames.push(scopedNoTypeFrame);
+  anyEngine.writeVariable("temp", 2);
+  assert.equal(scopedNoTypeFrame.scope.temp, 2);
+  const rootIdx = anyEngine.findCurrentRootFrameIndex();
+  assert.equal(rootIdx >= 0, true);
+  anyEngine.frames.pop();
+
+  expectCode(
+    () => anyEngine.createScriptRootScope("state.script.xml", { num: undefined }),
+    "ENGINE_CALL_ARG_UNDEFINED"
+  );
+  const withArgs = anyEngine.createScriptRootScope("state.script.xml", { num: 9 });
+  assert.equal((withArgs.scope as Record<string, unknown>).num, 9);
+});
+
+test("resume covers conditional option filters and frameCounter fallback branch", () => {
+  const script = compileScript(
+    `
+<script name="resume-branches.script.xml">
+  <vars/>
+  <step>
+    <if when="true">
+      <choice>
+        <option text="A" when="true"><text value="A"/></option>
+        <option text="B"><text value="B"/></option>
+      </choice>
+    </if>
+  </step>
+</script>
+`,
+    "resume-branches.script.xml"
+  );
+  const engine = new ScriptLangEngine({
+    scripts: { "resume-branches.script.xml": script },
+    compilerVersion: "dev",
+  });
+  engine.start("resume-branches.script.xml");
+  const choices = engine.next();
+  assert.equal(choices.kind, "choices");
+  const snap = engine.snapshot();
+  assert.equal(snap.runtimeFrames.length >= 2, true);
+
+  const mutated = {
+    ...snap,
+    runtimeFrames: snap.runtimeFrames.map((frame, i) => ({
+      ...frame,
+      frameId: i === 0 ? 200 : 100,
+    })),
+  };
+  const resumed = new ScriptLangEngine({
+    scripts: { "resume-branches.script.xml": script },
+    compilerVersion: "dev",
+  });
+  resumed.resume(mutated);
+  assert.equal(resumed.waitingChoice, true);
 });

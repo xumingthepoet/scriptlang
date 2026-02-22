@@ -13,9 +13,13 @@ export interface CreateEngineFromXmlOptions {
 export const compileScriptsFromXmlMap = (
   scriptsXml: Record<string, string>
 ) => {
-  return Object.fromEntries(
-    Object.entries(scriptsXml).map(([scriptPath, xml]) => [scriptPath, compileScript(xml, scriptPath)])
-  );
+  const compiled: Record<string, ReturnType<typeof compileScript>> = {};
+  const scriptPaths = Object.keys(scriptsXml);
+  for (let i = 0; i < scriptPaths.length; i += 1) {
+    const scriptPath = scriptPaths[i];
+    compiled[scriptPath] = compileScript(scriptsXml[scriptPath], scriptPath);
+  }
+  return compiled;
 };
 
 export const createEngineFromXml = (options: CreateEngineFromXmlOptions): ScriptLangEngine => {
@@ -49,4 +53,3 @@ export const resumeEngineFromXml = (options: ResumeEngineFromXmlOptions): Script
   engine.resume(options.snapshot);
   return engine;
 };
-

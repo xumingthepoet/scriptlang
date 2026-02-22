@@ -1,6 +1,6 @@
 # Test and Coverage Workflow
 
-This repository uses a strict pre-test quality gate.
+This repository uses Vitest and a strict pre-test quality gate.
 
 ## Mandatory Flow
 
@@ -8,15 +8,16 @@ This repository uses a strict pre-test quality gate.
 2. `pretest` runs automatically before tests:
    - `npm run validate:docs`
    - `npm run typecheck`
-   - `npm run coverage:strict`
+   - `npm run coverage:strict` (`vitest run --coverage`)
 3. Only if all gates pass does `test` continue.
 
 ## Coverage Rule
 
 - Coverage thresholds are fixed at 100% for:
   - lines
+  - branches
   - functions
-- Branch coverage is reported and monitored, but not hard-failed at 100% due transpiler-generated synthetic branches in compiled output.
+  - statements
 - Scope: `src/**/*.ts`
 
 If coverage is below 100%:
