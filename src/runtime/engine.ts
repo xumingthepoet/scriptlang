@@ -8,6 +8,7 @@ import type {
   EngineOutput,
   ScriptIR,
   ScriptNode,
+  ScriptType,
   SnapshotFrameV1,
   SnapshotV1,
   VarDeclaration,
@@ -25,6 +26,7 @@ interface RuntimeFrame {
   completion: CompletionKind;
   scriptRoot: boolean;
   returnContinuation: ContinuationFrame | null;
+  varTypes: Record<string, ScriptType> | null;
 }
 
 interface GroupLookup {
@@ -57,6 +59,36 @@ const parseRefPath = (path: string): string[] => {
     .split(".")
     .map((part) => part.trim())
     .filter(Boolean);
+};
+
+const isTypeCompatible = (value: unknown, type: ScriptType): boolean => {
+  if (value === undefined) {
+    return false;
+  }
+  if (type.kind === "primitive") {
+    if (type.name === "null") return value === null;
+    return typeof value === type.name;
+  }
+  if (type.kind === "array") {
+    return Array.isArray(value) && value.every((item) => isTypeCompatible(item, type.elementType));
+  }
+  if (type.kind === "record") {
+    if (!value || typeof value !== "object" || Array.isArray(value) || value instanceof Map) {
+      return false;
+    }
+    return Object.values(value as Record<string, unknown>).every((v) =>
+      isTypeCompatible(v, type.valueType)
+    );
+  }
+  if (!(value instanceof Map)) {
+    return false;
+  }
+  for (const [key, mapValue] of value.entries()) {
+    if (typeof key !== "string" || !isTypeCompatible(mapValue, type.valueType)) {
+      return false;
+    }
+  }
+  return true;
 };
 
 export interface ScriptLangEngineOptions {
@@ -106,7 +138,7 @@ export class ScriptLangEngine {
         `Entry script "${entryScriptPath}" is not registered.`
       );
     }
-    const rootScope = this.createScriptRootScope(entryScriptPath, {});
+    const { scope: rootScope, varTypes } = this.createScriptRootScope(entryScriptPath, {});
     this.frames.push({
       frameId: this.frameCounter++,
       groupId: entry.rootGroupId,
@@ -115,6 +147,7 @@ export class ScriptLangEngine {
       completion: "none",
       scriptRoot: true,
       returnContinuation: null,
+      varTypes,
     });
   }
 
@@ -307,6 +340,9 @@ export class ScriptLangEngine {
         completion: frame.completion.kind,
         scriptRoot: frame.scriptRoot,
         returnContinuation: frame.returnContinuation ? deepClone(frame.returnContinuation) : null,
+        varTypes: frame.scriptRoot
+          ? this.buildVarTypeMap(this.groupLookup[frame.groupId].scriptPath)
+          : null,
       };
     });
     this.selectedChoices = new Set(snapshot.selectedChoices);
@@ -362,6 +398,7 @@ export class ScriptLangEngine {
       completion,
       scriptRoot: false,
       returnContinuation: null,
+      varTypes: null,
     });
   }
 
@@ -432,7 +469,10 @@ export class ScriptLangEngine {
     if (isTailAtRoot) {
       const inherited = caller.returnContinuation;
       this.frames.pop();
-      const rootScope = this.createScriptRootScope(node.targetScript, argValues);
+      const { scope: rootScope, varTypes } = this.createScriptRootScope(
+        node.targetScript,
+        argValues
+      );
       this.frames.push({
         frameId: this.frameCounter++,
         groupId: targetScript.rootGroupId,
@@ -441,6 +481,7 @@ export class ScriptLangEngine {
         completion: "none",
         scriptRoot: true,
         returnContinuation: inherited,
+        varTypes,
       });
       return;
     }
@@ -450,7 +491,7 @@ export class ScriptLangEngine {
       nextNodeIndex: caller.nodeIndex + 1,
       refBindings,
     };
-    const rootScope = this.createScriptRootScope(node.targetScript, argValues);
+    const { scope: rootScope, varTypes } = this.createScriptRootScope(node.targetScript, argValues);
     this.frames.push({
       frameId: this.frameCounter++,
       groupId: targetScript.rootGroupId,
@@ -459,6 +500,7 @@ export class ScriptLangEngine {
       completion: "none",
       scriptRoot: true,
       returnContinuation: continuation,
+      varTypes,
     });
   }
 
@@ -476,7 +518,7 @@ export class ScriptLangEngine {
           `Return target script "${targetScript}" is not registered.`
         );
       }
-      const rootScope = this.createScriptRootScope(targetScript, {});
+      const { scope: rootScope, varTypes } = this.createScriptRootScope(targetScript, {});
       this.frames.push({
         frameId: this.frameCounter++,
         groupId: script.rootGroupId,
@@ -485,6 +527,7 @@ export class ScriptLangEngine {
         completion: "none",
         scriptRoot: true,
         returnContinuation: inherited,
+        varTypes,
       });
       return;
     }
@@ -516,15 +559,33 @@ export class ScriptLangEngine {
     throw new ScriptLangError("ENGINE_ROOT_FRAME", "No script root frame found.");
   }
 
+  private buildVarTypeMap(scriptPath: string): Record<string, ScriptType> {
+    const script = this.scripts[scriptPath];
+    if (!script) {
+      throw new ScriptLangError("ENGINE_SCRIPT_NOT_FOUND", `Script "${scriptPath}" is not registered.`);
+    }
+    return Object.fromEntries(script.vars.map((decl) => [decl.name, decl.type]));
+  }
+
+  private assertType(name: string, type: ScriptType, value: unknown): void {
+    if (!isTypeCompatible(value, type)) {
+      throw new ScriptLangError(
+        "ENGINE_TYPE_MISMATCH",
+        `Variable "${name}" does not match declared type.`
+      );
+    }
+  }
+
   private createScriptRootScope(
     scriptPath: string,
     argValues: Record<string, unknown>
-  ): Record<string, unknown> {
+  ): { scope: Record<string, unknown>; varTypes: Record<string, ScriptType> } {
     const script = this.scripts[scriptPath];
     if (!script) {
       throw new ScriptLangError("ENGINE_SCRIPT_NOT_FOUND", `Script "${scriptPath}" is not registered.`);
     }
     const scope: Record<string, unknown> = {};
+    const varTypes = this.buildVarTypeMap(scriptPath);
 
     for (const decl of script.vars) {
       let value = defaultValueFromVar(decl);
@@ -537,6 +598,7 @@ export class ScriptLangEngine {
           `Initial value for "${decl.name}" cannot be undefined.`
         );
       }
+      this.assertType(decl.name, decl.type, value);
       scope[decl.name] = value;
     }
 
@@ -553,9 +615,10 @@ export class ScriptLangEngine {
           `Call argument "${name}" cannot be undefined.`
         );
       }
+      this.assertType(name, varTypes[name], value);
       scope[name] = value;
     }
-    return scope;
+    return { scope, varTypes };
   }
 
   private renderText(template: string): string {
@@ -712,6 +775,10 @@ export class ScriptLangEngine {
     }
     for (let i = this.frames.length - 1; i >= 0; i -= 1) {
       if (name in this.frames[i].scope) {
+        const type = this.frames[i].varTypes?.[name];
+        if (type) {
+          this.assertType(name, type, value);
+        }
         this.frames[i].scope[name] = value;
         return;
       }
@@ -722,4 +789,3 @@ export class ScriptLangEngine {
     );
   }
 }
-

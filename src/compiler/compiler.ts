@@ -101,6 +101,7 @@ const parseVars = (varsNode: XmlElementNode | null): VarDeclaration[] => {
     );
   }
   const vars: VarDeclaration[] = [];
+  const names = new Set<string>();
   for (const node of asElements(varsNode.children)) {
     if (node.name !== "var") {
       throw new ScriptLangError(
@@ -110,6 +111,14 @@ const parseVars = (varsNode: XmlElementNode | null): VarDeclaration[] => {
       );
     }
     const name = getAttr(node, "name", true) as string;
+    if (names.has(name)) {
+      throw new ScriptLangError(
+        "XML_DUPLICATE_VAR",
+        `Variable "${name}" is declared more than once in <vars>.`,
+        node.location
+      );
+    }
+    names.add(name);
     const typeSource = getAttr(node, "type", true) as string;
     const initialValueExpr = getAttr(node, "value", false);
     vars.push({

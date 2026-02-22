@@ -169,3 +169,25 @@ test("snapshot is rejected when not waiting choice", () => {
   engine.start("main.script.xml");
   assert.throws(() => engine.snapshot());
 });
+
+test("type mismatch in code node fails fast", () => {
+  const main = compileScript(
+    `
+<script name="main.script.xml">
+  <vars>
+    <var name="hp" type="number" value="1"/>
+  </vars>
+  <step>
+    <code>hp = "bad";</code>
+  </step>
+</script>
+`,
+    "main.script.xml"
+  );
+  const engine = new ScriptLangEngine({
+    scripts: { "main.script.xml": main },
+    compilerVersion: "dev",
+  });
+  engine.start("main.script.xml");
+  assert.throws(() => engine.next());
+});

@@ -57,3 +57,16 @@ test("reject removed mutation nodes", () => {
     }
   );
 });
+
+test("reject duplicate var declarations", () => {
+  const xml = `
+<script>
+  <vars>
+    <var name="hp" type="number" value="1"/>
+    <var name="hp" type="number" value="2"/>
+  </vars>
+  <step />
+</script>
+`;
+  assert.throws(() => compileScript(xml, "dup.script.xml"));
+});
