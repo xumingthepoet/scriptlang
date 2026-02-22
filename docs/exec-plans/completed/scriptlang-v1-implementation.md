@@ -47,4 +47,4 @@
 - [x] Product spec updated with final syntax examples
 - [x] Runtime APIs implemented with tests
 - [x] Snapshot schema documented and validated
-- [ ] Plan moved to `/docs/exec-plans/completed/`
+- [x] Plan moved to `/docs/exec-plans/completed/`

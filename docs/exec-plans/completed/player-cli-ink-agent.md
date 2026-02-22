@@ -72,5 +72,5 @@
 ## Done Criteria
 - [x] Specs updated
 - [x] Architecture docs still valid
-- [ ] Tests added/updated and passing
-- [ ] Plan moved to completed
+- [x] Tests added/updated and passing
+- [x] Plan moved to completed

@@ -63,4 +63,4 @@
 - [x] Specs updated
 - [x] Architecture docs still valid
 - [x] Tests added/updated and passing
-- [ ] Plan moved to completed
+- [x] Plan moved to completed
