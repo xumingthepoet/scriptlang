@@ -43,4 +43,4 @@
 ## Done Criteria
 - [x] Specs updated
 - [x] Tests added/updated and passing
-- [ ] Plan moved to completed
+- [x] Plan moved to completed
