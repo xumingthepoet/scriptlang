@@ -4,3 +4,4 @@ export * from "./core/errors";
 export * from "./core/types";
 export * from "./compiler";
 export * from "./runtime";
+export * from "./api";
