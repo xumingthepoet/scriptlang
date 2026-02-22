@@ -50,6 +50,12 @@ Play the complex battle demo:
 npm run player:tui -- --example 07-battle-duel
 ```
 
+Play scripts from an external directory (entry is always `<script name="main">`):
+
+```bash
+npm run player:tui -- --scripts-dir /absolute/path/to/scripts
+```
+
 List available examples in agent mode:
 
 ```bash
@@ -61,6 +67,12 @@ Run to boundary and persist state for agent orchestration:
 ```bash
 npm run player:agent -- start --example 06-snapshot-flow --state-out /tmp/sl-state.bin
 npm run player:agent -- choose --state-in /tmp/sl-state.bin --choice 0 --state-out /tmp/sl-next.bin
+```
+
+Agent mode can also start from an external scripts directory:
+
+```bash
+npm run player:agent -- start --scripts-dir /absolute/path/to/scripts --state-out /tmp/sl-state.bin
 ```
 
 ## Quick Start

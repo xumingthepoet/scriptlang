@@ -33,7 +33,7 @@ Both modes run the same ScriptLang engine semantics.
 Command:
 
 ```bash
-scriptlang-player tui --example <id> [--state-file <path>]
+scriptlang-player tui (--example <id> | --scripts-dir <path>) [--state-file <path>]
 ```
 
 Behavior:
@@ -60,6 +60,7 @@ State handling:
 
 - Default state file: `./.scriptlang/save.bin`.
 - Save is only valid while waiting for a choice (snapshot constraint).
+- For `--scripts-dir`, entry script is fixed to `<script name="main">`.
 
 ## 4. Agent Mode
 
@@ -67,7 +68,7 @@ Commands:
 
 ```bash
 scriptlang-player agent list
-scriptlang-player agent start --example <id> --state-out <path>
+scriptlang-player agent start (--example <id> | --scripts-dir <path>) --state-out <path>
 scriptlang-player agent choose --state-in <path> --choice <index> --state-out <path>
 ```
 
@@ -85,6 +86,10 @@ Output protocol (stdout, line-based):
 Rules:
 
 - `start` runs from scenario entry until boundary (`choices` or `end`).
+- `start` requires exactly one source selector:
+  - bundled example: `--example <id>`
+  - external scripts directory: `--scripts-dir <path>`
+- for `--scripts-dir`, entry script is fixed to script name `main`.
 - `choose` resumes from `--state-in`, applies selection, then runs to next boundary.
 - `state` is persisted only when output boundary is `CHOICES`.
 - if boundary is `END`, output must be `STATE_OUT:NONE`.
@@ -93,6 +98,7 @@ Rules:
 
 - Bad arguments return `RESULT:ERROR`.
 - Unknown example id returns `RESULT:ERROR`.
+- Invalid scripts directory or missing `main` entry script returns `RESULT:ERROR`.
 - Invalid choice index returns `RESULT:ERROR`.
 - Corrupt/missing state file returns `RESULT:ERROR`.
 

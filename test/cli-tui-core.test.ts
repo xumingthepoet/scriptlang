@@ -16,6 +16,9 @@ import {
   getScenarioScriptsRoot,
   listScenarios,
   loadScenarioById,
+  loadScenarioByRef,
+  loadScenarioByScriptsDir,
+  makeExternalScenarioId,
 } from "../src/cli/core/scenario-registry.js";
 import {
   PLAYER_STATE_SCHEMA,
@@ -76,6 +79,47 @@ test("scenario root detection failure path", () => {
   } finally {
     existsSpy.mockRestore();
   }
+});
+
+test("external scripts-dir loading and ref resolution", () => {
+  const externalDir = path.resolve("examples", "scripts", "06-snapshot-flow");
+  const loaded = loadScenarioByScriptsDir(externalDir);
+  assert.equal(loaded.entryScript, "main");
+  assert.equal(loaded.id, makeExternalScenarioId(path.resolve(externalDir)));
+  assert.ok(loaded.scriptsXml["main.script.xml"].includes("<choice>"));
+
+  const viaRef = loadScenarioByRef(loaded.id);
+  assert.equal(viaRef.id, loaded.id);
+  assert.equal(viaRef.entryScript, "main");
+
+  const exampleViaRef = loadScenarioByRef("01-text-code");
+  assert.equal(exampleViaRef.id, "01-text-code");
+});
+
+test("external scripts-dir error paths", () => {
+  const missingDir = path.join(os.tmpdir(), `scriptlang-missing-${Date.now()}`);
+  assert.throws(() => loadScenarioByScriptsDir(missingDir), (error: unknown) => {
+    assert.equal((error as { code?: string }).code, "CLI_SCRIPTS_DIR_NOT_FOUND");
+    return true;
+  });
+
+  const filePath = path.join(os.tmpdir(), `scriptlang-file-${Date.now()}.txt`);
+  fs.writeFileSync(filePath, "x");
+  assert.throws(() => loadScenarioByScriptsDir(filePath), (error: unknown) => {
+    assert.equal((error as { code?: string }).code, "CLI_SCRIPTS_DIR_NOT_FOUND");
+    return true;
+  });
+
+  const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), "scriptlang-empty-scripts-"));
+  assert.throws(() => loadScenarioByScriptsDir(emptyDir), (error: unknown) => {
+    assert.equal((error as { code?: string }).code, "CLI_SCRIPTS_DIR_EMPTY");
+    return true;
+  });
+
+  assert.throws(() => loadScenarioByRef("scripts-dir:"), (error: unknown) => {
+    assert.equal((error as { code?: string }).code, "CLI_STATE_INVALID");
+    return true;
+  });
 });
 
 test("engine runner start choose and resume flows", () => {

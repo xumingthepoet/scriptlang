@@ -5,7 +5,12 @@ import {
   resumeScenario,
   startScenario,
 } from "../core/engine-runner.js";
-import { loadScenarioById, listScenarios } from "../core/scenario-registry.js";
+import {
+  loadScenarioById,
+  loadScenarioByRef,
+  loadScenarioByScriptsDir,
+  listScenarios,
+} from "../core/scenario-registry.js";
 import { createPlayerState, loadPlayerState, savePlayerState } from "../core/state-store.js";
 
 type WriteLine = (line: string) => void;
@@ -43,18 +48,43 @@ const getRequiredFlag = (flags: Record<string, string>, name: string): string =>
 };
 
 const emitError = (writeLine: WriteLine, error: unknown): number => {
-  const code =
+  let code =
     error instanceof ScriptLangError
       ? error.code
       : typeof error === "object" && error !== null && "code" in error
         ? String((error as { code: unknown }).code)
         : "CLI_ERROR";
   const message = error instanceof Error ? error.message : "Unknown CLI error.";
+  if (
+    code === "ENGINE_SCRIPT_NOT_FOUND" &&
+    typeof message === "string" &&
+    message.includes('Entry script "main"')
+  ) {
+    code = "CLI_ENTRY_MAIN_NOT_FOUND";
+  }
 
   writeLine("RESULT:ERROR");
   writeLine(`ERROR_CODE:${code}`);
   writeLine(`ERROR_MSG_JSON:${JSON.stringify(message)}`);
   return 1;
+};
+
+const resolveStartScenario = (flags: Record<string, string>) => {
+  const example = flags.example ?? "";
+  const scriptsDir = flags["scripts-dir"] ?? "";
+  if (example && scriptsDir) {
+    throw makeCliError(
+      "CLI_SOURCE_CONFLICT",
+      "Use exactly one source selector: --example <id> or --scripts-dir <path>."
+    );
+  }
+  if (!example && !scriptsDir) {
+    throw makeCliError(
+      "CLI_SOURCE_REQUIRED",
+      "Missing source selector. Use --example <id> or --scripts-dir <path>."
+    );
+  }
+  return example ? loadScenarioById(example) : loadScenarioByScriptsDir(scriptsDir);
 };
 
 const emitBoundary = (
@@ -91,10 +121,9 @@ const runList = (writeLine: WriteLine): number => {
 
 const runStart = (args: string[], writeLine: WriteLine): number => {
   const flags = parseFlags(args);
-  const example = getRequiredFlag(flags, "example");
   const stateOut = getRequiredFlag(flags, "state-out");
 
-  const scenario = loadScenarioById(example);
+  const scenario = resolveStartScenario(flags);
   const { engine, boundary } = startScenario(scenario, PLAYER_COMPILER_VERSION);
 
   if (boundary.event === "CHOICES") {
@@ -117,7 +146,7 @@ const runChoose = (args: string[], writeLine: WriteLine): number => {
   }
 
   const state = loadPlayerState(stateIn);
-  const scenario = loadScenarioById(state.scenarioId);
+  const scenario = loadScenarioByRef(state.scenarioId);
   const resumed = resumeScenario(scenario, state.snapshot, state.compilerVersion);
   const boundary = chooseAndContinue(resumed.engine, choice);
 

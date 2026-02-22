@@ -8,19 +8,25 @@ import {
   startScenario,
   type BoundaryResult,
 } from "../core/engine-runner.js";
-import { loadScenarioById, type LoadedScenario } from "../core/scenario-registry.js";
+import {
+  loadScenarioById,
+  loadScenarioByScriptsDir,
+  type LoadedScenario,
+} from "../core/scenario-registry.js";
 import { createPlayerState, loadPlayerState, savePlayerState } from "../core/state-store.js";
 
 export const DEFAULT_STATE_FILE = "./.scriptlang/save.bin";
 
 export interface TuiOptions {
-  example: string;
+  example: string | null;
+  scriptsDir: string | null;
   stateFile: string;
 }
 
 export const parseTuiArgs = (argv: string[]): TuiOptions => {
   const options: TuiOptions = {
-    example: "",
+    example: null,
+    scriptsDir: null,
     stateFile: DEFAULT_STATE_FILE,
   };
 
@@ -28,6 +34,11 @@ export const parseTuiArgs = (argv: string[]): TuiOptions => {
     const token = argv[i];
     if (token === "--example") {
       options.example = argv[i + 1] ?? "";
+      i += 1;
+      continue;
+    }
+    if (token === "--scripts-dir") {
+      options.scriptsDir = argv[i + 1] ?? "";
       i += 1;
       continue;
     }
@@ -39,8 +50,11 @@ export const parseTuiArgs = (argv: string[]): TuiOptions => {
     throw new Error(`Unknown argument for tui mode: ${token}`);
   }
 
-  if (!options.example) {
-    throw new Error("Missing required --example argument for tui mode.");
+  if (options.example && options.scriptsDir) {
+    throw new Error("Use exactly one source selector: --example <id> or --scripts-dir <path>.");
+  }
+  if (!options.example && !options.scriptsDir) {
+    throw new Error("Missing source selector. Use --example <id> or --scripts-dir <path>.");
   }
   if (!options.stateFile) {
     throw new Error("--state-file cannot be empty.");
@@ -175,7 +189,9 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
 export const runTuiCommand = async (argv: string[]): Promise<number> => {
   try {
     const options = parseTuiArgs(argv);
-    const scenario = loadScenarioById(options.example);
+    const scenario = options.example
+      ? loadScenarioById(options.example)
+      : loadScenarioByScriptsDir(options.scriptsDir as string);
     const app = render(<PlayerApp scenario={scenario} stateFile={options.stateFile} />);
     await app.waitUntilExit();
     return 0;

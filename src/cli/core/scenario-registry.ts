@@ -47,6 +47,8 @@ const SCENARIOS = [
   },
 ] as const;
 
+const EXTERNAL_SCENARIO_PREFIX = "scripts-dir:";
+
 export interface ScenarioSummary {
   id: string;
   title: string;
@@ -109,4 +111,65 @@ export const loadScenarioById = (scenarioId: string): LoadedScenario => {
     entryScript: scenario.entryScript,
     scriptsXml,
   };
+};
+
+const resolveScriptsDir = (scriptsDir: string): string => {
+  const resolved = path.resolve(scriptsDir);
+  if (!fs.existsSync(resolved)) {
+    throw makeCliError("CLI_SCRIPTS_DIR_NOT_FOUND", `Scripts directory does not exist: ${resolved}`);
+  }
+  const stat = fs.statSync(resolved);
+  if (!stat.isDirectory()) {
+    throw makeCliError("CLI_SCRIPTS_DIR_NOT_FOUND", `Scripts path is not a directory: ${resolved}`);
+  }
+  return resolved;
+};
+
+const readScriptsXmlFromDir = (scriptsDir: string): Record<string, string> => {
+  const files = fs
+    .readdirSync(scriptsDir)
+    .filter((file) => file.endsWith(".script.xml"))
+    .sort();
+  if (files.length === 0) {
+    throw makeCliError("CLI_SCRIPTS_DIR_EMPTY", `No .script.xml files found in: ${scriptsDir}`);
+  }
+  const scriptsXml: Record<string, string> = {};
+  for (let i = 0; i < files.length; i += 1) {
+    const file = files[i];
+    const fullPath = path.join(scriptsDir, file);
+    scriptsXml[file] = fs.readFileSync(fullPath, "utf8");
+  }
+  return scriptsXml;
+};
+
+export const makeExternalScenarioId = (scriptsDir: string): string =>
+  `${EXTERNAL_SCENARIO_PREFIX}${scriptsDir}`;
+
+const parseExternalScenarioId = (scenarioId: string): string | null => {
+  if (!scenarioId.startsWith(EXTERNAL_SCENARIO_PREFIX)) {
+    return null;
+  }
+  const scriptsDir = scenarioId.slice(EXTERNAL_SCENARIO_PREFIX.length);
+  if (scriptsDir.length === 0) {
+    throw makeCliError("CLI_STATE_INVALID", "External scenario id is missing scripts directory.");
+  }
+  return scriptsDir;
+};
+
+export const loadScenarioByScriptsDir = (scriptsDir: string): LoadedScenario => {
+  const resolvedDir = resolveScriptsDir(scriptsDir);
+  return {
+    id: makeExternalScenarioId(resolvedDir),
+    title: `External ${path.basename(resolvedDir)}`,
+    entryScript: "main",
+    scriptsXml: readScriptsXmlFromDir(resolvedDir),
+  };
+};
+
+export const loadScenarioByRef = (scenarioRef: string): LoadedScenario => {
+  const externalDir = parseExternalScenarioId(scenarioRef);
+  if (externalDir) {
+    return loadScenarioByScriptsDir(externalDir);
+  }
+  return loadScenarioById(scenarioRef);
 };
