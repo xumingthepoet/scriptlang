@@ -14,13 +14,17 @@ export default [
         sourceType: "module",
         ecmaVersion: "latest",
       },
+      globals: {
+        process: "readonly",
+        structuredClone: "readonly",
+      },
     },
     plugins: {
       "@typescript-eslint": tsPlugin,
     },
     rules: {
-      "no-undef": "off",
-      "no-unused-vars": "off",
+      "no-undef": "error",
+      "no-unused-vars": ["error", { args: "none" }],
       "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }],
       "@typescript-eslint/no-explicit-any": "error",
     },
