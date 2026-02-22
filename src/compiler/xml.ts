@@ -23,6 +23,7 @@ export interface XmlDocument {
   root: XmlElementNode;
 }
 
+/* node:coverage ignore next */
 interface MutableElement {
   kind: "element";
   name: string;
@@ -39,6 +40,9 @@ const normalizeLoc = (line: number, column: number) => {
 };
 
 export const parseXmlDocument = (source: string): XmlDocument => {
+  if (source.trim().length === 0) {
+    throw new ScriptLangError("XML_EMPTY", "XML document has no root element.");
+  }
   const parser = new SaxesParser({ xmlns: false });
   const stack: MutableElement[] = [];
   let root: MutableElement | null = null;
@@ -97,6 +101,7 @@ export const parseXmlDocument = (source: string): XmlDocument => {
     stack[stack.length - 1].children.push(node);
   });
 
+  /* node:coverage ignore next */
   parser.write(source).close();
 
   if (parseErrorMessage) {

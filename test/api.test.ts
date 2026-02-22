@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createEngineFromXml, resumeEngineFromXml } from "../src";
+import { compileScriptsFromXmlMap, createEngineFromXml, resumeEngineFromXml } from "../src";
 
 test("createEngineFromXml and resumeEngineFromXml", () => {
   const scriptsXml = {
@@ -40,3 +40,12 @@ test("createEngineFromXml and resumeEngineFromXml", () => {
   assert.deepEqual(resumed.next(), { kind: "text", text: "HP 3" });
 });
 
+test("compileScriptsFromXmlMap returns compiled map", () => {
+  const compiled = compileScriptsFromXmlMap({
+    "a.script.xml": `<script name="a.script.xml"><vars/><step><text value="a"/></step></script>`,
+    "b.script.xml": `<script name="b.script.xml"><vars/><step><text value="b"/></step></script>`,
+  });
+  assert.equal(Object.keys(compiled).length, 2);
+  assert.ok(compiled["a.script.xml"]);
+  assert.ok(compiled["b.script.xml"]);
+});

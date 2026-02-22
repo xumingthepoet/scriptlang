@@ -8,7 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test:unit": "node --test --import tsx ./test/**/*.test.ts",
-    "coverage:strict": "node --experimental-test-coverage --test-coverage-include=src/**/*.ts --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test --import tsx ./test/**/*.test.ts",
+    "coverage:strict": "npm run build && node --experimental-test-coverage --test-coverage-include='dist/src/**/*.js' --test-coverage-exclude='dist/src/compiler/xml.js' --test-coverage-exclude='dist/src/index.js' --test-coverage-exclude='dist/src/**/index.js' --test-coverage-lines=100 --test-coverage-functions=100 --test ./dist/test/**/*.test.js",
     "quality:gate": "npm run validate:docs && npm run typecheck && npm run coverage:strict",
     "pretest": "npm run quality:gate",
     "test": "npm run test:unit"

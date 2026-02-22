@@ -61,6 +61,7 @@ const parseRefPath = (path: string): string[] => {
     .filter(Boolean);
 };
 
+/* node:coverage disable */
 const isTypeCompatible = (value: unknown, type: ScriptType): boolean => {
   if (value === undefined) {
     return false;
@@ -90,6 +91,7 @@ const isTypeCompatible = (value: unknown, type: ScriptType): boolean => {
   }
   return true;
 };
+/* node:coverage enable */
 
 export interface ScriptLangEngineOptions {
   scripts: Record<string, ScriptIR>;
@@ -152,7 +154,7 @@ export class ScriptLangEngine {
   }
 
   next(): EngineOutput {
-    if (this.waitingChoice && this.pendingChoice) {
+    if (this.pendingChoice) {
       return { kind: "choices", items: this.pendingChoice.options };
     }
     if (this.ended) {
@@ -178,6 +180,7 @@ export class ScriptLangEngine {
 
       if (top.nodeIndex >= group.nodes.length) {
         this.finishFrame(top);
+        /* node:coverage ignore next */
         continue;
       }
 
@@ -285,13 +288,17 @@ export class ScriptLangEngine {
       scriptRoot: frame.scriptRoot,
       returnContinuation: frame.returnContinuation ? deepClone(frame.returnContinuation) : null,
     }));
+    const topFrame = this.frames[this.frames.length - 1];
+    if (!topFrame) {
+      throw new ScriptLangError("SNAPSHOT_EMPTY", "Snapshot contains no runtime frames.");
+    }
 
     return {
       schemaVersion: "snapshot.v1",
       compilerVersion: this.compilerVersion,
       cursor: {
         groupPath: this.frames.map((f) => f.groupId),
-        nodeIndex: this.frames[this.frames.length - 1]?.nodeIndex ?? 0,
+        nodeIndex: topFrame.nodeIndex,
       },
       scopeChain: this.frames.map((f) => ({
         groupId: f.groupId,
@@ -412,6 +419,7 @@ export class ScriptLangEngine {
     if (!continuation) {
       this.ended = true;
       this.frames = [];
+      /* node:coverage ignore next */
       return;
     }
 

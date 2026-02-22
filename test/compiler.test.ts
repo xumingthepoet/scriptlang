@@ -70,3 +70,99 @@ test("reject duplicate var declarations", () => {
 `;
   assert.throws(() => compileScript(xml, "dup.script.xml"));
 });
+
+test("compile supports map type and script without vars", () => {
+  const mapType = compileScript(
+    `
+<script>
+  <vars>
+    <var name="m" type="Map&lt;string,number&gt;"/>
+  </vars>
+  <step>
+    <text value="ok"/>
+  </step>
+</script>
+`,
+    "map.script.xml"
+  );
+  assert.equal(mapType.vars[0].type.kind, "map");
+
+  const noVars = compileScript(
+    `
+<script>
+  <step>
+    <text value="x"/>
+  </step>
+</script>
+`,
+    "novars.script.xml"
+  );
+  assert.equal(noVars.vars.length, 0);
+
+  const arrayType = compileScript(
+    `
+<script>
+  <vars>
+    <var name="nums" type="number[]"/>
+  </vars>
+  <step />
+</script>
+`,
+    "array.script.xml"
+  );
+  assert.equal(arrayType.vars[0].type.kind, "array");
+});
+
+test("call args parser separator edge cases", () => {
+  assert.throws(
+    () =>
+      compileScript(
+        `<script><step><call script="x.script.xml" args="a:"/></step></script>`,
+        "badargs.script.xml"
+      ),
+    (e: unknown) => {
+      assert.ok(e instanceof ScriptLangError);
+      assert.equal(e.code, "CALL_ARGS_PARSE_ERROR");
+      return true;
+    }
+  );
+
+  assert.throws(
+    () =>
+      compileScript(
+        `<script><step><call script="x.script.xml" args="a: "/></step></script>`,
+        "badargs2.script.xml"
+      ),
+    (e: unknown) => {
+      assert.ok(e instanceof ScriptLangError);
+      assert.equal(e.code, "CALL_ARGS_PARSE_ERROR");
+      return true;
+    }
+  );
+
+  assert.throws(
+    () =>
+      compileScript(
+        `<script><step><call script="x.script.xml" args="&#32;:x"/></step></script>`,
+        "badargs3.script.xml"
+      ),
+    (e: unknown) => {
+      assert.ok(e instanceof ScriptLangError);
+      assert.equal(e.code, "CALL_ARGS_PARSE_ERROR");
+      return true;
+    }
+  );
+
+  assert.throws(
+    () =>
+      compileScript(
+        `<script><step><call script="x.script.xml" args="a:&#10;"/></step></script>`,
+        "badargs4.script.xml"
+      ),
+    (e: unknown) => {
+      assert.ok(e instanceof ScriptLangError);
+      assert.equal(e.code, "CALL_ARGS_PARSE_ERROR");
+      return true;
+    }
+  );
+});

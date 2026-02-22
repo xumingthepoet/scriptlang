@@ -170,6 +170,43 @@ test("snapshot is rejected when not waiting choice", () => {
   assert.throws(() => engine.snapshot());
 });
 
+test("default values for var types are initialized", () => {
+  const main = compileScript(
+    `
+<script name="defaults.script.xml">
+  <vars>
+    <var name="s" type="string"/>
+    <var name="b" type="boolean"/>
+    <var name="n" type="null"/>
+    <var name="arr" type="number[]"/>
+    <var name="rec" type="Record&lt;string,number&gt;"/>
+    <var name="m" type="Map&lt;string,number&gt;"/>
+  </vars>
+  <step>
+    <code>
+      if (s !== "") throw new Error("s");
+      if (b !== false) throw new Error("b");
+      if (n !== null) throw new Error("n");
+      if (!Array.isArray(arr) || arr.length !== 0) throw new Error("arr");
+      if (Object.keys(rec).length !== 0) throw new Error("rec");
+      if (!m || typeof m !== "object" || !("size" in m) || Number(m.size) !== 0) {
+        throw new Error("m");
+      }
+    </code>
+    <text value="ok"/>
+  </step>
+</script>
+`,
+    "defaults.script.xml"
+  );
+  const engine = new ScriptLangEngine({
+    scripts: { "defaults.script.xml": main },
+    compilerVersion: "dev",
+  });
+  engine.start("defaults.script.xml");
+  assert.deepEqual(engine.next(), { kind: "text", text: "ok" });
+});
+
 test("type mismatch in code node fails fast", () => {
   const main = compileScript(
     `
