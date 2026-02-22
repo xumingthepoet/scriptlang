@@ -27,8 +27,8 @@ This repository is initialized for **agent-first harness engineering**:
 - `npm run build`: compile TypeScript output into `dist/`.
 - `npm test`: docs validation + unit tests.
 - `npm run player:dev -- <mode> ...`: run player from source via `tsx`.
-- `npm run player:tui -- --example <id>`: run interactive Ink TUI player from build output.
-- `npm run player:agent -- <subcommand> ...`: run non-interactive agent mode from build output.
+- `npm run player:tui -- (--example <id> | --scripts-dir <path>)`: run interactive Ink TUI player from build output.
+- `npm run player:agent -- <subcommand> ...`: run non-interactive agent mode from build output (`start` supports `--example` or `--scripts-dir`).
 
 ## Script Player
 

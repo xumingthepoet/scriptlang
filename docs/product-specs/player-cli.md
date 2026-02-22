@@ -13,7 +13,9 @@ Both modes run the same ScriptLang engine semantics.
 
 ## 2. Scenario Source
 
-- Scenarios are loaded from `examples/scripts/`.
+- Source can be either:
+  - bundled scenarios from `examples/scripts/`
+  - external scripts directory via `--scripts-dir <path>` (entry is fixed to `<script name="main">`)
 - Each scenario has:
   - `id`
   - `title`
