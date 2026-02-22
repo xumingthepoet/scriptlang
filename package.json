@@ -5,7 +5,10 @@
   "main": "dist/index.js",
   "scripts": {
     "validate:docs": "node scripts/validate-docs.mjs",
-    "test": "npm run validate:docs"
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test:unit": "node --test --import tsx ./test/**/*.test.ts",
+    "test": "npm run validate:docs && npm run test:unit"
   },
   "keywords": [],
   "author": "",
