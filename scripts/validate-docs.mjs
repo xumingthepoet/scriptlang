@@ -13,6 +13,7 @@ const requiredPaths = [
   "docs/README.md",
   "docs/design-docs/core-beliefs.md",
   "docs/product-specs/index.md",
+  "docs/product-specs/syntax-manual.md",
   "docs/exec-plans/README.md",
   "docs/exec-plans/tech-debt-tracker.md",
   "docs/references/agent-first-engineering.md",

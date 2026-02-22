@@ -1,6 +1,7 @@
 # Docs Index
 
 - `/docs/product-specs/`: product behavior and language spec.
+  - `/docs/product-specs/syntax-manual.md`: ScriptLang concrete syntax manual.
 - `/docs/design-docs/`: architecture and engineering philosophy.
 - `/docs/exec-plans/`: implementation execution plans.
 - `/docs/references/`: external references used by this project.
@@ -10,4 +11,3 @@
 - `/docs/PRODUCT_SENSE.md`: user-facing product criteria.
 - `/docs/DESIGN.md`: language and UX design principles.
 - `/docs/FRONTEND.md`: if/when UI tooling is added.
-

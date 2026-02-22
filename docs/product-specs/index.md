@@ -1,5 +1,7 @@
 # Product Specs Index
 
+- [ScriptLang Syntax Manual](./syntax-manual.md)
+
 ## ScriptLang V1 Scope
 - XML-first branching narrative scripts.
 - Implicit group-based execution model.
