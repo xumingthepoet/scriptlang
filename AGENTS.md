@@ -24,6 +24,8 @@ This repository is set up for agent-first engineering of `ScriptLang`.
 ## Quality Gates
 - Run `npm run validate:docs` before commit.
 - Add/adjust tests for parser, runtime control-flow, and snapshot behavior with every behavior change.
+- `npm test` always executes a strict pretest gate (`validate:docs`, `typecheck`, and 100% coverage check) before running unit tests.
+- If coverage is below 100%, add tests until coverage is exactly 100% (lines/branches/functions), then rerun.
 - Include exact file paths in implementation notes and reviews.
 
 ## Definition of Done

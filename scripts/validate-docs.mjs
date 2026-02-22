@@ -20,6 +20,7 @@ const requiredPaths = [
   "docs/QUALITY_SCORE.md",
   "docs/RELIABILITY.md",
   "docs/SECURITY.md",
+  "docs/TEST_WORKFLOW.md",
 ];
 
 const errors = [];

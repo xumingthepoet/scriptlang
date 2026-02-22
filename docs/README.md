@@ -8,6 +8,7 @@
 - `/docs/QUALITY_SCORE.md`: quality rubric.
 - `/docs/RELIABILITY.md`: failure handling and resilience checklist.
 - `/docs/SECURITY.md`: security model and guardrails.
+- `/docs/TEST_WORKFLOW.md`: mandatory test + 100% coverage process.
 - `/docs/PRODUCT_SENSE.md`: user-facing product criteria.
 - `/docs/DESIGN.md`: language and UX design principles.
 - `/docs/FRONTEND.md`: if/when UI tooling is added.
