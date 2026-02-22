@@ -48,6 +48,70 @@ test("next/choose and snapshot/resume roundtrip", () => {
   assert.deepEqual(restored.next(), { kind: "end" });
 });
 
+test("choice options remain visible on re-entry and after resume", () => {
+  const main = compileScript(
+    `
+<script name="main">
+  <var name="round" type="number" value="0"/>
+  <while when="round &lt; 2">
+    <choice>
+      <option text="Pick A">
+        <code>round = round + 1;</code>
+        <text value="pick-\${round}"/>
+      </option>
+      <option text="Pick B">
+        <code>round = round + 1;</code>
+        <text value="skip-\${round}"/>
+      </option>
+    </choice>
+  </while>
+  <text value="done"/>
+</script>
+`,
+    "main.script.xml"
+  );
+  const engine = new ScriptLangEngine({
+    scripts: { main },
+    compilerVersion: "dev",
+  });
+  engine.start("main");
+
+  const firstChoices = engine.next();
+  assert.equal(firstChoices.kind, "choices");
+  assert.deepEqual(
+    firstChoices.items.map((item) => item.text),
+    ["Pick A", "Pick B"]
+  );
+
+  engine.choose(0);
+  assert.deepEqual(engine.next(), { kind: "text", text: "pick-1" });
+
+  const secondChoices = engine.next();
+  assert.equal(secondChoices.kind, "choices");
+  assert.deepEqual(
+    secondChoices.items.map((item) => item.text),
+    ["Pick A", "Pick B"]
+  );
+
+  const snap = engine.snapshot();
+  const restored = new ScriptLangEngine({
+    scripts: { main },
+    compilerVersion: "dev",
+  });
+  restored.resume(snap);
+  const resumedChoices = restored.next();
+  assert.equal(resumedChoices.kind, "choices");
+  assert.deepEqual(
+    resumedChoices.items.map((item) => item.text),
+    ["Pick A", "Pick B"]
+  );
+
+  restored.choose(0);
+  assert.deepEqual(restored.next(), { kind: "text", text: "pick-2" });
+  assert.deepEqual(restored.next(), { kind: "text", text: "done" });
+  assert.deepEqual(restored.next(), { kind: "end" });
+});
+
 test("call with ref writes back to caller var", () => {
   const main = compileScript(
     `
