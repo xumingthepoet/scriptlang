@@ -131,7 +131,12 @@ const parseArgs = (raw: string | null): CallArgument[] => {
     .map((part) => part.trim())
     .filter(Boolean)
     .map((part) => {
-      const [name, value] = part.split(":").map((x) => x.trim());
+      const separator = part.indexOf(":");
+      if (separator <= 0 || separator >= part.length - 1) {
+        throw new ScriptLangError("CALL_ARGS_PARSE_ERROR", `Invalid call arg segment: "${part}".`);
+      }
+      const name = part.slice(0, separator).trim();
+      const value = part.slice(separator + 1).trim();
       if (!name || !value) {
         throw new ScriptLangError("CALL_ARGS_PARSE_ERROR", `Invalid call arg segment: "${part}".`);
       }
@@ -330,4 +335,3 @@ export const compileScript = (xmlSource: string, scriptPath: string): ScriptIR =
     vars: parseVars(varsNode),
   };
 };
-

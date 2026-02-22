@@ -112,9 +112,22 @@ export interface RuntimeScopeFrame {
 }
 
 export interface ContinuationFrame {
-  groupId: string;
+  resumeFrameId: number;
   nextNodeIndex: number;
   refBindings: Record<string, string>;
+}
+
+export interface SnapshotFrameV1 {
+  frameId: number;
+  groupId: string;
+  nodeIndex: number;
+  scope: Record<string, unknown>;
+  completion:
+    | { kind: "none" }
+    | { kind: "whileBody" }
+    | { kind: "resumeAfterChild" };
+  scriptRoot: boolean;
+  returnContinuation: ContinuationFrame | null;
 }
 
 export interface SnapshotV1 {
@@ -126,6 +139,7 @@ export interface SnapshotV1 {
   };
   scopeChain: RuntimeScopeFrame[];
   continuations: ContinuationFrame[];
+  runtimeFrames: SnapshotFrameV1[];
   waitingChoice: boolean;
   pendingChoiceNodeId: string | null;
   selectedChoices: string[];
@@ -141,4 +155,3 @@ export type EngineOutput =
   | { kind: "text"; text: string }
   | { kind: "choices"; items: ChoiceItem[] }
   | { kind: "end" };
-
