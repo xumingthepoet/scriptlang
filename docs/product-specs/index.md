@@ -14,3 +14,29 @@
 4. No language-level random builtin.
 5. Host function access is explicit and whitelisted.
 
+## XML Surface (Implemented)
+- Required root: `<script>`.
+- Variable declarations in `<vars><var .../></vars>`.
+- Executable container: `<step>...</step>`.
+- Supported executable nodes:
+  - `<text value="..."/>`
+  - `<code>...</code>`
+  - `<if when="...">...</if>` with optional `<else>`.
+  - `<while when="...">...</while>`
+  - `<choice><option ...>...</option></choice>`
+  - `<call script="..." args="name:value,name2:ref:path"/>`
+  - `<return/>` and `<return script="..."/>`
+- Explicitly removed nodes: `<set>`, `<push>`, `<remove>`.
+
+## Runtime Behavior (Implemented)
+- Ink-like API:
+  - `next()` returns `text`, `choices`, or `end`.
+  - `choose(index)` consumes current pending choice.
+  - `waitingChoice` indicates whether a choice is pending.
+- Snapshot:
+  - Only allowed when `waitingChoice === true`.
+  - Resume requires same compiler version string.
+- Type behavior:
+  - Vars must be declared in `<vars>`.
+  - Runtime rejects `undefined` assignments.
+  - Runtime enforces declared types on script variables.

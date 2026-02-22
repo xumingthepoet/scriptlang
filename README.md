@@ -9,8 +9,8 @@ This repository is initialized for **agent-first harness engineering**:
 - quality is measured by repeatable checks.
 
 ## Project Status
-- Current phase: repository initialization and governance scaffolding.
-- Runtime/compiler implementation is tracked through execution plans in `/docs/exec-plans/active/`.
+- Current phase: ScriptLang V1 core compiler/runtime available.
+- Ongoing implementation tasks are tracked in `/docs/exec-plans/active/`.
 
 ## Repo Map
 - `/AGENTS.md`: required workflow for engineers and coding agents.
@@ -23,5 +23,37 @@ This repository is initialized for **agent-first harness engineering**:
 
 ## Commands
 - `npm run validate:docs`: check required docs and project scaffold integrity.
-- `npm test`: alias to docs validation for initialization phase.
+- `npm run typecheck`: run TypeScript checks.
+- `npm test`: docs validation + unit tests.
 
+## Quick Start
+
+```ts
+import { createEngineFromXml } from "script-lang";
+
+const engine = createEngineFromXml({
+  entryScript: "main.script.xml",
+  compilerVersion: "dev",
+  scriptsXml: {
+    "main.script.xml": `
+<script name="main.script.xml">
+  <vars>
+    <var name="hp" type="number" value="10"/>
+  </vars>
+  <step>
+    <text value="HP \${hp}"/>
+    <choice>
+      <option text="Heal"><code>hp = hp + 5;</code></option>
+    </choice>
+    <text value="After \${hp}"/>
+  </step>
+</script>
+`,
+  },
+});
+
+const first = engine.next(); // text
+const second = engine.next(); // choices
+engine.choose(0);
+const third = engine.next(); // text
+```

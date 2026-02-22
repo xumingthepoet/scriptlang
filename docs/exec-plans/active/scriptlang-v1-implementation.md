@@ -44,8 +44,7 @@
   - Mitigation: strict VM context and whitelist-only host bridge.
 
 ## Done Criteria
-- [ ] Product spec updated with final syntax examples
-- [ ] Runtime APIs implemented with tests
-- [ ] Snapshot schema documented and validated
+- [x] Product spec updated with final syntax examples
+- [x] Runtime APIs implemented with tests
+- [x] Snapshot schema documented and validated
 - [ ] Plan moved to `/docs/exec-plans/completed/`
-
