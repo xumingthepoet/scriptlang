@@ -6,7 +6,7 @@
 ## ScriptLang V1 Scope
 - XML-first branching narrative scripts.
 - Implicit group-based execution model.
-- Type-checked variables declared in `<vars>`.
+- Type-checked variables declared via `<script args="...">` and executable `<var .../>`.
 - `<code>` node as primary mutation and logic mechanism.
 - Ink-style pull runtime API: `next()`, `choose()`, `waitingChoice`, `snapshot()`, `resume()`.
 
@@ -19,9 +19,11 @@
 
 ## XML Surface (Implemented)
 - Required root: `<script>`.
-- Variable declarations in `<vars><var .../></vars>`.
-- Executable container: `<step>...</step>`.
+- Script ID is `name`; runtime lookup and `<call script="...">` use this ID.
+- Optional script params in `args="name:type,name2:type:ref"`.
+- Executable nodes are direct children of `<script>`.
 - Supported executable nodes:
+  - `<var name="..." type="..." value="..."/>`
   - `<text value="..."/>`
   - `<code>...</code>`
   - `<if when="...">...</if>` with optional `<else>`.
@@ -29,7 +31,7 @@
   - `<choice><option ...>...</option></choice>`
   - `<call script="..." args="name:value,name2:ref:path"/>`
   - `<return/>` and `<return script="..."/>`
-- Explicitly removed nodes: `<set>`, `<push>`, `<remove>`.
+- Explicitly removed nodes: `<vars>`, `<step>`, `<set>`, `<push>`, `<remove>`.
 
 ## Runtime Behavior (Implemented)
 - Ink-like API:
@@ -40,6 +42,7 @@
   - Only allowed when `waitingChoice === true`.
   - Resume requires same compiler version string.
 - Type behavior:
-  - Vars must be declared in `<vars>`.
+  - Script parameters come from `<script args="...">`.
+  - `<var>` scope is declaration-point to current block end.
   - Runtime rejects `undefined` assignments.
   - Runtime enforces declared types on script variables.

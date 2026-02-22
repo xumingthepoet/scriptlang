@@ -6,37 +6,37 @@ const SCENARIOS = [
   {
     id: "01-text-code",
     title: "Text and Code",
-    entryScript: "main.script.xml",
+    entryScript: "main",
     files: ["main.script.xml"],
   },
   {
     id: "02-if-while",
     title: "If and While",
-    entryScript: "main.script.xml",
+    entryScript: "main",
     files: ["main.script.xml"],
   },
   {
     id: "03-choice-once",
     title: "Choice and Once",
-    entryScript: "main.script.xml",
+    entryScript: "main",
     files: ["main.script.xml"],
   },
   {
     id: "04-call-ref-return",
     title: "Call Ref Return",
-    entryScript: "main.script.xml",
+    entryScript: "main",
     files: ["main.script.xml", "buff.script.xml"],
   },
   {
     id: "05-return-transfer",
     title: "Return Transfer",
-    entryScript: "main.script.xml",
+    entryScript: "main",
     files: ["main.script.xml", "next.script.xml"],
   },
   {
     id: "06-snapshot-flow",
     title: "Snapshot Flow",
-    entryScript: "main.script.xml",
+    entryScript: "main",
     files: ["main.script.xml"],
   },
 ] as const;

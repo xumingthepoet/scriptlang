@@ -1,6 +1,3 @@
-<script name="next.script.xml">
-  <vars/>
-  <step>
-    <text value="arrived"/>
-  </step>
+<script name="next">
+  <text value="arrived"/>
 </script>

@@ -1,10 +1,4 @@
-<script name="buff.script.xml">
-  <vars>
-    <var name="amount" type="number" value="0"/>
-    <var name="target" type="number" value="0"/>
-  </vars>
-  <step>
-    <code>target = target + amount;</code>
-    <return/>
-  </step>
+<script name="buff" args="amount:number,target:number:ref">
+  <code>target = target + amount;</code>
+  <return/>
 </script>

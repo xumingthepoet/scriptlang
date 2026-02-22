@@ -9,11 +9,20 @@ import {
   parseXmlDocument,
 } from "../src/index.js";
 
+const asV2Body = (body: string): string => {
+  let next = body;
+  next = next.replace(/<vars\s*\/>/g, "");
+  next = next.replace(/<vars>([\s\S]*?)<\/vars>/g, "$1");
+  next = next.replace(/<step\s*\/>/g, "");
+  next = next.replace(/<step>([\s\S]*?)<\/step>/g, "$1");
+  return next;
+};
+
 const compile = (path: string, body: string): ReturnType<typeof compileScript> =>
   compileScript(
     `
 <script name="${path}">
-  ${body}
+  ${asV2Body(body)}
 </script>
 `,
     path
@@ -37,11 +46,9 @@ test("api supports host function usage path", () => {
     scriptsXml: {
       "main.script.xml": `
 <script name="main.script.xml">
-  <vars><var name="hp" type="number" value="1"/></vars>
-  <step>
-    <code>hp = add(hp, 2);</code>
-    <text value="v=\${hp}"/>
-  </step>
+  <var name="hp" type="number" value="1"/>
+  <code>hp = add(hp, 2);</code>
+  <text value="v=\${hp}"/>
 </script>
 `,
     },
@@ -60,39 +67,39 @@ test("compiler validation error branches", () => {
   expectCode(
     () =>
       compileScript(
-        `<script><vars><bad/></vars><step/></script>`,
+        `<script name="a.script.xml"><vars><bad/></vars></script>`,
         "a.script.xml"
       ),
-    "XML_INVALID_VAR_NODE"
+    "XML_REMOVED_NODE"
   );
   expectCode(
     () =>
       compileScript(
-        `<script><vars><var name="hp" type="weird"/></vars><step/></script>`,
+        `<script name="a.script.xml"><var name="hp" type="weird"/></script>`,
         "a.script.xml"
       ),
     "TYPE_PARSE_ERROR"
   );
   expectCode(
-    () => compileScript(`<script><step><if/></step></script>`, "a.script.xml"),
+    () => compileScript(`<script name="a.script.xml"><if/></script>`, "a.script.xml"),
     "XML_MISSING_ATTR"
   );
   expectCode(
     () =>
       compileScript(
-        `<script><step><choice><bad/></choice></step></script>`,
+        `<script name="a.script.xml"><choice><bad/></choice></script>`,
         "a.script.xml"
       ),
     "XML_CHOICE_OPTION_INVALID"
   );
   expectCode(
-    () => compileScript(`<script><step><unknown/></step></script>`, "a.script.xml"),
+    () => compileScript(`<script name="a.script.xml"><unknown/></script>`, "a.script.xml"),
     "XML_UNKNOWN_NODE"
   );
   expectCode(
     () =>
       compileScript(
-        `<script><step><call script="x" args="bad"/></step></script>`,
+        `<script name="a.script.xml"><call script="x" args="bad"/></script>`,
         "a.script.xml"
       ),
     "CALL_ARGS_PARSE_ERROR"
@@ -214,15 +221,13 @@ test("snapshot empty-frame defensive branch", () => {
 test("resume handles nested runtime frames", () => {
   const s = compileScript(
     `
-<script>
-  <vars><var name="x" type="number" value="1"/></vars>
-  <step>
-    <if when="true">
-      <choice>
-        <option text="ok"><text value="done"/></option>
-      </choice>
-    </if>
-  </step>
+<script name="nested.script.xml">
+  <var name="x" type="number" value="1"/>
+  <if when="true">
+    <choice>
+      <option text="ok"><text value="done"/></option>
+    </choice>
+  </if>
 </script>
 `,
     "nested.script.xml"
@@ -253,6 +258,42 @@ test("call and return error branches", () => {
   const e2 = new ScriptLangEngine({ scripts: { "ret.script.xml": badReturn }, compilerVersion: "dev" });
   e2.start("ret.script.xml");
   expectCode(() => e2.next(), "ENGINE_RETURN_TARGET");
+
+  const refTarget = compileScript(
+    `<script name="ref-target.script.xml" args="x:number:ref"><return/></script>`,
+    "ref-target.script.xml"
+  );
+  const refCaller = compile(
+    "ref-caller.script.xml",
+    `<vars><var name="hp" type="number" value="1"/></vars><step><call script="ref-target.script.xml" args="x:1"/></step>`
+  );
+  const e3 = new ScriptLangEngine({
+    scripts: {
+      "ref-caller.script.xml": refCaller,
+      "ref-target.script.xml": refTarget,
+    },
+    compilerVersion: "dev",
+  });
+  e3.start("ref-caller.script.xml");
+  expectCode(() => e3.next(), "ENGINE_CALL_REF_MISMATCH");
+
+  const valueTarget = compileScript(
+    `<script name="value-target.script.xml" args="x:number"><return/></script>`,
+    "value-target.script.xml"
+  );
+  const valueCaller = compile(
+    "value-caller.script.xml",
+    `<vars><var name="hp" type="number" value="1"/></vars><step><call script="value-target.script.xml" args="x:ref:hp"/></step>`
+  );
+  const e4 = new ScriptLangEngine({
+    scripts: {
+      "value-caller.script.xml": valueCaller,
+      "value-target.script.xml": valueTarget,
+    },
+    compilerVersion: "dev",
+  });
+  e4.start("value-caller.script.xml");
+  expectCode(() => e4.next(), "ENGINE_CALL_REF_MISMATCH");
 });
 
 test("return script valid path", () => {
@@ -271,7 +312,10 @@ test("tail call with ref unsupported branch", () => {
     "root.script.xml",
     `<vars><var name="hp" type="number" value="1"/></vars><step><call script="child.script.xml" args="hp:ref:hp"/></step>`
   );
-  const child = compile("child.script.xml", `<vars><var name="hp" type="number" value="0"/></vars><step><return/></step>`);
+  const child = compileScript(
+    `<script name="child.script.xml" args="hp:number:ref"><return/></script>`,
+    "child.script.xml"
+  );
   const parent = compile("parent.script.xml", `<vars/><step><call script="root.script.xml"/><text value="x"/></step>`);
   const engine = new ScriptLangEngine({
     scripts: { "root.script.xml": root, "child.script.xml": child, "parent.script.xml": parent },
@@ -303,6 +347,7 @@ test("group and variable path error branches", () => {
   const s = compile("main.script.xml", `<vars><var name="hp" type="number" value="1"/></vars><step><text value="x"/></step>`);
   const engine = new ScriptLangEngine({ scripts: { "main.script.xml": s }, compilerVersion: "dev" });
   engine.start("main.script.xml");
+  engine.next();
   const anyEngine = engine as any;
 
   expectCode(() => anyEngine.pushGroupFrame("ghost", "none"), "ENGINE_GROUP_NOT_FOUND");
@@ -325,7 +370,7 @@ test("boolean, type map, and arg validation error branches", () => {
   expectCode(() => engine.next(), "ENGINE_BOOLEAN_EXPECTED");
 
   const anyEngine = engine as any;
-  expectCode(() => anyEngine.buildVarTypeMap("missing.script.xml"), "ENGINE_SCRIPT_NOT_FOUND");
+  expectCode(() => anyEngine.buildParamTypeMap("missing.script.xml"), "ENGINE_SCRIPT_NOT_FOUND");
   expectCode(() => anyEngine.createScriptRootScope("missing.script.xml", {}), "ENGINE_SCRIPT_NOT_FOUND");
 
   // cover record/map type compatibility branches
@@ -355,11 +400,12 @@ test("undefined assignment and type mismatch branches", () => {
   expectCode(() => engine.next(), "ENGINE_UNDEFINED_ASSIGN");
 
   const badInit = compileScript(
-    `<script><vars><var name="n" type="number" value="undefined"/></vars><step/></script>`,
+    `<script name="bad.script.xml"><var name="n" type="number" value="undefined"/></script>`,
     "bad.script.xml"
   );
   const e2 = new ScriptLangEngine({ scripts: { "bad.script.xml": badInit }, compilerVersion: "dev" });
-  expectCode(() => e2.start("bad.script.xml"), "ENGINE_VAR_UNDEFINED");
+  e2.start("bad.script.xml");
+  expectCode(() => e2.next(), "ENGINE_VAR_UNDEFINED");
 
   const target = compile(
     "target.script.xml",
@@ -418,7 +464,7 @@ test("engine start/reset, empty-step completion, and direct return target path",
       completion: "none",
       scriptRoot: true,
       returnContinuation: null,
-      varTypes: null,
+      varTypes: {},
     },
   ];
   anyEngine.pendingChoice = { frameId: 99, nodeId: "x", options: [] };
@@ -457,7 +503,7 @@ test("direct executeReturn missing target and createScriptRootScope var loop pat
   engine.start("vars.script.xml");
   expectCode(() => anyEngine.executeReturn("missing.script.xml"), "ENGINE_RETURN_TARGET");
   const built = anyEngine.createScriptRootScope("vars.script.xml", {});
-  assert.equal((built.scope as Record<string, unknown>).hp, 3);
+  assert.equal((built.scope as Record<string, unknown>).hp, undefined);
 });
 
 test("resume reconstructs continuation-bearing runtime frames", () => {
@@ -490,19 +536,14 @@ test("engine helper paths for return target and root scope arg assignment", () =
     "waiting.script.xml",
     `<vars/><step><choice><option text="ok"><text value="ok"/></option></choice></step>`
   );
-  const target = compile(
-    "target.script.xml",
-    `<vars><var name="n" type="number" value="1"/></vars><step><text value="ok"/></step>`
-  );
-  const bad = compileScript(
-    `<script><vars><var name="n" type="number" value="undefined"/></vars><step/></script>`,
-    "bad-init.script.xml"
+  const target = compileScript(
+    `<script name="target.script.xml" args="n:number"><text value="ok"/></script>`,
+    "target.script.xml"
   );
   const engine = new ScriptLangEngine({
     scripts: {
       "waiting.script.xml": waiting,
       "target.script.xml": target,
-      "bad-init.script.xml": bad,
     },
     compilerVersion: "dev",
   });
@@ -520,30 +561,31 @@ test("engine helper paths for return target and root scope arg assignment", () =
 
   const withArg = anyEngine.createScriptRootScope("target.script.xml", { n: 9 });
   assert.equal((withArg.scope as Record<string, unknown>).n, 9);
-  expectCode(() => anyEngine.createScriptRootScope("bad-init.script.xml", {}), "ENGINE_VAR_UNDEFINED");
+  expectCode(
+    () => anyEngine.createScriptRootScope("target.script.xml", { ghost: 1 }),
+    "ENGINE_CALL_ARG_UNKNOWN"
+  );
 });
 
 test("engine control-flow branches for pending choices and hidden options", () => {
   const script = compileScript(
     `
 <script name="control.script.xml">
-  <vars><var name="n" type="number" value="1"/></vars>
-  <step>
-    <while when="false">
-      <text value="never"/>
-    </while>
-    <choice>
-      <option text="hidden" when="false"><text value="nope"/></option>
-      <option text="visible"><text value="ok"/></option>
-    </choice>
-    <choice>
-      <option text="all-hidden" when="false"><text value="x"/></option>
-    </choice>
-    <if when="false">
-      <text value="then"/>
-      <else><text value="else"/></else>
-    </if>
-  </step>
+  <var name="n" type="number" value="1"/>
+  <while when="false">
+    <text value="never"/>
+  </while>
+  <choice>
+    <option text="hidden" when="false"><text value="nope"/></option>
+    <option text="visible"><text value="ok"/></option>
+  </choice>
+  <choice>
+    <option text="all-hidden" when="false"><text value="x"/></option>
+  </choice>
+  <if when="false">
+    <text value="then"/>
+    <else><text value="else"/></else>
+  </if>
 </script>
 `,
     "control.script.xml"
@@ -573,20 +615,20 @@ test("engine finishFrame and executeReturn continuation branches", () => {
     groupId: script.rootGroupId,
     nodeIndex: 1,
     scope: { x: 1 },
-    completion: "none",
-    scriptRoot: false,
-    returnContinuation: null,
-    varTypes: null,
+      completion: "none",
+      scriptRoot: false,
+      returnContinuation: null,
+      varTypes: {},
   };
   const calleeFrame = {
     frameId: 22,
     groupId: script.rootGroupId,
     nodeIndex: 0,
     scope: { v: 8 },
-    completion: "none",
-    scriptRoot: true,
-    returnContinuation: { resumeFrameId: 11, nextNodeIndex: 7, refBindings: { v: "x" } },
-    varTypes: null,
+      completion: "none",
+      scriptRoot: true,
+      returnContinuation: { resumeFrameId: 11, nextNodeIndex: 7, refBindings: { v: "x" } },
+      varTypes: {},
   };
 
   anyEngine.frames = [resumeFrame, calleeFrame];
@@ -619,16 +661,16 @@ test("engine finishFrame and executeReturn continuation branches", () => {
 });
 
 test("engine variable helpers cover type, path, and extra-scope branches", () => {
-  const script = compile(
-    "state.script.xml",
-    `<vars>
-      <var name="num" type="number" value="1"/>
+  const script = compileScript(
+    `<script name="state.script.xml" args="num:number">
       <var name="bag" type="Record&lt;string,Record&lt;string,number&gt;&gt;" value="({inner:{v:1}})"/>
-    </vars>
-    <step><text value="x"/></step>`
+      <text value="x"/>
+    </script>`,
+    "state.script.xml"
   );
   const engine = new ScriptLangEngine({ scripts: { "state.script.xml": script }, compilerVersion: "dev" });
   engine.start("state.script.xml");
+  engine.next();
   const anyEngine = engine as any;
 
   const arrayType = { kind: "array", elementType: { kind: "primitive", name: "number" } } as const;
@@ -645,7 +687,7 @@ test("engine variable helpers cover type, path, and extra-scope branches", () =>
 
   const extraRead = [{ local: 5 }];
   assert.equal(anyEngine.readVariable("local", extraRead), 5);
-  assert.equal(anyEngine.readVariable("num", [{ ghost: 1 }]), 1);
+  assert.equal(anyEngine.readVariable("num", [{ ghost: 1 }]), 0);
   const extraWrite = [{ local: 1 }];
   anyEngine.writeVariable("local", 9, extraWrite);
   assert.equal(extraWrite[0].local, 9);
@@ -660,7 +702,7 @@ test("engine variable helpers cover type, path, and extra-scope branches", () =>
     completion: "none",
     scriptRoot: false,
     returnContinuation: null,
-    varTypes: null,
+    varTypes: {},
   };
   anyEngine.frames.push(scopedNoTypeFrame);
   anyEngine.writeVariable("temp", 2);
@@ -675,21 +717,33 @@ test("engine variable helpers cover type, path, and extra-scope branches", () =>
   );
   const withArgs = anyEngine.createScriptRootScope("state.script.xml", { num: 9 });
   assert.equal((withArgs.scope as Record<string, unknown>).num, 9);
+
+  const evalWithExtra = anyEngine.evalExpression("local + 1", [{ local: 2 }]);
+  assert.equal(evalWithExtra, 3);
+
+  const savedFrames = anyEngine.frames;
+  anyEngine.frames = [];
+  expectCode(
+    () => anyEngine.executeVarDeclaration({ name: "z", type: { kind: "primitive", name: "number" }, initialValueExpr: null }),
+    "ENGINE_VAR_FRAME"
+  );
+  anyEngine.frames = savedFrames;
+  expectCode(
+    () => anyEngine.executeVarDeclaration({ name: "num", type: { kind: "primitive", name: "number" }, initialValueExpr: null }),
+    "ENGINE_VAR_DUPLICATE"
+  );
 });
 
 test("resume covers conditional option filters and frameCounter fallback branch", () => {
   const script = compileScript(
     `
 <script name="resume-branches.script.xml">
-  <vars/>
-  <step>
-    <if when="true">
-      <choice>
-        <option text="A" when="true"><text value="A"/></option>
-        <option text="B"><text value="B"/></option>
-      </choice>
-    </if>
-  </step>
+  <if when="true">
+    <choice>
+      <option text="A" when="true"><text value="A"/></option>
+      <option text="B"><text value="B"/></option>
+    </choice>
+  </if>
 </script>
 `,
     "resume-branches.script.xml"
@@ -709,6 +763,7 @@ test("resume covers conditional option filters and frameCounter fallback branch"
     runtimeFrames: snap.runtimeFrames.map((frame, i) => ({
       ...frame,
       frameId: i === 0 ? 200 : 100,
+      varTypes: undefined,
     })),
   };
   const resumed = new ScriptLangEngine({

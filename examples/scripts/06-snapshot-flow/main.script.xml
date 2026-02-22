@@ -1,17 +1,13 @@
-<script name="main.script.xml">
-  <vars>
-    <var name="hp" type="number" value="10"/>
-  </vars>
-  <step>
-    <text value="before ${hp}"/>
-    <choice>
-      <option text="Heal">
-        <code>hp = hp + 5;</code>
-      </option>
-      <option text="Hit">
-        <code>hp = hp - 2;</code>
-      </option>
-    </choice>
-    <text value="after ${hp}"/>
-  </step>
+<script name="main">
+  <var name="hp" type="number" value="10"/>
+  <text value="before ${hp}"/>
+  <choice>
+    <option text="Heal">
+      <code>hp = hp + 5;</code>
+    </option>
+    <option text="Hit">
+      <code>hp = hp - 2;</code>
+    </option>
+  </choice>
+  <text value="after ${hp}"/>
 </script>

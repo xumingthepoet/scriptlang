@@ -1,10 +1,6 @@
-<script name="main.script.xml">
-  <vars>
-    <var name="count" type="number" value="1"/>
-  </vars>
-  <step>
-    <text value="Scenario 01: text + code"/>
-    <code>count = count + 1;</code>
-    <text value="count=${count}"/>
-  </step>
+<script name="main">
+  <var name="count" type="number" value="1"/>
+  <text value="Scenario 01: text + code"/>
+  <code>count = count + 1;</code>
+  <text value="count=${count}"/>
 </script>

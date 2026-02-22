@@ -23,6 +23,13 @@ export interface VarDeclaration {
   location: SourceSpan;
 }
 
+export interface ScriptParam {
+  name: string;
+  type: ScriptType;
+  isRef: boolean;
+  location: SourceSpan;
+}
+
 interface BaseNode {
   id: string;
   kind: string;
@@ -37,6 +44,11 @@ export interface TextNode extends BaseNode {
 export interface CodeNode extends BaseNode {
   kind: "code";
   code: string;
+}
+
+export interface VarNode extends BaseNode {
+  kind: "var";
+  declaration: VarDeclaration;
 }
 
 export interface IfNode extends BaseNode {
@@ -84,6 +96,7 @@ export interface ReturnNode extends BaseNode {
 }
 
 export type ScriptNode =
+  | VarNode
   | TextNode
   | CodeNode
   | IfNode
@@ -101,9 +114,10 @@ export interface ImplicitGroup {
 
 export interface ScriptIR {
   scriptPath: string;
+  scriptName: string;
+  params: ScriptParam[];
   rootGroupId: string;
   groups: Record<string, ImplicitGroup>;
-  vars: VarDeclaration[];
 }
 
 export interface RuntimeScopeFrame {
@@ -122,6 +136,7 @@ export interface SnapshotFrameV1 {
   groupId: string;
   nodeIndex: number;
   scope: Record<string, unknown>;
+  varTypes?: Record<string, ScriptType>;
   completion:
     | { kind: "none" }
     | { kind: "whileBody" }
@@ -155,4 +170,3 @@ export type EngineOutput =
   | { kind: "text"; text: string }
   | { kind: "choices"; items: ChoiceItem[] }
   | { kind: "end" };
-

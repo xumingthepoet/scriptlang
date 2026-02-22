@@ -1,7 +1,4 @@
-<script name="main.script.xml">
-  <vars/>
-  <step>
-    <text value="jumping"/>
-    <return script="next.script.xml"/>
-  </step>
+<script name="main">
+  <text value="jumping"/>
+  <return script="next"/>
 </script>

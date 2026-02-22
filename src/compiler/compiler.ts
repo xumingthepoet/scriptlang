@@ -10,17 +10,20 @@ import type {
   ReturnNode,
   ScriptIR,
   ScriptNode,
+  ScriptParam,
   ScriptType,
   SourceSpan,
   TextNode,
   VarDeclaration,
+  VarNode,
   WhileNode,
 } from "../core/types.js";
 import { parseXmlDocument } from "./xml.js";
 import type { XmlElementNode, XmlNode } from "./xml-types.js";
 
-const UNSUPPORTED_NODES = new Set(["set", "push", "remove"]);
+const REMOVED_NODES = new Set(["vars", "step", "set", "push", "remove"]);
 const PRIMITIVE_TYPES = new Set(["number", "string", "boolean", "null"]);
+
 function getAttr(node: XmlElementNode, name: string, required = false): string | null {
   const value = node.attributes[name];
   if (required && (value === undefined || value === "")) {
@@ -37,8 +40,7 @@ const asElements = (nodes: XmlNode[]): XmlElementNode[] => {
   return nodes.filter((n): n is XmlElementNode => n.kind === "element");
 };
 
-const stableBase = (scriptPath: string): string =>
-  scriptPath.replace(/[^\w./-]+/g, "_");
+const stableBase = (scriptPath: string): string => scriptPath.replace(/[^\w./-]+/g, "_");
 
 class GroupBuilder {
   private groupCounter = 0;
@@ -86,47 +88,105 @@ const parseType = (raw: string, span: SourceSpan): ScriptType => {
   throw new ScriptLangError("TYPE_PARSE_ERROR", `Unsupported type syntax: "${raw}".`, span);
 };
 
-const parseVars = (varsNode: XmlElementNode | null): VarDeclaration[] => {
-  if (!varsNode) {
+const splitByTopLevelComma = (raw: string): string[] => {
+  const parts: string[] = [];
+  let current = "";
+  let angleDepth = 0;
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let braceDepth = 0;
+  let quote: "\"" | "'" | null = null;
+
+  for (let i = 0; i < raw.length; i += 1) {
+    const ch = raw[i];
+    if (quote) {
+      current += ch;
+      if (ch === quote && raw[i - 1] !== "\\") {
+        quote = null;
+      }
+      continue;
+    }
+    if (ch === "\"" || ch === "'") {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+    if (ch === "<") angleDepth += 1;
+    if (ch === ">" && angleDepth > 0) angleDepth -= 1;
+    if (ch === "(") parenDepth += 1;
+    if (ch === ")" && parenDepth > 0) parenDepth -= 1;
+    if (ch === "[") bracketDepth += 1;
+    if (ch === "]" && bracketDepth > 0) bracketDepth -= 1;
+    if (ch === "{") braceDepth += 1;
+    if (ch === "}" && braceDepth > 0) braceDepth -= 1;
+
+    if (
+      ch === "," &&
+      angleDepth === 0 &&
+      parenDepth === 0 &&
+      bracketDepth === 0 &&
+      braceDepth === 0
+    ) {
+      parts.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  if (current.trim().length > 0) {
+    parts.push(current.trim());
+  }
+  return parts;
+};
+
+const parseScriptArgs = (root: XmlElementNode): ScriptParam[] => {
+  const raw = getAttr(root, "args", false);
+  if (!raw || raw.trim().length === 0) {
     return [];
   }
-  const vars: VarDeclaration[] = [];
+  const segments = splitByTopLevelComma(raw).filter(Boolean);
+
+  const params: ScriptParam[] = [];
   const names = new Set<string>();
-  for (const node of asElements(varsNode.children)) {
-    if (node.name !== "var") {
+
+  for (let i = 0; i < segments.length; i += 1) {
+    const segment = segments[i];
+    const isRef = segment.endsWith(":ref");
+    const normalized = isRef ? segment.slice(0, -4).trim() : segment;
+    const separator = normalized.indexOf(":");
+    if (separator <= 0 || separator >= normalized.length - 1) {
       throw new ScriptLangError(
-        "XML_INVALID_VAR_NODE",
-        `Only <var> is allowed inside <vars>, got <${node.name}>.`,
-        node.location
+        "SCRIPT_ARGS_PARSE_ERROR",
+        `Invalid script args segment: "${segment}".`,
+        root.location
       );
     }
-    const name = getAttr(node, "name", true) as string;
+    const name = normalized.slice(0, separator).trim();
+    const typeSource = normalized.slice(separator + 1).trim();
     if (names.has(name)) {
       throw new ScriptLangError(
-        "XML_DUPLICATE_VAR",
-        `Variable "${name}" is declared more than once in <vars>.`,
-        node.location
+        "SCRIPT_ARGS_DUPLICATE",
+        `Script arg "${name}" is declared more than once.`,
+        root.location
       );
     }
     names.add(name);
-    const typeSource = getAttr(node, "type", true) as string;
-    const initialValueExpr = getAttr(node, "value", false);
-    vars.push({
+    params.push({
       name,
-      type: parseType(typeSource, node.location),
-      initialValueExpr,
-      location: node.location,
+      type: parseType(typeSource, root.location),
+      isRef,
+      location: root.location,
     });
   }
-  return vars;
+
+  return params;
 };
 
 const parseArgs = (raw: string | null): CallArgument[] => {
   if (!raw || raw.trim().length === 0) {
     return [];
   }
-  return raw
-    .split(",")
+  return splitByTopLevelComma(raw)
     .map((part) => part.trim())
     .filter(Boolean)
     .map((part) => {
@@ -150,6 +210,18 @@ const inlineTextContent = (node: XmlElementNode): string =>
     .join("\n")
     .trim();
 
+const parseVarDeclaration = (node: XmlElementNode): VarDeclaration => {
+  const name = getAttr(node, "name", true) as string;
+  const typeSource = getAttr(node, "type", true) as string;
+  const initialValueExpr = getAttr(node, "value", false);
+  return {
+    name,
+    type: parseType(typeSource, node.location),
+    initialValueExpr,
+    location: node.location,
+  };
+};
+
 const compileGroup = (
   groupId: string,
   parentGroupId: string | null,
@@ -165,16 +237,25 @@ const compileGroup = (
   };
 
   for (const child of asElements(container.children)) {
-    if (UNSUPPORTED_NODES.has(child.name)) {
+    if (REMOVED_NODES.has(child.name)) {
       throw new ScriptLangError(
-        "XML_UNSUPPORTED_NODE",
-        `<${child.name}> is removed in ScriptLang V1; use <code> instead.`,
+        "XML_REMOVED_NODE",
+        `<${child.name}> is removed in ScriptLang V2. Use direct script-body nodes and <script args="..."> + <var .../> instead.`,
         child.location
       );
     }
-    let compiled: ScriptNode | null = null;
 
-    if (child.name === "text") {
+    let compiled: ScriptNode;
+
+    if (child.name === "var") {
+      const varNode: VarNode = {
+        id: builder.nextNodeId("var"),
+        kind: "var",
+        declaration: parseVarDeclaration(child),
+        location: child.location,
+      };
+      compiled = varNode;
+    } else if (child.name === "text") {
       const textNode: TextNode = {
         id: builder.nextNodeId("text"),
         kind: "text",
@@ -258,13 +339,14 @@ const compileGroup = (
       };
       compiled = choiceNode;
     } else if (child.name === "call") {
-      compiled = {
+      const callNode: CallNode = {
         id: builder.nextNodeId("call"),
         kind: "call",
         targetScript: getAttr(child, "script", true) as string,
         args: parseArgs(getAttr(child, "args", false)),
         location: child.location,
       };
+      compiled = callNode;
     } else if (child.name === "return") {
       const returnNode: ReturnNode = {
         id: builder.nextNodeId("return"),
@@ -288,13 +370,6 @@ const compileGroup = (
   }
 };
 
-const findFirstChildByName = (
-  parent: XmlElementNode,
-  name: string
-): XmlElementNode | null => {
-  return asElements(parent.children).find((child) => child.name === name) ?? null;
-};
-
 export const compileScript = (xmlSource: string, scriptPath: string): ScriptIR => {
   const document = parseXmlDocument(xmlSource);
   const root = document.root;
@@ -306,23 +381,17 @@ export const compileScript = (xmlSource: string, scriptPath: string): ScriptIR =
     );
   }
 
+  const scriptName = getAttr(root, "name", true) as string;
+  const params = parseScriptArgs(root);
   const builder = new GroupBuilder(scriptPath);
   const rootGroupId = builder.nextGroupId();
-  const varsNode = findFirstChildByName(root, "vars");
-  const stepNode = findFirstChildByName(root, "step");
-  const syntheticStep: XmlElementNode = {
-    kind: "element",
-    name: "step",
-    attributes: {},
-    children: stepNode ? stepNode.children : [],
-    location: root.location,
-  };
-  compileGroup(rootGroupId, null, syntheticStep, builder);
+  compileGroup(rootGroupId, null, root, builder);
 
   return {
     scriptPath,
+    scriptName,
+    params,
     rootGroupId,
     groups: builder.groups,
-    vars: parseVars(varsNode),
   };
 };

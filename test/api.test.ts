@@ -6,25 +6,21 @@ import { compileScriptsFromXmlMap, createEngineFromXml, resumeEngineFromXml } fr
 test("createEngineFromXml and resumeEngineFromXml", () => {
   const scriptsXml = {
     "main.script.xml": `
-<script name="main.script.xml">
-  <vars>
-    <var name="hp" type="number" value="2"/>
-  </vars>
-  <step>
-    <choice>
-      <option text="up">
-        <code>hp = hp + 1;</code>
-      </option>
-    </choice>
-    <text value="HP \${hp}"/>
-  </step>
+<script name="main">
+  <var name="hp" type="number" value="2"/>
+  <choice>
+    <option text="up">
+      <code>hp = hp + 1;</code>
+    </option>
+  </choice>
+  <text value="HP \${hp}"/>
 </script>
 `,
   };
 
   const engine = createEngineFromXml({
     scriptsXml,
-    entryScript: "main.script.xml",
+    entryScript: "main",
     compilerVersion: "dev",
   });
   const first = engine.next();
@@ -40,14 +36,23 @@ test("createEngineFromXml and resumeEngineFromXml", () => {
   assert.deepEqual(resumed.next(), { kind: "text", text: "HP 3" });
 });
 
-test("compileScriptsFromXmlMap returns compiled map", () => {
+test("compileScriptsFromXmlMap returns compiled map keyed by script name", () => {
   const compiled = compileScriptsFromXmlMap({
-    "a.script.xml": `<script name="a.script.xml"><vars/><step><text value="a"/></step></script>`,
-    "b.script.xml": `<script name="b.script.xml"><vars/><step><text value="b"/></step></script>`,
+    "a.script.xml": `<script name="a"><text value="a"/></script>`,
+    "b.script.xml": `<script name="b"><text value="b"/></script>`,
   });
   assert.equal(Object.keys(compiled).length, 2);
-  assert.ok(compiled["a.script.xml"]);
-  assert.ok(compiled["b.script.xml"]);
+  assert.ok(compiled.a);
+  assert.ok(compiled.b);
+});
+
+test("compileScriptsFromXmlMap rejects duplicate script name", () => {
+  assert.throws(() =>
+    compileScriptsFromXmlMap({
+      "a1.script.xml": `<script name="dup"><text value="a"/></script>`,
+      "a2.script.xml": `<script name="dup"><text value="b"/></script>`,
+    })
+  );
 });
 
 test("compileScriptsFromXmlMap handles empty input", () => {
@@ -58,9 +63,9 @@ test("compileScriptsFromXmlMap handles empty input", () => {
 test("createEngineFromXml works with default optional options", () => {
   const engine = createEngineFromXml({
     scriptsXml: {
-      "main.script.xml": `<script name="main.script.xml"><vars/><step><text value="ok"/></step></script>`,
+      "main.script.xml": `<script name="main"><text value="ok"/></script>`,
     },
-    entryScript: "main.script.xml",
+    entryScript: "main",
   });
   assert.deepEqual(engine.next(), { kind: "text", text: "ok" });
 });
@@ -68,19 +73,16 @@ test("createEngineFromXml works with default optional options", () => {
 test("resumeEngineFromXml works with default optional options", () => {
   const scriptsXml = {
     "main.script.xml": `
-<script name="main.script.xml">
-  <vars/>
-  <step>
-    <choice>
-      <option text="ok"><text value="done"/></option>
-    </choice>
-  </step>
+<script name="main">
+  <choice>
+    <option text="ok"><text value="done"/></option>
+  </choice>
 </script>
 `,
   };
   const engine = createEngineFromXml({
     scriptsXml,
-    entryScript: "main.script.xml",
+    entryScript: "main",
   });
   const out = engine.next();
   assert.equal(out.kind, "choices");
@@ -95,18 +97,18 @@ test("api create/resume error paths", () => {
   assert.throws(() =>
     createEngineFromXml({
       scriptsXml: {
-        "main.script.xml": `<script name="main.script.xml"><vars/><step><text value="x"/></step></script>`,
+        "main.script.xml": `<script name="main"><text value="x"/></script>`,
       },
-      entryScript: "missing.script.xml",
+      entryScript: "missing",
     })
   );
 
   const scriptsXml = {
-    "main.script.xml": `<script name="main.script.xml"><vars/><step><choice><option text="x"><text value="x"/></option></choice></step></script>`,
+    "main.script.xml": `<script name="main"><choice><option text="x"><text value="x"/></option></choice></script>`,
   };
   const engine = createEngineFromXml({
     scriptsXml,
-    entryScript: "main.script.xml",
+    entryScript: "main",
     compilerVersion: "dev",
   });
   engine.next();

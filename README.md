@@ -63,21 +63,17 @@ npm run player:agent -- choose --state-in /tmp/sl-state.bin --choice 0 --state-o
 import { createEngineFromXml } from "script-lang";
 
 const engine = createEngineFromXml({
-  entryScript: "main.script.xml",
+  entryScript: "main",
   compilerVersion: "dev",
   scriptsXml: {
     "main.script.xml": `
-<script name="main.script.xml">
-  <vars>
-    <var name="hp" type="number" value="10"/>
-  </vars>
-  <step>
-    <text value="HP \${hp}"/>
-    <choice>
-      <option text="Heal"><code>hp = hp + 5;</code></option>
-    </choice>
-    <text value="After \${hp}"/>
-  </step>
+<script name="main">
+  <var name="hp" type="number" value="10"/>
+  <text value="HP \${hp}"/>
+  <choice>
+    <option text="Heal"><code>hp = hp + 5;</code></option>
+  </choice>
+  <text value="After \${hp}"/>
 </script>
 `,
   },

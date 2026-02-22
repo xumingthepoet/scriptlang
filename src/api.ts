@@ -1,4 +1,5 @@
 import { compileScript } from "./compiler/index.js";
+import { ScriptLangError } from "./core/errors.js";
 import type { SnapshotV1 } from "./core/types.js";
 import { ScriptLangEngine, type HostFunctionMap } from "./runtime/index.js";
 
@@ -17,7 +18,14 @@ export const compileScriptsFromXmlMap = (
   const scriptPaths = Object.keys(scriptsXml);
   for (let i = 0; i < scriptPaths.length; i += 1) {
     const scriptPath = scriptPaths[i];
-    compiled[scriptPath] = compileScript(scriptsXml[scriptPath], scriptPath);
+    const ir = compileScript(scriptsXml[scriptPath], scriptPath);
+    if (compiled[ir.scriptName]) {
+      throw new ScriptLangError(
+        "API_DUPLICATE_SCRIPT_NAME",
+        `Duplicate script name "${ir.scriptName}" found across XML inputs.`
+      );
+    }
+    compiled[ir.scriptName] = ir;
   }
   return compiled;
 };

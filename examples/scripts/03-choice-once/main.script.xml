@@ -1,20 +1,16 @@
-<script name="main.script.xml">
-  <vars>
-    <var name="round" type="number" value="0"/>
-  </vars>
-  <step>
-    <while when="round &lt; 2">
-      <choice>
-        <option text="Pick once" once="true">
-          <code>round = round + 1;</code>
-          <text value="picked"/>
-        </option>
-        <option text="Skip">
-          <code>round = round + 1;</code>
-          <text value="skip"/>
-        </option>
-      </choice>
-    </while>
-    <text value="done"/>
-  </step>
+<script name="main">
+  <var name="round" type="number" value="0"/>
+  <while when="round &lt; 2">
+    <choice>
+      <option text="Pick once" once="true">
+        <code>round = round + 1;</code>
+        <text value="picked"/>
+      </option>
+      <option text="Skip">
+        <code>round = round + 1;</code>
+        <text value="skip"/>
+      </option>
+    </choice>
+  </while>
+  <text value="done"/>
 </script>

@@ -6,12 +6,12 @@ import type {
   ChoiceNode,
   ContinuationFrame,
   EngineOutput,
+  ScriptParam,
   ScriptIR,
   ScriptNode,
   ScriptType,
   SnapshotFrameV1,
   SnapshotV1,
-  VarDeclaration,
 } from "../core/types.js";
 
 export type HostFunctionMap = Record<string, (...args: unknown[]) => unknown>;
@@ -26,11 +26,11 @@ interface RuntimeFrame {
   completion: CompletionKind;
   scriptRoot: boolean;
   returnContinuation: ContinuationFrame | null;
-  varTypes: Record<string, ScriptType> | null;
+  varTypes: Record<string, ScriptType>;
 }
 
 interface GroupLookup {
-  scriptPath: string;
+  scriptName: string;
   group: ScriptIR["groups"][string];
 }
 
@@ -42,15 +42,15 @@ interface PendingChoice {
 
 const deepClone = <T>(value: T): T => structuredClone(value);
 
-const defaultValueFromVar = (decl: VarDeclaration): unknown => {
-  if (decl.type.kind === "primitive") {
-    if (decl.type.name === "number") return 0;
-    if (decl.type.name === "string") return "";
-    if (decl.type.name === "boolean") return false;
+const defaultValueFromType = (type: ScriptType): unknown => {
+  if (type.kind === "primitive") {
+    if (type.name === "number") return 0;
+    if (type.name === "string") return "";
+    if (type.name === "boolean") return false;
     return null;
   }
-  if (decl.type.kind === "array") return [];
-  if (decl.type.kind === "record") return {};
+  if (type.kind === "array") return [];
+  if (type.kind === "record") return {};
   return new Map<string, unknown>();
 };
 
@@ -119,23 +119,23 @@ export class ScriptLangEngine {
     this.vmTimeoutMs = options.vmTimeoutMs ?? 100;
     this.groupLookup = {};
 
-    for (const [scriptPath, script] of Object.entries(this.scripts)) {
+    for (const [scriptName, script] of Object.entries(this.scripts)) {
       for (const [groupId, group] of Object.entries(script.groups)) {
-        this.groupLookup[groupId] = { scriptPath, group };
+        this.groupLookup[groupId] = { scriptName, group };
       }
     }
   }
 
-  start(entryScriptPath: string): void {
+  start(entryScriptName: string): void {
     this.reset();
-    const entry = this.scripts[entryScriptPath];
+    const entry = this.scripts[entryScriptName];
     if (!entry) {
       throw new ScriptLangError(
         "ENGINE_SCRIPT_NOT_FOUND",
-        `Entry script "${entryScriptPath}" is not registered.`
+        `Entry script "${entryScriptName}" is not registered.`
       );
     }
-    const { scope: rootScope, varTypes } = this.createScriptRootScope(entryScriptPath, {});
+    const { scope: rootScope, varTypes } = this.createScriptRootScope(entryScriptName, {});
     this.pushRootFrame(entry.rootGroupId, rootScope, null, varTypes);
   }
 
@@ -169,6 +169,11 @@ export class ScriptLangEngine {
         }
         if (node.kind === "code") {
           this.runCode(node.code);
+          top.nodeIndex += 1;
+          continue;
+        }
+        if (node.kind === "var") {
+          this.executeVarDeclaration(node.declaration);
           top.nodeIndex += 1;
           continue;
         }
@@ -265,6 +270,7 @@ export class ScriptLangEngine {
       groupId: frame.groupId,
       nodeIndex: frame.nodeIndex,
       scope: deepClone(frame.scope),
+      varTypes: deepClone(frame.varTypes),
       completion: { kind: frame.completion },
       scriptRoot: frame.scriptRoot,
       returnContinuation: frame.returnContinuation ? deepClone(frame.returnContinuation) : null,
@@ -369,7 +375,11 @@ export class ScriptLangEngine {
     if (!lookup) {
       throw new ScriptLangError("SNAPSHOT_GROUP_MISSING", `Group "${frame.groupId}" is unknown.`);
     }
-    const varTypes = frame.scriptRoot ? this.buildVarTypeMap(lookup.scriptPath) : null;
+    const varTypes = frame.varTypes
+      ? deepClone(frame.varTypes)
+      : frame.scriptRoot
+        ? this.buildParamTypeMap(lookup.scriptName)
+        : {};
     return {
       frameId: frame.frameId,
       groupId: frame.groupId,
@@ -394,7 +404,7 @@ export class ScriptLangEngine {
       completion,
       scriptRoot: false,
       returnContinuation: null,
-      varTypes: null,
+      varTypes: {},
     });
   }
 
@@ -435,10 +445,34 @@ export class ScriptLangEngine {
         node.location
       );
     }
+    const paramMap = new Map<string, ScriptParam>();
+    for (let i = 0; i < targetScript.params.length; i += 1) {
+      const param = targetScript.params[i];
+      paramMap.set(param.name, param);
+    }
 
     const argValues: Record<string, unknown> = {};
     const refBindings: Record<string, string> = {};
     for (const arg of node.args) {
+      const param = paramMap.get(arg.name);
+      if (!param) {
+        throw new ScriptLangError(
+          "ENGINE_CALL_ARG_UNKNOWN",
+          `Call argument "${arg.name}" is not declared in target script args.`
+        );
+      }
+      if (param.isRef && !arg.isRef) {
+        throw new ScriptLangError(
+          "ENGINE_CALL_REF_MISMATCH",
+          `Call argument "${arg.name}" must use ref mode because target script declares it as ref.`
+        );
+      }
+      if (!param.isRef && arg.isRef) {
+        throw new ScriptLangError(
+          "ENGINE_CALL_REF_MISMATCH",
+          `Call argument "${arg.name}" cannot use ref mode because target script does not declare it as ref.`
+        );
+      }
       if (arg.isRef) {
         argValues[arg.name] = this.readPath(arg.valueExpr);
         refBindings[arg.name] = arg.valueExpr;
@@ -523,12 +557,12 @@ export class ScriptLangEngine {
     throw new ScriptLangError("ENGINE_ROOT_FRAME", "No script root frame found.");
   }
 
-  private buildVarTypeMap(scriptPath: string): Record<string, ScriptType> {
-    const script = this.scripts[scriptPath];
+  private buildParamTypeMap(scriptName: string): Record<string, ScriptType> {
+    const script = this.scripts[scriptName];
     if (!script) {
-      throw new ScriptLangError("ENGINE_SCRIPT_NOT_FOUND", `Script "${scriptPath}" is not registered.`);
+      throw new ScriptLangError("ENGINE_SCRIPT_NOT_FOUND", `Script "${scriptName}" is not registered.`);
     }
-    return Object.fromEntries(script.vars.map((decl) => [decl.name, decl.type]));
+    return Object.fromEntries(script.params.map((param) => [param.name, param.type]));
   }
 
   private assertType(name: string, type: ScriptType, value: unknown): void {
@@ -540,35 +574,26 @@ export class ScriptLangEngine {
     }
   }
 
-  private createScriptRootScope(scriptPath: string, argValues: Record<string, unknown>): {
+  private createScriptRootScope(scriptName: string, argValues: Record<string, unknown>): {
     scope: Record<string, unknown>;
     varTypes: Record<string, ScriptType>;
   } {
-    const script = this.scripts[scriptPath];
-    if (!script) throw new ScriptLangError("ENGINE_SCRIPT_NOT_FOUND", `Script "${scriptPath}" is not registered.`);
+    const script = this.scripts[scriptName];
+    if (!script) throw new ScriptLangError("ENGINE_SCRIPT_NOT_FOUND", `Script "${scriptName}" is not registered.`);
     const scope: Record<string, unknown> = {};
-    const varTypes = this.buildVarTypeMap(scriptPath);
-    for (let i = 0; i < script.vars.length; i += 1) {
-      const decl = script.vars[i];
-      let value = defaultValueFromVar(decl);
-      if (decl.initialValueExpr) {
-        value = this.evalExpression(decl.initialValueExpr, [scope]);
-      }
-      if (value === undefined) {
-        throw new ScriptLangError(
-          "ENGINE_VAR_UNDEFINED",
-          `Initial value for "${decl.name}" cannot be undefined.`
-        );
-      }
-      this.assertType(decl.name, decl.type, value);
-      scope[decl.name] = value;
+    const varTypes = this.buildParamTypeMap(scriptName);
+    for (let i = 0; i < script.params.length; i += 1) {
+      const param = script.params[i];
+      const value = defaultValueFromType(param.type);
+      this.assertType(param.name, param.type, value);
+      scope[param.name] = value;
     }
 
     for (const [name, value] of Object.entries(argValues)) {
       if (!(name in scope)) {
         throw new ScriptLangError(
           "ENGINE_CALL_ARG_UNKNOWN",
-          `Call argument "${name}" is not declared in target script vars.`
+          `Call argument "${name}" is not declared in target script args.`
         );
       }
       if (value === undefined) {
@@ -581,6 +606,32 @@ export class ScriptLangEngine {
       scope[name] = value;
     }
     return { scope, varTypes };
+  }
+
+  private executeVarDeclaration(decl: { name: string; type: ScriptType; initialValueExpr: string | null }): void {
+    const frame = this.frames[this.frames.length - 1];
+    if (!frame) {
+      throw new ScriptLangError("ENGINE_VAR_FRAME", "No frame available for var declaration.");
+    }
+    if (decl.name in frame.scope) {
+      throw new ScriptLangError(
+        "ENGINE_VAR_DUPLICATE",
+        `Variable "${decl.name}" is already declared in the current block scope.`
+      );
+    }
+    let value = defaultValueFromType(decl.type);
+    if (decl.initialValueExpr) {
+      value = this.evalExpression(decl.initialValueExpr);
+    }
+    if (value === undefined) {
+      throw new ScriptLangError(
+        "ENGINE_VAR_UNDEFINED",
+        `Initial value for "${decl.name}" cannot be undefined.`
+      );
+    }
+    this.assertType(decl.name, decl.type, value);
+    frame.scope[decl.name] = value;
+    frame.varTypes[decl.name] = decl.type;
   }
 
   private requireSnapshotTopFrame(): RuntimeFrame {
@@ -757,7 +808,7 @@ export class ScriptLangEngine {
     }
     for (let i = this.frames.length - 1; i >= 0; i -= 1) {
       if (name in this.frames[i].scope) {
-        const type = this.frames[i].varTypes?.[name];
+        const type = this.frames[i].varTypes[name];
         if (type) {
           this.assertType(name, type, value);
         }

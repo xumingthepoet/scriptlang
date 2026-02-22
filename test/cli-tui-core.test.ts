@@ -30,8 +30,8 @@ test("scenario registry lists and loads scenarios", () => {
   assert.equal(scenarios[0].id, "01-text-code");
 
   const loaded = loadScenarioById("04-call-ref-return");
-  assert.equal(loaded.entryScript, "main.script.xml");
-  assert.ok(loaded.scriptsXml["main.script.xml"].includes("<call script=\"buff.script.xml\""));
+  assert.equal(loaded.entryScript, "main");
+  assert.ok(loaded.scriptsXml["main.script.xml"].includes("<call script=\"buff\""));
   assert.ok(loaded.scriptsXml["buff.script.xml"].includes("target = target + amount"));
 });
 
