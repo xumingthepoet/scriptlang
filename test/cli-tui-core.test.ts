@@ -96,6 +96,41 @@ test("external scripts-dir loading and ref resolution", () => {
   assert.equal(exampleViaRef.id, "01-text-code");
 });
 
+test("external scripts-dir includes .types.xml files", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "scriptlang-types-dir-"));
+  fs.writeFileSync(
+    path.join(dir, "main.script.xml"),
+    `<!-- include: game.types.xml -->
+<script name="main"><text>ok</text></script>`
+  );
+  fs.writeFileSync(
+    path.join(dir, "game.types.xml"),
+    `<types name="game"><type name="Actor"><field name="hp" type="number"/></type></types>`
+  );
+
+  const loaded = loadScenarioByScriptsDir(dir);
+  assert.ok(loaded.scriptsXml["main.script.xml"]);
+  assert.ok(loaded.scriptsXml["game.types.xml"]);
+});
+
+test("loadScenarioById auto-includes discovered .types.xml files", () => {
+  const scenarioDir = path.join(getScenarioScriptsRoot(), "01-text-code");
+  const injectedName = "extra.types.xml";
+  const injectedContent =
+    `<types name="extra"><type name="X"><field name="hp" type="number"/></type></types>`;
+  const injectedPath = path.join(scenarioDir, injectedName);
+
+  try {
+    fs.writeFileSync(injectedPath, injectedContent);
+    const loaded = loadScenarioById("01-text-code");
+    assert.ok(loaded.scriptsXml[injectedName]);
+  } finally {
+    if (fs.existsSync(injectedPath)) {
+      fs.unlinkSync(injectedPath);
+    }
+  }
+});
+
 test("external scripts-dir error paths", () => {
   const missingDir = path.join(os.tmpdir(), `scriptlang-missing-${Date.now()}`);
   assert.throws(() => loadScenarioByScriptsDir(missingDir), (error: unknown) => {

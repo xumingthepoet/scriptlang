@@ -3,10 +3,12 @@
 - [ScriptLang Syntax Manual](./syntax-manual.md)
 - [ScriptLang Player CLI Spec](./player-cli.md)
 
-## Current Scope (Runtime V1 + Syntax V2)
+## Current Scope (Runtime V1 + Syntax V3)
 - XML-first branching narrative scripts.
 - Implicit group-based execution model.
 - Type-checked variables declared via `<script args="...">` and executable `<var .../>`.
+- Global custom types declared in `*.types.xml` files.
+- Header include graph resolution via `<!-- include: ... -->`.
 - `<code>` node as primary mutation and logic mechanism.
 - Ink-style pull runtime API: `next()`, `choose()`, `waitingChoice`, `snapshot()`, `resume()`.
 
@@ -18,8 +20,11 @@
 5. Host function access is explicit and whitelisted.
 
 ## XML Surface (Implemented)
-- Required root: `<script>`.
+- Allowed roots: `<script>` and `<types>`.
 - Script ID is `name`; runtime lookup and `<call script="...">` use this ID.
+- Type collection root: `<types name="...">`.
+- Header include directives are supported in both roots:
+  - `<!-- include: rel/path.xml -->`
 - Optional script params in `args="name:type,name2:type:ref"`.
 - Executable nodes are direct children of `<script>`.
 - Supported executable nodes:
@@ -47,4 +52,6 @@
   - `<var>` scope is declaration-point to current block end.
   - Runtime rejects `undefined` and `null` assignments into declared script variables.
   - Runtime enforces declared types on script variables.
-  - Supported language types are primitives (`number|string|boolean`), arrays, and `Map<string, T>` (no `null` type and no `Record<string, T>`).
+  - Supported language types are primitives (`number|string|boolean`), arrays, `Map<string, T>`, and global custom object types.
+  - Custom object types are strict: missing/extra/wrong-typed fields are rejected.
+  - `createEngineFromXml` defaults to `main` when `entryScript` is omitted.

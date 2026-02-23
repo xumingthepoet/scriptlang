@@ -61,6 +61,10 @@ export interface LoadedScenario {
   scriptsXml: Record<string, string>;
 }
 
+const isScriptXmlFile = (file: string): boolean => file.endsWith(".script.xml");
+const isTypesXmlFile = (file: string): boolean => file.endsWith(".types.xml");
+const isScenarioXmlFile = (file: string): boolean => isScriptXmlFile(file) || isTypesXmlFile(file);
+
 const makeCliError = (code: string, message: string): Error & { code: string } => {
   const error = new Error(message) as Error & { code: string };
   error.code = code;
@@ -97,8 +101,15 @@ export const loadScenarioById = (scenarioId: string): LoadedScenario => {
   }
   const scenarioDir = path.join(getScenarioScriptsRoot(), scenario.id);
   const scriptsXml: Record<string, string> = {};
-  for (let i = 0; i < scenario.files.length; i += 1) {
-    const name = scenario.files[i];
+  const requiredFiles: string[] = [...scenario.files];
+  const typeFiles = fs
+    .readdirSync(scenarioDir)
+    .filter((file) => isTypesXmlFile(file))
+    .sort();
+  const files = [...requiredFiles, ...typeFiles.filter((file) => !requiredFiles.includes(file))];
+
+  for (let i = 0; i < files.length; i += 1) {
+    const name = files[i];
     const fullPath = path.join(scenarioDir, name);
     if (!fs.existsSync(fullPath)) {
       throw makeCliError("CLI_SCENARIO_FILE_MISSING", `Missing scenario file: ${fullPath}`);
@@ -128,9 +139,9 @@ const resolveScriptsDir = (scriptsDir: string): string => {
 const readScriptsXmlFromDir = (scriptsDir: string): Record<string, string> => {
   const files = fs
     .readdirSync(scriptsDir)
-    .filter((file) => file.endsWith(".script.xml"))
+    .filter((file) => isScenarioXmlFile(file))
     .sort();
-  if (files.length === 0) {
+  if (!files.some((file) => isScriptXmlFile(file))) {
     throw makeCliError("CLI_SCRIPTS_DIR_EMPTY", `No .script.xml files found in: ${scriptsDir}`);
   }
   const scriptsXml: Record<string, string> = {};

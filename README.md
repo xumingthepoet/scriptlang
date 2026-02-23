@@ -91,14 +91,23 @@ const engine = createEngineFromXml({
   entryScript: "main",
   compilerVersion: "dev",
   scriptsXml: {
+    "gamestate.types.xml": `
+<types name="gamestate">
+  <type name="Actor">
+    <field name="hp" type="number"/>
+    <field name="name" type="string"/>
+  </type>
+</types>
+`,
     "main.script.xml": `
+<!-- include: gamestate.types.xml -->
 <script name="main">
-  <var name="hp" type="number" value="10"/>
-  <text>HP \${hp}</text>
+  <var name="hero" type="Actor" value="{ hp: 10, name: 'Rin' }"/>
+  <text>HP \${hero.hp}</text>
   <choice>
-    <option text="Heal"><code>hp = hp + 5;</code></option>
+    <option text="Heal"><code>hero.hp = hero.hp + 5;</code></option>
   </choice>
-  <text>After \${hp}</text>
+  <text>After \${hero.hp}</text>
 </script>
 `,
   },

@@ -21,6 +21,7 @@ Both modes run the same ScriptLang engine semantics.
   - `title`
   - `entryScript`
   - one or more `.script.xml` files.
+  - optional `.types.xml` files for global custom type declarations.
 - Bundled examples currently include:
   - `01-text-code`
   - `02-if-while`

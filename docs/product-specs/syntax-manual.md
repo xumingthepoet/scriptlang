@@ -1,23 +1,44 @@
-# ScriptLang Syntax Manual (V2)
+# ScriptLang Syntax Manual (V3)
 
-This manual defines the concrete XML authoring syntax for ScriptLang V2.
+This manual defines the concrete XML authoring syntax for ScriptLang V3.
 
 ## 1. File and Root
 
-- File extension: `.script.xml`.
-- Exactly one script per file.
-- Root element must be `<script>`.
-- `<script name="...">` is the runtime script ID.
+- File extensions:
+  - `.script.xml` for executable scripts
+  - `.types.xml` for global custom type declarations
+- Root elements:
+  - `<script name="...">`
+  - `<types name="...">`
 
 Example:
 
 ```xml
+<!-- include: gamestate.types.xml -->
 <script name="main" args="hp:number">
   <text>HP is ${hp}</text>
 </script>
 ```
 
-## 2. Top-Level Structure
+## 2. Include Header Directives
+
+ScriptLang supports include directives in file header comments:
+
+```xml
+<!-- include: shared.types.xml -->
+<!-- include: combat.script.xml -->
+<script name="main">...</script>
+```
+
+Rules:
+
+- Format is exactly `<!-- include: rel/path.xml -->`.
+- One include per line.
+- Allowed in both `.script.xml` and `.types.xml`.
+- Include paths are resolved relative to the current file path.
+- Include cycles and missing include targets are compile errors.
+
+## 3. Script Top-Level Structure
 
 Allowed direct children of `<script>` are executable nodes:
 
@@ -38,7 +59,33 @@ Removed nodes (compile-time error):
 - `<push>`
 - `<remove>`
 
-## 3. Script Identity and Parameters
+## 4. Types File Structure
+
+`<types>` attributes:
+
+- `name` (required): metadata label for this type collection.
+
+Children:
+
+- `<type name="TypeName">`
+  - `<field name="fieldName" type="TypeExpr"/>`
+
+Example:
+
+```xml
+<types name="gamestate">
+  <type name="Fighter">
+    <field name="hp" type="number"/>
+    <field name="moves" type="string[]"/>
+  </type>
+  <type name="BattleState">
+    <field name="player" type="Fighter"/>
+    <field name="enemy" type="Fighter"/>
+  </type>
+</types>
+```
+
+## 5. Script Identity and Parameters
 
 `<script>` attributes:
 
@@ -65,7 +112,7 @@ Rules:
 - `args` defines script-root typed variables.
 - Missing call arguments use type-based default values.
 
-## 4. `<var>` Declarations
+## 6. `<var>` Declarations
 
 Syntax:
 
@@ -91,15 +138,16 @@ Rules:
 - Exiting the block drops that variable.
 - `undefined` is not allowed.
 
-## 5. Type Syntax
+## 7. Type Syntax
 
 Supported type expressions:
 
 - Primitive: `number`, `string`, `boolean`
 - Array: `T[]`
 - Map: `Map<string, T>`
+- Custom object type: `TypeName` (declared globally in included `.types.xml`)
 
-## 6. `<text>`
+## 8. `<text>`
 
 Allowed form:
 
@@ -114,7 +162,7 @@ Rules:
 - `value` attribute is not allowed on `<text>`.
 - Inline content must be non-empty (after trim).
 
-## 7. `<code>`
+## 9. `<code>`
 
 Allowed form:
 
@@ -130,7 +178,7 @@ Rules:
 - `value` attribute is not allowed on `<code>`.
 - Inline content must be non-empty (after trim).
 
-## 8. `<if>` / `<else>`
+## 10. `<if>` / `<else>`
 
 Syntax:
 
@@ -148,7 +196,7 @@ Rules:
 - `when` is required and must evaluate to `boolean`.
 - `<else>` is optional.
 
-## 9. `<while>`
+## 11. `<while>`
 
 Syntax:
 
@@ -162,7 +210,7 @@ Rules:
 
 - `when` is required and must evaluate to `boolean`.
 
-## 10. `<choice>` / `<option>`
+## 12. `<choice>` / `<option>`
 
 Syntax:
 
@@ -182,7 +230,7 @@ Syntax:
 - `text` (required)
 - `when` (optional)
 
-## 11. `<call>`
+## 13. `<call>`
 
 Syntax:
 
@@ -198,7 +246,7 @@ Rules:
 - For a target param not declared `:ref`, caller must not pass `ref`.
 - `ref` values copy back when callee returns.
 
-## 12. `<return>`
+## 14. `<return>`
 
 Normal return:
 
@@ -212,7 +260,7 @@ Transfer return:
 <return script="nextScene"/>
 ```
 
-## 13. XML Escaping Note
+## 15. XML Escaping Note
 
 XML attribute values still require escaping `<` as `&lt;`.
 
@@ -224,14 +272,19 @@ Example:
 </if>
 ```
 
-## 14. Common Authoring Errors
+## 16. Common Authoring Errors
 
 1. Using removed nodes (`vars/step/set/push/remove`) -> compile error.
 2. Missing required attributes (`name/type/when/script`) -> compile error.
-3. Calling unknown script ID -> runtime error.
-4. Ref mode mismatch with script param declaration -> runtime error.
-5. Condition not boolean at runtime -> runtime error.
-6. Writing wrong type, `undefined`, or `null` into declared script variables -> runtime error.
-7. Using `null` as a declared type (`type="null"` or `args="x:null"`) -> compile error (`TYPE_PARSE_ERROR`).
-8. Using `value` attribute on `<text>/<code>` -> compile error (`XML_ATTR_NOT_ALLOWED`).
-9. Leaving `<text>/<code>` inline content empty -> compile error (`XML_EMPTY_NODE_CONTENT`).
+3. Unknown/invalid include target -> compile error.
+4. Include cycle -> compile error.
+5. Duplicate type name or duplicate field name -> compile error.
+6. Unknown custom type reference -> compile error.
+7. Recursive custom type reference -> compile error.
+8. Calling unknown script ID -> runtime error.
+9. Ref mode mismatch with script param declaration -> runtime error.
+10. Condition not boolean at runtime -> runtime error.
+11. Writing wrong type, `undefined`, or `null` into declared script variables -> runtime error.
+12. Using `null` as a declared type (`type="null"` or `args="x:null"`) -> compile error (`TYPE_PARSE_ERROR`).
+13. Using `value` attribute on `<text>/<code>` -> compile error (`XML_ATTR_NOT_ALLOWED`).
+14. Leaving `<text>/<code>` inline content empty -> compile error (`XML_EMPTY_NODE_CONTENT`).

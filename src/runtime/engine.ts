@@ -55,6 +55,20 @@ const assertSupportedPrimitiveType = (
   }
 };
 
+const isMapValue = (value: unknown): value is Map<unknown, unknown> => {
+  return Object.prototype.toString.call(value) === "[object Map]";
+};
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> => {
+  if (value === null || typeof value !== "object") {
+    return false;
+  }
+  if (Array.isArray(value) || isMapValue(value)) {
+    return false;
+  }
+  return true;
+};
+
 const defaultValueFromType = (type: ScriptType): unknown => {
   if (type.kind === "primitive") {
     assertSupportedPrimitiveType(type.name, "ENGINE_TYPE_MISMATCH");
@@ -63,7 +77,12 @@ const defaultValueFromType = (type: ScriptType): unknown => {
     return false;
   }
   if (type.kind === "array") return [];
-  return new Map<string, unknown>();
+  if (type.kind === "map") return new Map<string, unknown>();
+  const value: Record<string, unknown> = {};
+  for (const [fieldName, fieldType] of Object.entries(type.fields)) {
+    value[fieldName] = defaultValueFromType(fieldType);
+  }
+  return value;
 };
 
 const parseRefPath = (path: string): string[] => {
@@ -84,11 +103,32 @@ const isTypeCompatible = (value: unknown, type: ScriptType): boolean => {
   if (type.kind === "array") {
     return Array.isArray(value) && value.every((item) => isTypeCompatible(item, type.elementType));
   }
-  if (!(value instanceof Map)) {
+  if (type.kind === "map") {
+    if (!isMapValue(value)) {
+      return false;
+    }
+    for (const [key, mapValue] of value.entries()) {
+      if (typeof key !== "string" || !isTypeCompatible(mapValue, type.valueType)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  if (!isPlainObject(value)) {
     return false;
   }
-  for (const [key, mapValue] of value.entries()) {
-    if (typeof key !== "string" || !isTypeCompatible(mapValue, type.valueType)) {
+  const keys = Object.keys(value);
+  const expectedKeys = Object.keys(type.fields);
+  if (keys.length !== expectedKeys.length) {
+    return false;
+  }
+  for (let i = 0; i < expectedKeys.length; i += 1) {
+    const key = expectedKeys[i];
+    if (!(key in value)) {
+      return false;
+    }
+    if (!isTypeCompatible(value[key], type.fields[key])) {
       return false;
     }
   }
@@ -104,7 +144,13 @@ const assertSnapshotTypeSupported = (type: ScriptType): void => {
     assertSnapshotTypeSupported(type.elementType);
     return;
   }
-  assertSnapshotTypeSupported(type.valueType);
+  if (type.kind === "map") {
+    assertSnapshotTypeSupported(type.valueType);
+    return;
+  }
+  for (const fieldType of Object.values(type.fields)) {
+    assertSnapshotTypeSupported(fieldType);
+  }
 };
 
 export interface ScriptLangEngineOptions {

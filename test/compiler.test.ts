@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
 
-import { ScriptLangError, compileScript } from "../src/index.js";
+import { ScriptLangError, compileProjectScriptsFromXmlMap, compileScript } from "../src/index.js";
 
 test("compile script into implicit groups with params and var nodes", () => {
   const xml = `
@@ -257,5 +257,157 @@ test("script name is required", () => {
       assert.equal(e.code, "XML_MISSING_ATTR");
       return true;
     }
+  );
+});
+
+const expectCode = (fn: () => unknown, code: string): void => {
+  assert.throws(fn, (error: unknown) => {
+    assert.ok(error instanceof ScriptLangError);
+    assert.equal(error.code, code);
+    return true;
+  });
+};
+
+test("project compiler validates types include graph and script type references", () => {
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main.script.xml": `<!-- include: bad.types.xml -->
+<script name="main"><text>x</text></script>`,
+        "bad.types.xml": `<types name="bad"><bad/></types>`,
+      }),
+    "XML_TYPES_NODE_INVALID"
+  );
+
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main.script.xml": `<!-- include: bad.types.xml -->
+<script name="main"><text>x</text></script>`,
+        "bad.types.xml": `<types name="bad"><type name="A"><bad/></type></types>`,
+      }),
+    "XML_TYPES_FIELD_INVALID"
+  );
+
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main.script.xml": `<!-- include: bad.types.xml -->
+<script name="main"><text>x</text></script>`,
+        "bad.types.xml": `<types name="bad"><type name="A"><field name="x" type="number"/><field name="x" type="number"/></type></types>`,
+      }),
+    "TYPE_FIELD_DUPLICATE"
+  );
+
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main.script.xml": `<!-- include: bad.types.xml -->
+<script name="main"><text>x</text></script>`,
+        "bad.types.xml": `<types name="bad"><type name="A"><field name="x" type="Missing"/></type></types>`,
+      }),
+    "TYPE_UNKNOWN"
+  );
+
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main.script.xml": `<!-- include: bad.types.xml -->
+<script name="main"><text>x</text></script>`,
+        "bad.types.xml": `<types name="bad"><type name="A"><field name="x" type="A"/></type></types>`,
+      }),
+    "TYPE_RECURSIVE"
+  );
+
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main.script.xml": `<!-- include:  -->
+<script name="main"><text>x</text></script>`,
+      }),
+    "XML_INCLUDE_INVALID"
+  );
+
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main.script.xml": `<!-- include: /abs.types.xml -->
+<script name="main"><text>x</text></script>`,
+        "/abs.types.xml": `<types name="abs"></types>`,
+      }),
+    "XML_INCLUDE_INVALID"
+  );
+
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main.script.xml": `<!-- include: bad.xml -->
+<script name="main"><text>x</text></script>`,
+        "bad.xml": `<invalid/>`,
+      }),
+    "XML_INVALID_ROOT"
+  );
+
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main.script.xml": `<script name="main"><var name="v" type="Missing"/><text>x</text></script>`,
+      }),
+    "TYPE_UNKNOWN"
+  );
+
+  const compiled = compileProjectScriptsFromXmlMap({
+    "a.script.xml": `<!-- include: shared.types.xml -->
+<script name="a"><text>a</text></script>`,
+    "b.script.xml": `<!-- include: shared.types.xml -->
+<script name="b"><text>b</text></script>`,
+    "shared.types.xml": `<types name="shared"><type name="Score"><field name="n" type="number"/></type></types>`,
+  });
+  assert.deepEqual(Object.keys(compiled).sort(), ["a", "b"]);
+});
+
+test("project compiler include source defensive branches", () => {
+  const missingOnFirstRead = new Proxy(
+    {
+      "main.script.xml": `<script name="main"><text>x</text></script>`,
+    },
+    {
+      get(target, prop, receiver) {
+        if (prop === "main.script.xml") {
+          return undefined;
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    }
+  );
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap(
+        missingOnFirstRead as unknown as Record<string, string>
+      ),
+    "XML_INCLUDE_MISSING"
+  );
+
+  let reads = 0;
+  const missingOnSecondRead = new Proxy(
+    {
+      "main.script.xml": `<script name="main"><text>x</text></script>`,
+    },
+    {
+      get(target, prop, receiver) {
+        if (prop === "main.script.xml") {
+          reads += 1;
+          return reads === 1 ? target["main.script.xml"] : undefined;
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    }
+  );
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap(
+        missingOnSecondRead as unknown as Record<string, string>
+      ),
+    "XML_INCLUDE_MISSING"
   );
 });

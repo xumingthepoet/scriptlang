@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { ScriptLangError } from "../core/errors.js";
 import type {
   CallArgument,
@@ -22,6 +24,35 @@ import { parseXmlDocument } from "./xml.js";
 import type { XmlElementNode, XmlNode } from "./xml-types.js";
 
 const REMOVED_NODES = new Set(["vars", "step", "set", "push", "remove"]);
+const INCLUDE_DIRECTIVE = /^<!--\s*include:\s*(.+?)\s*-->$/;
+const CUSTOM_TYPE_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+type NamedTypeResolver = ((name: string, span: SourceSpan) => ScriptType) | undefined;
+
+type ParsedTypeExpr =
+  | { kind: "primitive"; name: "number" | "string" | "boolean" }
+  | { kind: "array"; elementType: ParsedTypeExpr }
+  | { kind: "map"; valueType: ParsedTypeExpr }
+  | { kind: "custom"; name: string };
+
+interface ParsedTypeFieldDecl {
+  name: string;
+  typeExpr: ParsedTypeExpr;
+  location: SourceSpan;
+}
+
+interface ParsedTypeDecl {
+  name: string;
+  fields: ParsedTypeFieldDecl[];
+  location: SourceSpan;
+  sourcePath: string;
+  collectionName: string;
+}
+
+export interface CompileScriptOptions {
+  resolveNamedType?: (name: string, span: SourceSpan) => ScriptType;
+}
+
 function getAttr(node: XmlElementNode, name: string, required = false): string | null {
   const value = node.attributes[name];
   if (required && (value === undefined || value === "")) {
@@ -67,19 +98,50 @@ class GroupBuilder {
   }
 }
 
-const parseType = (raw: string, span: SourceSpan): ScriptType => {
+const parseTypeExpr = (raw: string, span: SourceSpan): ParsedTypeExpr => {
   const source = raw.trim();
   if (source === "number" || source === "string" || source === "boolean") {
     return { kind: "primitive", name: source };
   }
   if (source.endsWith("[]")) {
-    return { kind: "array", elementType: parseType(source.slice(0, -2), span) };
+    return { kind: "array", elementType: parseTypeExpr(source.slice(0, -2), span) };
   }
   const mapMatch = source.match(/^Map<string,\s*(.+)>$/);
   if (mapMatch) {
-    return { kind: "map", keyType: "string", valueType: parseType(mapMatch[1], span) };
+    return { kind: "map", valueType: parseTypeExpr(mapMatch[1], span) };
+  }
+  if (CUSTOM_TYPE_NAME_PATTERN.test(source)) {
+    return { kind: "custom", name: source };
   }
   throw new ScriptLangError("TYPE_PARSE_ERROR", `Unsupported type syntax: "${raw}".`, span);
+};
+
+const resolveTypeExpr = (
+  expr: ParsedTypeExpr,
+  span: SourceSpan,
+  resolveNamedType?: (name: string, span: SourceSpan) => ScriptType
+): ScriptType => {
+  if (expr.kind === "primitive") {
+    return { kind: "primitive", name: expr.name };
+  }
+  if (expr.kind === "array") {
+    return { kind: "array", elementType: resolveTypeExpr(expr.elementType, span, resolveNamedType) };
+  }
+  if (expr.kind === "map") {
+    return { kind: "map", keyType: "string", valueType: resolveTypeExpr(expr.valueType, span, resolveNamedType) };
+  }
+  if (!resolveNamedType) {
+    throw new ScriptLangError("TYPE_PARSE_ERROR", `Unsupported type syntax: "${expr.name}".`, span);
+  }
+  return resolveNamedType(expr.name, span);
+};
+
+const parseType = (
+  raw: string,
+  span: SourceSpan,
+  resolveNamedType?: (name: string, span: SourceSpan) => ScriptType
+): ScriptType => {
+  return resolveTypeExpr(parseTypeExpr(raw, span), span, resolveNamedType);
 };
 
 const splitByTopLevelComma = (raw: string): string[] => {
@@ -133,7 +195,7 @@ const splitByTopLevelComma = (raw: string): string[] => {
   return parts;
 };
 
-const parseScriptArgs = (root: XmlElementNode): ScriptParam[] => {
+const parseScriptArgs = (root: XmlElementNode, resolveNamedType?: NamedTypeResolver): ScriptParam[] => {
   const raw = getAttr(root, "args", false);
   if (!raw || raw.trim().length === 0) {
     return [];
@@ -167,7 +229,7 @@ const parseScriptArgs = (root: XmlElementNode): ScriptParam[] => {
     names.add(name);
     params.push({
       name,
-      type: parseType(typeSource, root.location),
+      type: parseType(typeSource, root.location, resolveNamedType),
       isRef,
       location: root.location,
     });
@@ -223,13 +285,16 @@ const parseInlineRequired = (node: XmlElementNode): string => {
   return content;
 };
 
-const parseVarDeclaration = (node: XmlElementNode): VarDeclaration => {
+const parseVarDeclaration = (
+  node: XmlElementNode,
+  resolveNamedType?: NamedTypeResolver
+): VarDeclaration => {
   const name = getAttr(node, "name", true) as string;
   const typeSource = getAttr(node, "type", true) as string;
   const initialValueExpr = getAttr(node, "value", false);
   return {
     name,
-    type: parseType(typeSource, node.location),
+    type: parseType(typeSource, node.location, resolveNamedType),
     initialValueExpr,
     location: node.location,
   };
@@ -239,7 +304,8 @@ const compileGroup = (
   groupId: string,
   parentGroupId: string | null,
   container: XmlElementNode,
-  builder: GroupBuilder
+  builder: GroupBuilder,
+  resolveNamedType?: NamedTypeResolver
 ): void => {
   const nodes: ScriptNode[] = [];
   builder.groups[groupId] = {
@@ -264,7 +330,7 @@ const compileGroup = (
       const varNode: VarNode = {
         id: builder.nextNodeId("var"),
         kind: "var",
-        declaration: parseVarDeclaration(child),
+        declaration: parseVarDeclaration(child, resolveNamedType),
         location: child.location,
       };
       compiled = varNode;
@@ -292,9 +358,9 @@ const compileGroup = (
         ...child,
         children: asElements(child.children).filter((x) => x.name !== "else"),
       };
-      compileGroup(thenGroupId, groupId, thenContainer, builder);
+      compileGroup(thenGroupId, groupId, thenContainer, builder, resolveNamedType);
       if (elseNode) {
-        compileGroup(elseGroupId, groupId, elseNode, builder);
+        compileGroup(elseGroupId, groupId, elseNode, builder, resolveNamedType);
       } else {
         builder.groups[elseGroupId] = {
           groupId: elseGroupId,
@@ -314,7 +380,7 @@ const compileGroup = (
       compiled = ifNode;
     } else if (child.name === "while") {
       const bodyGroupId = builder.nextGroupId();
-      compileGroup(bodyGroupId, groupId, child, builder);
+      compileGroup(bodyGroupId, groupId, child, builder, resolveNamedType);
       const whileNode: WhileNode = {
         id: builder.nextNodeId("while"),
         kind: "while",
@@ -334,7 +400,7 @@ const compileGroup = (
           );
         }
         const optionGroupId = builder.nextGroupId();
-        compileGroup(optionGroupId, groupId, option, builder);
+        compileGroup(optionGroupId, groupId, option, builder, resolveNamedType);
         options.push({
           id: builder.nextChoiceId(),
           text: getAttr(option, "text", true) as string,
@@ -382,7 +448,204 @@ const compileGroup = (
   }
 };
 
-export const compileScript = (xmlSource: string, scriptPath: string): ScriptIR => {
+const parseTypeDeclarationsFromRoot = (root: XmlElementNode, sourcePath: string): ParsedTypeDecl[] => {
+  const collectionName = getAttr(root, "name", true) as string;
+  const declarations: ParsedTypeDecl[] = [];
+
+  for (const child of asElements(root.children)) {
+    if (child.name !== "type") {
+      throw new ScriptLangError(
+        "XML_TYPES_NODE_INVALID",
+        `<types> only accepts <type>, got <${child.name}>.`,
+        child.location
+      );
+    }
+    const typeName = getAttr(child, "name", true) as string;
+    const fields: ParsedTypeFieldDecl[] = [];
+    const fieldNames = new Set<string>();
+    for (const fieldNode of asElements(child.children)) {
+      if (fieldNode.name !== "field") {
+        throw new ScriptLangError(
+          "XML_TYPES_FIELD_INVALID",
+          `<type> only accepts <field>, got <${fieldNode.name}>.`,
+          fieldNode.location
+        );
+      }
+      const fieldName = getAttr(fieldNode, "name", true) as string;
+      if (fieldNames.has(fieldName)) {
+        throw new ScriptLangError(
+          "TYPE_FIELD_DUPLICATE",
+          `Field "${fieldName}" is declared more than once in type "${typeName}".`,
+          fieldNode.location
+        );
+      }
+      fieldNames.add(fieldName);
+      const fieldTypeRaw = getAttr(fieldNode, "type", true) as string;
+      fields.push({
+        name: fieldName,
+        typeExpr: parseTypeExpr(fieldTypeRaw, fieldNode.location),
+        location: fieldNode.location,
+      });
+    }
+    declarations.push({
+      name: typeName,
+      fields,
+      location: child.location,
+      sourcePath,
+      collectionName,
+    });
+  }
+
+  return declarations;
+};
+
+const resolveTypeDeclarations = (decls: ParsedTypeDecl[]): Record<string, ScriptType> => {
+  const byName = new Map<string, ParsedTypeDecl>();
+  for (let i = 0; i < decls.length; i += 1) {
+    const decl = decls[i];
+    if (byName.has(decl.name)) {
+      throw new ScriptLangError(
+        "TYPE_DECL_DUPLICATE",
+        `Type "${decl.name}" is declared more than once.`,
+        decl.location
+      );
+    }
+    byName.set(decl.name, decl);
+  }
+
+  const resolved = new Map<string, ScriptType>();
+  const resolving: string[] = [];
+
+  const resolveByName = (typeName: string, span: SourceSpan): ScriptType => {
+    const cached = resolved.get(typeName);
+    if (cached) {
+      return cached;
+    }
+
+    const decl = byName.get(typeName);
+    if (!decl) {
+      throw new ScriptLangError("TYPE_UNKNOWN", `Unknown type "${typeName}".`, span);
+    }
+
+    if (resolving.includes(typeName)) {
+      const cycle = [...resolving, typeName].join(" -> ");
+      throw new ScriptLangError(
+        "TYPE_RECURSIVE",
+        `Recursive custom type reference detected: ${cycle}.`,
+        decl.location
+      );
+    }
+
+    resolving.push(typeName);
+    const fields: Record<string, ScriptType> = {};
+    for (let i = 0; i < decl.fields.length; i += 1) {
+      const field = decl.fields[i];
+      fields[field.name] = resolveTypeExpr(field.typeExpr, field.location, resolveByName);
+    }
+
+    resolving.pop();
+    const objectType: ScriptType = {
+      kind: "object",
+      typeName,
+      fields,
+    };
+    resolved.set(typeName, objectType);
+    return objectType;
+  };
+
+  for (const [name, decl] of byName.entries()) {
+    resolveByName(name, decl.location);
+  }
+
+  return Object.fromEntries(resolved.entries());
+};
+
+const parseIncludeDirectives = (xmlSource: string): string[] => {
+  const includes: string[] = [];
+  const lines = xmlSource.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i].trim();
+    if (line.length === 0) {
+      continue;
+    }
+    const match = line.match(INCLUDE_DIRECTIVE);
+    if (match) {
+      includes.push(match[1].trim());
+      continue;
+    }
+    break;
+  }
+  return includes;
+};
+
+const resolveIncludePath = (currentPath: string, includeSource: string): string => {
+  const normalizedInput = includeSource.replace(/\\/g, "/").trim();
+  if (normalizedInput.length === 0) {
+    throw new ScriptLangError("XML_INCLUDE_INVALID", "Include path cannot be empty.");
+  }
+  if (path.posix.isAbsolute(normalizedInput)) {
+    throw new ScriptLangError(
+      "XML_INCLUDE_INVALID",
+      `Include path must be relative: "${includeSource}".`
+    );
+  }
+  return path.posix.normalize(path.posix.join(path.posix.dirname(currentPath), normalizedInput));
+};
+
+const collectReachablePaths = (xmlByPath: Record<string, string>): string[] => {
+  const roots = Object.keys(xmlByPath)
+    .filter((filePath) => filePath.endsWith(".script.xml"))
+    .sort();
+  if (roots.length === 0) {
+    return [];
+  }
+
+  const visited = new Set<string>();
+  const stack: string[] = [];
+
+  const visit = (filePath: string): void => {
+    if (visited.has(filePath)) {
+      return;
+    }
+    const cycleStart = stack.indexOf(filePath);
+    if (cycleStart >= 0) {
+      const cycle = [...stack.slice(cycleStart), filePath].join(" -> ");
+      throw new ScriptLangError("XML_INCLUDE_CYCLE", `Include cycle detected: ${cycle}.`);
+    }
+
+    const source = xmlByPath[filePath];
+    if (source === undefined) {
+      throw new ScriptLangError("XML_INCLUDE_MISSING", `Included file not found: ${filePath}.`);
+    }
+
+    stack.push(filePath);
+    const includes = parseIncludeDirectives(source);
+    for (let i = 0; i < includes.length; i += 1) {
+      const includeTarget = resolveIncludePath(filePath, includes[i]);
+      if (!(includeTarget in xmlByPath)) {
+        throw new ScriptLangError(
+          "XML_INCLUDE_MISSING",
+          `Included file "${includes[i]}" not found from "${filePath}".`
+        );
+      }
+      visit(includeTarget);
+    }
+    stack.pop();
+    visited.add(filePath);
+  };
+
+  for (let i = 0; i < roots.length; i += 1) {
+    visit(roots[i]);
+  }
+
+  return Array.from(visited).sort();
+};
+
+export const compileScript = (
+  xmlSource: string,
+  scriptPath: string,
+  options: CompileScriptOptions = {}
+): ScriptIR => {
   const document = parseXmlDocument(xmlSource);
   const root = document.root;
   if (root.name !== "script") {
@@ -394,10 +657,10 @@ export const compileScript = (xmlSource: string, scriptPath: string): ScriptIR =
   }
 
   const scriptName = getAttr(root, "name", true) as string;
-  const params = parseScriptArgs(root);
+  const params = parseScriptArgs(root, options.resolveNamedType);
   const builder = new GroupBuilder(scriptPath);
   const rootGroupId = builder.nextGroupId();
-  compileGroup(rootGroupId, null, root, builder);
+  compileGroup(rootGroupId, null, root, builder, options.resolveNamedType);
 
   return {
     scriptPath,
@@ -406,4 +669,68 @@ export const compileScript = (xmlSource: string, scriptPath: string): ScriptIR =
     rootGroupId,
     groups: builder.groups,
   };
+};
+
+export const compileProjectScriptsFromXmlMap = (
+  xmlByPath: Record<string, string>
+): Record<string, ScriptIR> => {
+  const reachablePaths = collectReachablePaths(xmlByPath);
+  if (reachablePaths.length === 0) {
+    return {};
+  }
+
+  const parsedRoots: Record<string, XmlElementNode> = {};
+  const typeDecls: ParsedTypeDecl[] = [];
+
+  for (let i = 0; i < reachablePaths.length; i += 1) {
+    const filePath = reachablePaths[i];
+    const source = xmlByPath[filePath];
+    if (source === undefined) {
+      throw new ScriptLangError("XML_INCLUDE_MISSING", `Included file not found: ${filePath}.`);
+    }
+    const document = parseXmlDocument(source);
+    const root = document.root;
+    parsedRoots[filePath] = root;
+
+    if (root.name === "types") {
+      typeDecls.push(...parseTypeDeclarationsFromRoot(root, filePath));
+      continue;
+    }
+    if (root.name !== "script") {
+      throw new ScriptLangError(
+        "XML_INVALID_ROOT",
+        `Expected <script> or <types> as root but got <${root.name}>.`,
+        root.location
+      );
+    }
+  }
+
+  const resolvedTypes = resolveTypeDeclarations(typeDecls);
+  const resolveNamedType = (name: string, span: SourceSpan): ScriptType => {
+    const resolved = resolvedTypes[name];
+    if (!resolved) {
+      throw new ScriptLangError("TYPE_UNKNOWN", `Unknown type "${name}".`, span);
+    }
+    return resolved;
+  };
+
+  const compiled: Record<string, ScriptIR> = {};
+  for (let i = 0; i < reachablePaths.length; i += 1) {
+    const filePath = reachablePaths[i];
+    if (parsedRoots[filePath].name !== "script") {
+      continue;
+    }
+    const ir = compileScript(xmlByPath[filePath], filePath, {
+      resolveNamedType,
+    });
+    if (compiled[ir.scriptName]) {
+      throw new ScriptLangError(
+        "API_DUPLICATE_SCRIPT_NAME",
+        `Duplicate script name "${ir.scriptName}" found across XML inputs.`
+      );
+    }
+    compiled[ir.scriptName] = ir;
+  }
+
+  return compiled;
 };

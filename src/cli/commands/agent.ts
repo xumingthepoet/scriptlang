@@ -62,6 +62,9 @@ const emitError = (writeLine: WriteLine, error: unknown): number => {
   ) {
     code = "CLI_ENTRY_MAIN_NOT_FOUND";
   }
+  if (code === "API_ENTRY_MAIN_NOT_FOUND") {
+    code = "CLI_ENTRY_MAIN_NOT_FOUND";
+  }
 
   writeLine("RESULT:ERROR");
   writeLine(`ERROR_CODE:${code}`);

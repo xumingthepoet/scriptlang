@@ -3,7 +3,8 @@ export type PrimitiveTypeName = "number" | "string" | "boolean";
 export type ScriptType =
   | { kind: "primitive"; name: PrimitiveTypeName }
   | { kind: "array"; elementType: ScriptType }
-  | { kind: "map"; keyType: "string"; valueType: ScriptType };
+  | { kind: "map"; keyType: "string"; valueType: ScriptType }
+  | { kind: "object"; typeName: string; fields: Record<string, ScriptType> };
 
 export interface SourceLocation {
   line: number;

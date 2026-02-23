@@ -240,4 +240,19 @@ test("agent error protocol paths", () => {
   assert.equal(unknownErrorCode, 1);
   assert.ok(lines.some((line) => line.startsWith("ERROR_CODE:CLI_ERROR")));
   assert.ok(lines.some((line) => line.startsWith("ERROR_MSG_JSON:\"Unknown CLI error.\"")));
+
+  const mappedLines: string[] = [];
+  let mappedWriteCount = 0;
+  const engineMainError = Object.assign(new Error('Entry script "main" is not registered.'), {
+    code: "ENGINE_SCRIPT_NOT_FOUND",
+  });
+  const mappedCode = runAgentCommand(["list"], (line) => {
+    mappedWriteCount += 1;
+    if (mappedWriteCount === 1) {
+      throw engineMainError;
+    }
+    mappedLines.push(line);
+  });
+  assert.equal(mappedCode, 1);
+  assert.ok(mappedLines.some((line) => line.startsWith("ERROR_CODE:CLI_ENTRY_MAIN_NOT_FOUND")));
 });

@@ -38,14 +38,14 @@ const expectCode = (fn: () => unknown, code: string): void => {
 
 test("api supports host function usage path", () => {
   const engine = createEngineFromXml({
-    entryScript: "main.script.xml",
+    entryScript: "main",
     compilerVersion: "dev",
     hostFunctions: {
       add: (...args: unknown[]) => Number(args[0]) + Number(args[1]),
     },
     scriptsXml: {
       "main.script.xml": `
-<script name="main.script.xml">
+<script name="main">
   <var name="hp" type="number" value="1"/>
   <code>hp = add(hp, 2);</code>
   <text>v=\${hp}</text>

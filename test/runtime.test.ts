@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
 
-import { ScriptLangEngine, ScriptLangError, compileScript } from "../src/index.js";
+import {
+  ScriptLangEngine,
+  ScriptLangError,
+  compileScript,
+  createEngineFromXml,
+} from "../src/index.js";
 
 const expectCode = (fn: () => unknown, code: string): void => {
   assert.throws(fn, (error: unknown) => {
@@ -368,4 +373,203 @@ test("var declaration without value uses type default", () => {
   });
   engine.start("main");
   assert.deepEqual(engine.next(), { kind: "text", text: "hp=0" });
+});
+
+test("custom object types default recursively and enforce strict fields", () => {
+  const typesXml = `
+<types name="gamestate">
+  <type name="Actor">
+    <field name="hp" type="number"/>
+    <field name="name" type="string"/>
+  </type>
+  <type name="BattleState">
+    <field name="player" type="Actor"/>
+    <field name="enemy" type="Actor"/>
+  </type>
+</types>
+`;
+
+  const engine = createEngineFromXml({
+    scriptsXml: {
+      "main.script.xml": `
+<!-- include: gamestate.types.xml -->
+<script name="main">
+  <var name="state" type="BattleState"/>
+  <text>\${state.player.hp}:\${state.enemy.hp}</text>
+</script>
+`,
+      "gamestate.types.xml": typesXml,
+    },
+  });
+  assert.deepEqual(engine.next(), { kind: "text", text: "0:0" });
+
+  const missingFieldEngine = createEngineFromXml({
+    scriptsXml: {
+      "main.script.xml": `
+<!-- include: gamestate.types.xml -->
+<script name="main">
+  <var name="state" type="BattleState" value="{ player: { hp: 1, name: 'a' } }"/>
+  <text>bad</text>
+</script>
+`,
+      "gamestate.types.xml": typesXml,
+    },
+  });
+  expectCode(() => missingFieldEngine.next(), "ENGINE_TYPE_MISMATCH");
+
+  const extraFieldEngine = createEngineFromXml({
+    scriptsXml: {
+      "main.script.xml": `
+<!-- include: gamestate.types.xml -->
+<script name="main">
+  <var name="state" type="BattleState" value="{ player: { hp: 1, name: 'a', extra: 1 }, enemy: { hp: 2, name: 'b' } }"/>
+  <text>bad</text>
+</script>
+`,
+      "gamestate.types.xml": typesXml,
+    },
+  });
+  expectCode(() => extraFieldEngine.next(), "ENGINE_TYPE_MISMATCH");
+});
+
+test("custom object fields support nested array and map typing", () => {
+  const ok = createEngineFromXml({
+    scriptsXml: {
+      "main.script.xml": `
+<!-- include: complex.types.xml -->
+<script name="main">
+  <var name="bag" type="Complex" value="{ items: [1,2], scores: new Map([['a', 1]]) }"/>
+  <text>ok</text>
+</script>
+`,
+      "complex.types.xml": `
+<types name="complex">
+  <type name="Complex">
+    <field name="items" type="number[]"/>
+    <field name="scores" type="Map&lt;string,number&gt;"/>
+  </type>
+</types>
+`,
+    },
+  });
+  assert.deepEqual(ok.next(), { kind: "text", text: "ok" });
+
+  const badNested = createEngineFromXml({
+    scriptsXml: {
+      "main.script.xml": `
+<!-- include: complex.types.xml -->
+<script name="main">
+  <var name="bag" type="Complex" value="{ items: [1], scores: new Map([['a', 'bad']]) }"/>
+  <text>x</text>
+</script>
+`,
+      "complex.types.xml": `
+<types name="complex">
+  <type name="Complex">
+    <field name="items" type="number[]"/>
+    <field name="scores" type="Map&lt;string,number&gt;"/>
+  </type>
+</types>
+`,
+    },
+  });
+  expectCode(() => badNested.next(), "ENGINE_TYPE_MISMATCH");
+});
+
+test("object type rejects null/array and missing expected key with same key count", () => {
+  const typesXml = `
+<types name="pair">
+  <type name="Pair">
+    <field name="a" type="number"/>
+    <field name="b" type="number"/>
+  </type>
+</types>
+`;
+
+  const nullValue = createEngineFromXml({
+    scriptsXml: {
+      "main.script.xml": `
+<!-- include: pair.types.xml -->
+<script name="main">
+  <var name="p" type="Pair" value="null"/>
+</script>
+`,
+      "pair.types.xml": typesXml,
+    },
+  });
+  expectCode(() => nullValue.next(), "ENGINE_TYPE_MISMATCH");
+
+  const arrayValue = createEngineFromXml({
+    scriptsXml: {
+      "main.script.xml": `
+<!-- include: pair.types.xml -->
+<script name="main">
+  <var name="p" type="Pair" value="[1,2]"/>
+</script>
+`,
+      "pair.types.xml": typesXml,
+    },
+  });
+  expectCode(() => arrayValue.next(), "ENGINE_TYPE_MISMATCH");
+
+  const wrongKeySet = createEngineFromXml({
+    scriptsXml: {
+      "main.script.xml": `
+<!-- include: pair.types.xml -->
+<script name="main">
+  <var name="p" type="Pair" value="{ a: 1, c: 2 }"/>
+</script>
+`,
+      "pair.types.xml": typesXml,
+    },
+  });
+  expectCode(() => wrongKeySet.next(), "ENGINE_TYPE_MISMATCH");
+});
+
+test("resume rejects snapshot object varTypes with nested unsupported primitive", () => {
+  const typesXml = `
+<types name="holder">
+  <type name="Holder">
+    <field name="hp" type="number"/>
+  </type>
+</types>
+`;
+  const engine = createEngineFromXml({
+    scriptsXml: {
+      "main.script.xml": `
+<!-- include: holder.types.xml -->
+<script name="main">
+  <var name="h" type="Holder"/>
+  <choice>
+    <option text="ok"><text>x</text></option>
+  </choice>
+</script>
+`,
+      "holder.types.xml": typesXml,
+    },
+  });
+  const out = engine.next();
+  assert.equal(out.kind, "choices");
+  const snapshot = engine.snapshot();
+  const objectWithNull = JSON.parse(
+    '{"kind":"object","typeName":"Holder","fields":{"hp":{"kind":"primitive","name":"null"}}}'
+  );
+  const mutated = structuredClone(snapshot);
+  mutated.runtimeFrames[0].varTypes = { h: objectWithNull };
+
+  const restored = createEngineFromXml({
+    scriptsXml: {
+      "main.script.xml": `
+<!-- include: holder.types.xml -->
+<script name="main">
+  <var name="h" type="Holder"/>
+  <choice>
+    <option text="ok"><text>x</text></option>
+  </choice>
+</script>
+`,
+      "holder.types.xml": typesXml,
+    },
+  });
+  expectCode(() => restored.resume(mutated), "SNAPSHOT_TYPE_UNSUPPORTED");
 });

@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
 
-import { compileScriptsFromXmlMap, createEngineFromXml, resumeEngineFromXml } from "../src/index.js";
+import {
+  compileProjectFromXmlMap,
+  compileScriptsFromXmlMap,
+  createEngineFromXml,
+  resumeEngineFromXml,
+} from "../src/index.js";
 
 test("createEngineFromXml and resumeEngineFromXml", () => {
   const scriptsXml = {
@@ -65,7 +70,6 @@ test("createEngineFromXml works with default optional options", () => {
     scriptsXml: {
       "main.script.xml": `<script name="main"><text>ok</text></script>`,
     },
-    entryScript: "main",
   });
   assert.deepEqual(engine.next(), { kind: "text", text: "ok" });
 });
@@ -118,5 +122,98 @@ test("api create/resume error paths", () => {
       snapshot: engine.snapshot(),
       compilerVersion: "not-dev",
     })
+  );
+});
+
+test("compile project supports include graph and global custom types", () => {
+  const xmlByPath = {
+    "main.script.xml": `
+<!-- include: gamestate.types.xml -->
+<script name="main" args="state:BattleState">
+  <text>p=\${state.player.hp},e=\${state.enemy.hp}</text>
+</script>
+`,
+    "gamestate.types.xml": `
+<types name="gamestate">
+  <type name="Actor">
+    <field name="hp" type="number"/>
+    <field name="label" type="string"/>
+  </type>
+  <type name="BattleState">
+    <field name="player" type="Actor"/>
+    <field name="enemy" type="Actor"/>
+  </type>
+</types>
+`,
+    "unused.types.xml": `
+<types name="unused">
+  <type name="Ghost">
+    <field name="hp" type="number"/>
+  </type>
+</types>
+`,
+  };
+
+  const project = compileProjectFromXmlMap({ xmlByPath });
+  assert.equal(project.entryScript, "main");
+  assert.ok(project.scripts.main);
+
+  const engine = createEngineFromXml({ scriptsXml: xmlByPath });
+  assert.deepEqual(engine.next(), { kind: "text", text: "p=0,e=0" });
+});
+
+test("project include and type errors are surfaced", () => {
+  assert.throws(() =>
+    compileScriptsFromXmlMap({
+      "main.script.xml": `
+<!-- include: missing.types.xml -->
+<script name="main"><text>x</text></script>
+`,
+    })
+  );
+
+  assert.throws(() =>
+    compileScriptsFromXmlMap({
+      "main.script.xml": `
+<!-- include: extra.script.xml -->
+<script name="main"><text>x</text></script>
+`,
+      "extra.script.xml": `
+<!-- include: main.script.xml -->
+<script name="extra"><text>y</text></script>
+`,
+    })
+  );
+
+  assert.throws(() =>
+    compileScriptsFromXmlMap({
+      "main.script.xml": `
+<!-- include: types-a.types.xml -->
+<!-- include: types-b.types.xml -->
+<script name="main"><text>x</text></script>
+`,
+      "types-a.types.xml": `
+<types name="a"><type name="Dup"><field name="n" type="number"/></type></types>
+`,
+      "types-b.types.xml": `
+<types name="b"><type name="Dup"><field name="s" type="string"/></type></types>
+`,
+    })
+  );
+});
+
+test("createEngineFromXml requires main script to exist", () => {
+  assert.throws(
+    () =>
+      createEngineFromXml({
+        scriptsXml: {
+          "other.script.xml": `<script name="other"><text>x</text></script>`,
+        },
+      }),
+    (e: unknown) => {
+      assert.ok(e instanceof Error);
+      assert.equal((e as { code?: string }).code, "API_ENTRY_MAIN_NOT_FOUND");
+      return true;
+    }
   );
 });
