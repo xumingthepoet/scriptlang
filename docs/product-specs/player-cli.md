@@ -29,7 +29,7 @@ Both modes run the same ScriptLang engine semantics.
   - `04-call-ref-return`
   - `05-return-transfer`
   - `06-snapshot-flow`
-  - `07-battle-duel` (multi-file battle loop demo with call/ref and ending transfer)
+  - `07-battle-duel` (multi-file battle loop demo with custom `<type>` combatants, call/ref, and ending transfer)
 
 ## 3. TUI Mode
 
