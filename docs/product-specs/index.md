@@ -17,7 +17,7 @@
 1. Every script compiles to a root implicit group.
 2. `if/while/choice/call` execute via implicit child groups.
 3. Snapshot persistence is based on current node/group path + ancestor scopes.
-4. No language-level random builtin.
+4. Language-level `random()` builtin exists and is deterministic when seeded.
 5. Host function access is explicit and whitelisted.
 
 ## XML Surface (Implemented)
@@ -54,6 +54,7 @@
 - Snapshot:
   - Only allowed when `waitingChoice === true`.
   - Resume requires same compiler version string.
+  - Snapshot payload includes runtime RNG state and rendered pending choice items for deterministic resume.
 - Type behavior:
   - Script parameters come from `<script args="...">`.
   - `<call ... args="...">` arguments are positional and map by target script arg order.
@@ -67,3 +68,7 @@
   - Reachable included `.json` files are exposed as read-only globals by symbol name (`file.json -> file`) and are visible only in the including script's include closure.
   - Any write to JSON globals (top-level or nested) is a runtime error.
   - `createEngineFromXml` defaults to `main` when `entryScript` is omitted.
+- Builtins:
+  - `random()` is available in script expressions and `<code>` blocks without `hostFunctions`.
+  - `random()` accepts zero arguments only and returns a `uint32` integer in `[0, 4294967295]`.
+  - `Math.random` remains available and is not overridden by ScriptLang.

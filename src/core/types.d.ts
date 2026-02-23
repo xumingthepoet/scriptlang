@@ -155,8 +155,10 @@ export interface SnapshotV1 {
   scopeChain: RuntimeScopeFrame[];
   continuations: ContinuationFrame[];
   runtimeFrames: SnapshotFrameV1[];
+  rngState: number;
   waitingChoice: boolean;
   pendingChoiceNodeId: string | null;
+  pendingChoiceItems: ChoiceItem[];
 }
 
 export interface ChoiceItem {

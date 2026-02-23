@@ -23,10 +23,10 @@ This project follows an agent-first harness mindset:
    - Architecture is not static prose; it is maintained alongside behavior changes.
 7. **Deterministic core behavior**
    - Runtime behavior must be replayable from snapshot state.
-   - V1 avoids hidden nondeterminism in language built-ins.
+   - Language built-ins that affect control flow must be deterministic and captured by snapshot state.
 
 ## Practical Rules for ScriptLang
-- No builtin random in language semantics.
+- Builtin `random()` uses deterministic seeded PRNG semantics.
 - Variable mutation happens in `<code>` nodes only.
 - Snapshot/restore is group-stack based, not script-name based.
 - `call` semantics mirror entering a child group with continuation behavior.

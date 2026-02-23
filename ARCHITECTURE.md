@@ -15,6 +15,7 @@ This document defines strict module boundaries for `ScriptLang`.
    - Input: typed IR and registered host functions.
    - Output: `next()/choose()` progression outputs, snapshot, restore.
    - Maintains group stack and scope chain.
+   - Owns deterministic builtin random state and its snapshot contract.
 4. **Host Integration Layer**
    - Script registration, host function whitelist, persistence I/O.
    - No parser/compiler logic.
@@ -28,7 +29,7 @@ This document defines strict module boundaries for `ScriptLang`.
 ## Data Contracts (V1)
 - `ScriptIR`: root implicit group + node graph.
 - `GroupFrame`: group id path + scope object + instruction pointer.
-- `SnapshotV1`: execution cursor path, ancestor scopes, continuation frames, schema version.
+- `SnapshotV1`: execution cursor path, ancestor scopes, continuation frames, deterministic runtime state, schema version.
 
 ## Stability Rules
 - Internal IDs must be stable for identical source structure.

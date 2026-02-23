@@ -92,6 +92,13 @@ const parseRefPath = (path: string): string[] => {
     .filter(Boolean);
 };
 
+const MAX_UINT32 = 0xffffffff;
+const DEFAULT_RANDOM_SEED = 1;
+
+const isUint32Integer = (value: unknown): value is number => {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= MAX_UINT32;
+};
+
 const isTypeCompatible = (value: unknown, type: ScriptType): boolean => {
   if (value === undefined) {
     return false;
@@ -157,6 +164,7 @@ export interface ScriptLangEngineOptions {
   scripts: Record<string, ScriptIR>;
   globalJson?: Record<string, unknown>;
   hostFunctions?: HostFunctionMap;
+  randomSeed?: number;
   compilerVersion?: string;
 }
 
@@ -168,6 +176,7 @@ export class ScriptLangEngine {
   private readonly globalJsonRaw: Record<string, unknown>;
   private readonly globalJsonReadonly: Record<string, unknown>;
   private readonly visibleJsonByScript: Record<string, Set<string>>;
+  private readonly initialRandomSeed: number;
   private readonly readonlyProxyByRaw = new WeakMap<object, unknown>();
   private readonly rawByReadonlyProxy = new WeakMap<object, object>();
 
@@ -176,15 +185,25 @@ export class ScriptLangEngine {
   public waitingChoice = false;
   private frameCounter = 1;
   private ended = false;
+  private rngState = DEFAULT_RANDOM_SEED;
 
   constructor(options: ScriptLangEngineOptions) {
     this.scripts = options.scripts;
     this.globalJsonRaw = options.globalJson ?? {};
     this.hostFunctions = options.hostFunctions ?? {};
     this.compilerVersion = options.compilerVersion ?? "dev";
+    this.initialRandomSeed = this.normalizeRandomSeed(options.randomSeed);
+    this.rngState = this.initialRandomSeed;
     this.groupLookup = {};
     this.globalJsonReadonly = {};
     this.visibleJsonByScript = {};
+
+    if (Object.hasOwn(this.hostFunctions, "random")) {
+      throw new ScriptLangError(
+        "ENGINE_HOST_FUNCTION_RESERVED",
+        'hostFunctions cannot register reserved builtin name "random".'
+      );
+    }
 
     for (const [scriptName, script] of Object.entries(this.scripts)) {
       for (const [groupId, group] of Object.entries(script.groups)) {
@@ -361,8 +380,10 @@ export class ScriptLangEngine {
         .filter((f) => f.scriptRoot && f.returnContinuation)
         .map((f) => deepClone(f.returnContinuation as ContinuationFrame)),
       runtimeFrames,
+      rngState: this.rngState,
       waitingChoice: true,
       pendingChoiceNodeId: this.pendingChoice.nodeId,
+      pendingChoiceItems: this.pendingChoice.options.map((item) => ({ ...item })),
     };
   }
 
@@ -385,19 +406,21 @@ export class ScriptLangEngine {
         "Only waiting-choice snapshots are supported in V1."
       );
     }
+    if (!isUint32Integer(snapshot.rngState)) {
+      throw new ScriptLangError(
+        "SNAPSHOT_RNG_STATE",
+        "Snapshot rngState must be a uint32 integer."
+      );
+    }
+    this.assertSnapshotPendingChoiceItems(snapshot.pendingChoiceItems);
 
     this.reset();
+    this.rngState = snapshot.rngState;
     this.frames = snapshot.runtimeFrames.map((frame) => this.restoreFrame(frame));
     this.frameCounter = this.frames.reduce((max, frame) => (frame.frameId > max ? frame.frameId : max), 0) + 1;
     const top = this.requireSnapshotTopFrame();
     const node = this.requirePendingChoiceNode(top, snapshot.pendingChoiceNodeId);
-    const options = node.options
-      .filter((opt) => (opt.whenExpr ? this.evalBoolean(opt.whenExpr) : true))
-      .map((opt, index) => ({
-        index,
-        id: opt.id,
-        text: this.renderText(opt.text),
-      }));
+    const options = snapshot.pendingChoiceItems.map((item) => ({ ...item }));
     this.pendingChoice = {
       frameId: top.frameId,
       nodeId: node.id,
@@ -412,6 +435,7 @@ export class ScriptLangEngine {
     this.waitingChoice = false;
     this.ended = false;
     this.frameCounter = 1;
+    this.rngState = this.initialRandomSeed;
   }
 
   private throwReadonlyGlobalMutation(name: string | null = null): never {
@@ -827,6 +851,56 @@ export class ScriptLangEngine {
     this.frames = [];
   }
 
+  private normalizeRandomSeed(seedValue: number | undefined): number {
+    const resolved = seedValue ?? DEFAULT_RANDOM_SEED;
+    if (!isUint32Integer(resolved)) {
+      throw new ScriptLangError(
+        "ENGINE_RANDOM_SEED_INVALID",
+        "randomSeed must be an integer in [0, 4294967295]."
+      );
+    }
+    return resolved >>> 0;
+  }
+
+  private nextRandomUint32(): number {
+    let next = (this.rngState + 0x6d2b79f5) >>> 0;
+    this.rngState = next;
+    next = Math.imul(next ^ (next >>> 15), next | 1);
+    next ^= next + Math.imul(next ^ (next >>> 7), next | 61);
+    return (next ^ (next >>> 14)) >>> 0;
+  }
+
+  private evalRandomBuiltin(args: unknown[]): number {
+    if (args.length !== 0) {
+      throw new ScriptLangError("ENGINE_RANDOM_ARITY", "random() expects zero arguments.");
+    }
+    return this.nextRandomUint32();
+  }
+
+  private assertSnapshotPendingChoiceItems(value: unknown): asserts value is ChoiceItem[] {
+    if (!Array.isArray(value)) {
+      throw new ScriptLangError(
+        "SNAPSHOT_PENDING_CHOICE_ITEMS",
+        "Snapshot pendingChoiceItems must be an array."
+      );
+    }
+    for (let i = 0; i < value.length; i += 1) {
+      const item = value[i];
+      if (
+        !item ||
+        typeof item !== "object" ||
+        !Number.isInteger((item as { index?: unknown }).index) ||
+        typeof (item as { id?: unknown }).id !== "string" ||
+        typeof (item as { text?: unknown }).text !== "string"
+      ) {
+        throw new ScriptLangError(
+          "SNAPSHOT_PENDING_CHOICE_ITEMS",
+          "Snapshot pendingChoiceItems contains invalid choice item payload."
+        );
+      }
+    }
+  }
+
   private renderText(template: string): string {
     return template.replace(/\$\{([^{}]+)\}/g, (_all, expr) => {
       const value = this.evalExpression(String(expr));
@@ -946,6 +1020,14 @@ export class ScriptLangEngine {
         enumerable: true,
         writable: false,
         value: fn,
+      });
+    }
+    if (!Object.hasOwn(sandbox, "random")) {
+      Object.defineProperty(sandbox, "random", {
+        configurable: false,
+        enumerable: true,
+        writable: false,
+        value: (...args: unknown[]) => this.evalRandomBuiltin(args),
       });
     }
     Object.defineProperty(sandbox, "Math", {

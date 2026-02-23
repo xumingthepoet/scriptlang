@@ -296,6 +296,46 @@ test("state store validation errors", () => {
     return true;
   });
 
+  const missingRngStatePath = path.join(dir, "missing-rng-state.bin");
+  fs.writeFileSync(
+    missingRngStatePath,
+    v8.serialize({
+      schemaVersion: PLAYER_STATE_SCHEMA,
+      scenarioId: "06-snapshot-flow",
+      compilerVersion: PLAYER_COMPILER_VERSION,
+      snapshot: {
+        schemaVersion: "snapshot.v1",
+        compilerVersion: PLAYER_COMPILER_VERSION,
+        waitingChoice: true,
+        pendingChoiceItems: [],
+      },
+    })
+  );
+  assert.throws(() => loadPlayerState(missingRngStatePath), (error: unknown) => {
+    assert.equal((error as { code?: string }).code, "CLI_STATE_INVALID");
+    return true;
+  });
+
+  const missingPendingItemsPath = path.join(dir, "missing-pending-items.bin");
+  fs.writeFileSync(
+    missingPendingItemsPath,
+    v8.serialize({
+      schemaVersion: PLAYER_STATE_SCHEMA,
+      scenarioId: "06-snapshot-flow",
+      compilerVersion: PLAYER_COMPILER_VERSION,
+      snapshot: {
+        schemaVersion: "snapshot.v1",
+        compilerVersion: PLAYER_COMPILER_VERSION,
+        waitingChoice: true,
+        rngState: 1,
+      },
+    })
+  );
+  assert.throws(() => loadPlayerState(missingPendingItemsPath), (error: unknown) => {
+    assert.equal((error as { code?: string }).code, "CLI_STATE_INVALID");
+    return true;
+  });
+
   const nullSnapshotPath = path.join(dir, "null-snapshot.bin");
   fs.writeFileSync(
     nullSnapshotPath,

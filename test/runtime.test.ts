@@ -6,6 +6,7 @@ import {
   ScriptLangError,
   compileScript,
   createEngineFromXml,
+  resumeEngineFromXml,
 } from "../src/index.js";
 
 const expectCode = (fn: () => unknown, code: string): void => {
@@ -299,6 +300,178 @@ test("json globals follow per-script include visibility", () => {
   });
 
   assert.throws(() => engine.next());
+});
+
+test("builtin random returns deterministic uint32 sequence with seed", () => {
+  const scriptsXml = {
+    "main.script.xml": `
+<script name="main">
+  <text>\${random()}</text>
+  <text>\${random()}</text>
+  <text>\${random()}</text>
+</script>
+`,
+  };
+
+  const runWithSeed = (seed: number): number[] => {
+    const engine = createEngineFromXml({ scriptsXml, randomSeed: seed });
+    const values: number[] = [];
+    for (let i = 0; i < 3; i += 1) {
+      const out = engine.next();
+      assert.equal(out.kind, "text");
+      const value = Number(out.text);
+      assert.equal(Number.isInteger(value), true);
+      assert.equal(value >= 0 && value <= 0xffffffff, true);
+      values.push(value);
+    }
+    assert.deepEqual(engine.next(), { kind: "end" });
+    return values;
+  };
+
+  const seed42 = runWithSeed(42);
+  assert.deepEqual(seed42, [2581720956, 1925393290, 3661312704]);
+  assert.deepEqual(runWithSeed(42), seed42);
+  assert.notDeepEqual(runWithSeed(43), seed42);
+});
+
+test("builtin random rejects non-zero arity", () => {
+  const engine = createEngineFromXml({
+    scriptsXml: {
+      "main.script.xml": `
+<script name="main">
+  <text>\${random(1)}</text>
+</script>
+`,
+    },
+  });
+  expectCode(() => engine.next(), "ENGINE_RANDOM_ARITY");
+});
+
+test("engine rejects invalid random seed and reserved host function name", () => {
+  const main = compileScript(
+    `
+<script name="main">
+  <text>x</text>
+</script>
+`,
+    "main.script.xml"
+  );
+
+  expectCode(
+    () =>
+      new ScriptLangEngine({
+        scripts: { main },
+        randomSeed: -1,
+        compilerVersion: "dev",
+      }),
+    "ENGINE_RANDOM_SEED_INVALID"
+  );
+
+  expectCode(
+    () =>
+      new ScriptLangEngine({
+        scripts: { main },
+        hostFunctions: {
+          random: () => 1,
+        },
+        compilerVersion: "dev",
+      }),
+    "ENGINE_HOST_FUNCTION_RESERVED"
+  );
+});
+
+test("snapshot resume reuses pending choice items for random-rendered text", () => {
+  const scriptsXml = {
+    "main.script.xml": `
+<script name="main">
+  <choice>
+    <option text="roll-\${random()}">
+      <text>ok</text>
+    </option>
+  </choice>
+</script>
+`,
+  };
+
+  const engine = createEngineFromXml({ scriptsXml, randomSeed: 7, compilerVersion: "dev" });
+  const first = engine.next();
+  assert.equal(first.kind, "choices");
+  const expectedText = first.items[0].text;
+  const snapshot = engine.snapshot();
+
+  const resumed = resumeEngineFromXml({
+    scriptsXml,
+    snapshot,
+    compilerVersion: "dev",
+  });
+  const resumedChoices = resumed.next();
+  assert.equal(resumedChoices.kind, "choices");
+  assert.equal(resumedChoices.items[0].text, expectedText);
+});
+
+test("resume rejects snapshots missing random state or pending choice items", () => {
+  const main = compileScript(
+    `
+<script name="main">
+  <choice>
+    <option text="ok"><text>x</text></option>
+  </choice>
+</script>
+`,
+    "main.script.xml"
+  );
+  const engine = new ScriptLangEngine({
+    scripts: { main },
+    compilerVersion: "dev",
+  });
+  engine.start("main");
+  const out = engine.next();
+  assert.equal(out.kind, "choices");
+  const snapshot = engine.snapshot();
+
+  const missingRng = structuredClone(snapshot) as unknown as Record<string, unknown>;
+  delete missingRng.rngState;
+  const restoredMissingRng = new ScriptLangEngine({
+    scripts: { main },
+    compilerVersion: "dev",
+  });
+  expectCode(() => restoredMissingRng.resume(missingRng as unknown as typeof snapshot), "SNAPSHOT_RNG_STATE");
+
+  const missingItems = structuredClone(snapshot) as unknown as Record<string, unknown>;
+  delete missingItems.pendingChoiceItems;
+  const restoredMissingItems = new ScriptLangEngine({
+    scripts: { main },
+    compilerVersion: "dev",
+  });
+  expectCode(
+    () => restoredMissingItems.resume(missingItems as unknown as typeof snapshot),
+    "SNAPSHOT_PENDING_CHOICE_ITEMS"
+  );
+
+  const badItemShape = structuredClone(snapshot) as unknown as Record<string, unknown>;
+  badItemShape.pendingChoiceItems = [{ index: 0, id: 1, text: "ok" }];
+  const restoredBadItemShape = new ScriptLangEngine({
+    scripts: { main },
+    compilerVersion: "dev",
+  });
+  expectCode(
+    () => restoredBadItemShape.resume(badItemShape as unknown as typeof snapshot),
+    "SNAPSHOT_PENDING_CHOICE_ITEMS"
+  );
+});
+
+test("script variable named random shadows builtin random symbol", () => {
+  const engine = createEngineFromXml({
+    scriptsXml: {
+      "main.script.xml": `
+<script name="main">
+  <var name="random" type="number" value="7"/>
+  <text>\${random}</text>
+</script>
+`,
+    },
+  });
+  assert.deepEqual(engine.next(), { kind: "text", text: "7" });
 });
 
 test("tail-position call compacts stack in waiting-choice snapshot", () => {

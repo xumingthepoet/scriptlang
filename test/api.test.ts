@@ -80,6 +80,38 @@ test("createEngineFromXml works with default optional options", () => {
   assert.deepEqual(engine.next(), { kind: "text", text: "ok" });
 });
 
+test("createEngineFromXml forwards randomSeed to builtin random", () => {
+  const scriptsXml = {
+    "main.script.xml": `
+<script name="main">
+  <text>\${random()}</text>
+  <text>\${random()}</text>
+</script>
+`,
+  };
+
+  const first = createEngineFromXml({
+    scriptsXml,
+    randomSeed: 42,
+  });
+  const second = createEngineFromXml({
+    scriptsXml,
+    randomSeed: 42,
+  });
+
+  const firstA = first.next();
+  const firstB = first.next();
+  const secondA = second.next();
+  const secondB = second.next();
+
+  assert.equal(firstA.kind, "text");
+  assert.equal(firstB.kind, "text");
+  assert.equal(secondA.kind, "text");
+  assert.equal(secondB.kind, "text");
+  assert.equal(firstA.text, secondA.text);
+  assert.equal(firstB.text, secondB.text);
+});
+
 test("resumeEngineFromXml works with default optional options", () => {
   const scriptsXml = {
     "main.script.xml": `

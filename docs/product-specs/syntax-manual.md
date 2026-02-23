@@ -201,6 +201,11 @@ Rules:
 - Assignment to `undefined` is rejected.
 - `value` attribute is not allowed on `<code>`.
 - Inline content must be non-empty (after trim).
+- Builtin `random()` is available:
+  - signature is strictly `random()` (zero arguments only),
+  - return value is a `uint32` integer in `[0, 4294967295]`,
+  - any non-zero arity call is a runtime error.
+- `Math.random` remains host VM behavior and is not rewritten by ScriptLang.
 
 ## 10. `<if>` / `<else>`
 

@@ -10,6 +10,7 @@ export interface CreateEngineFromXmlOptions {
   scriptsXml: Record<string, string>;
   entryScript?: string;
   hostFunctions?: HostFunctionMap;
+  randomSeed?: number;
   compilerVersion?: string;
 }
 
@@ -59,6 +60,7 @@ export const createEngineFromXml = (options: CreateEngineFromXmlOptions): Script
     scripts: compiled.scripts,
     globalJson: compiled.globalJson,
     hostFunctions: options.hostFunctions,
+    randomSeed: options.randomSeed,
     compilerVersion: options.compilerVersion,
   });
   engine.start(compiled.entryScript);

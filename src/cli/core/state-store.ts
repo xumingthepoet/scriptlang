@@ -42,10 +42,27 @@ const isSnapshotV1 = (value: unknown): value is SnapshotV1 => {
     return false;
   }
   const candidate = value as Partial<SnapshotV1>;
+  const pendingChoiceItems = candidate.pendingChoiceItems;
+  const pendingChoiceItemsValid =
+    Array.isArray(pendingChoiceItems) &&
+    pendingChoiceItems.every(
+      (item) =>
+        !!item &&
+        typeof item === "object" &&
+        typeof (item as { index?: unknown }).index === "number" &&
+        Number.isInteger((item as { index: number }).index) &&
+        typeof (item as { id?: unknown }).id === "string" &&
+        typeof (item as { text?: unknown }).text === "string"
+    );
   return (
     candidate.schemaVersion === "snapshot.v1" &&
     typeof candidate.compilerVersion === "string" &&
-    typeof candidate.waitingChoice === "boolean"
+    typeof candidate.waitingChoice === "boolean" &&
+    typeof candidate.rngState === "number" &&
+    Number.isInteger(candidate.rngState) &&
+    candidate.rngState >= 0 &&
+    candidate.rngState <= 0xffffffff &&
+    pendingChoiceItemsValid
   );
 };
 
