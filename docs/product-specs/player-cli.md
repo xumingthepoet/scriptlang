@@ -49,7 +49,7 @@ Behavior:
   - accumulated text output shown in a bounded terminal-height viewport (latest lines)
   - choices in a fixed-height viewport when waiting choice
   - status/help footer
-  - text output with typewriter animation at 30 chars/second
+  - text output with typewriter animation at 60 chars/second
   - a visual divider line between text area and choice area
 
 Key bindings:
