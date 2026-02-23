@@ -48,7 +48,7 @@ test("api supports host function usage path", () => {
 <script name="main.script.xml">
   <var name="hp" type="number" value="1"/>
   <code>hp = add(hp, 2);</code>
-  <text value="v=\${hp}"/>
+  <text>v=\${hp}</text>
 </script>
 `,
     },
@@ -107,7 +107,7 @@ test("compiler validation error branches", () => {
 });
 
 test("engine start and next defensive branches", () => {
-  const s = compile("main.script.xml", `<vars/><step><text value="x"/></step>`);
+  const s = compile("main.script.xml", `<vars/><step><text>x</text></step>`);
   const engine = new ScriptLangEngine({ scripts: { "main.script.xml": s }, compilerVersion: "dev" });
   expectCode(() => engine.start("missing.script.xml"), "ENGINE_SCRIPT_NOT_FOUND");
   assert.deepEqual(engine.next(), { kind: "end" });
@@ -126,7 +126,7 @@ test("engine constructor empty scripts and waitingChoice getter", () => {
 test("engine choice error branches", () => {
   const s = compile(
     "main.script.xml",
-    `<vars/><step><choice><option text="a"><text value="ok"/></option></choice></step>`
+    `<vars/><step><choice><option text="a"><text>ok</text></option></choice></step>`
   );
   const engine = new ScriptLangEngine({ scripts: { "main.script.xml": s }, compilerVersion: "dev" });
   expectCode(() => engine.choose(0), "ENGINE_NO_PENDING_CHOICE");
@@ -144,7 +144,7 @@ test("engine choice error branches", () => {
 test("choice frame and node missing branches", () => {
   const s = compile(
     "main.script.xml",
-    `<vars/><step><choice><option text="a"><text value="ok"/></option></choice></step>`
+    `<vars/><step><choice><option text="a"><text>ok</text></option></choice></step>`
   );
   const engine = new ScriptLangEngine({ scripts: { "main.script.xml": s }, compilerVersion: "dev" });
   engine.start("main.script.xml");
@@ -173,7 +173,7 @@ test("while guard exceeded branch", () => {
 test("engine snapshot resume error branches", () => {
   const s = compile(
     "main.script.xml",
-    `<vars/><step><choice><option text="a"><text value="ok"/></option></choice></step>`
+    `<vars/><step><choice><option text="a"><text>ok</text></option></choice></step>`
   );
   const engine = new ScriptLangEngine({ scripts: { "main.script.xml": s }, compilerVersion: "v1" });
   engine.start("main.script.xml");
@@ -208,7 +208,7 @@ test("engine snapshot resume error branches", () => {
 test("snapshot empty-frame defensive branch", () => {
   const s = compile(
     "main.script.xml",
-    `<vars/><step><choice><option text="x"><text value="x"/></option></choice></step>`
+    `<vars/><step><choice><option text="x"><text>x</text></option></choice></step>`
   );
   const engine = new ScriptLangEngine({ scripts: { "main.script.xml": s }, compilerVersion: "dev" });
   engine.start("main.script.xml");
@@ -225,7 +225,7 @@ test("resume handles nested runtime frames", () => {
   <var name="x" type="number" value="1"/>
   <if when="true">
     <choice>
-      <option text="ok"><text value="done"/></option>
+      <option text="ok"><text>done</text></option>
     </choice>
   </if>
 </script>
@@ -298,7 +298,7 @@ test("call and return error branches", () => {
 
 test("return script valid path", () => {
   const a = compile("a.script.xml", `<vars/><step><return script="b.script.xml"/></step>`);
-  const b = compile("b.script.xml", `<vars/><step><text value="B"/></step>`);
+  const b = compile("b.script.xml", `<vars/><step><text>B</text></step>`);
   const engine = new ScriptLangEngine({
     scripts: { "a.script.xml": a, "b.script.xml": b },
     compilerVersion: "dev",
@@ -316,7 +316,7 @@ test("tail call with ref unsupported branch", () => {
     `<script name="child.script.xml" args="hp:number:ref"><return/></script>`,
     "child.script.xml"
   );
-  const parent = compile("parent.script.xml", `<vars/><step><call script="root.script.xml"/><text value="x"/></step>`);
+  const parent = compile("parent.script.xml", `<vars/><step><call script="root.script.xml"/><text>x</text></step>`);
   const engine = new ScriptLangEngine({
     scripts: { "root.script.xml": root, "child.script.xml": child, "parent.script.xml": parent },
     compilerVersion: "dev",
@@ -326,7 +326,7 @@ test("tail call with ref unsupported branch", () => {
 });
 
 test("return continuation missing and root frame missing branches", () => {
-  const s = compile("main.script.xml", `<vars/><step><text value="x"/></step>`);
+  const s = compile("main.script.xml", `<vars/><step><text>x</text></step>`);
   const engine = new ScriptLangEngine({ scripts: { "main.script.xml": s }, compilerVersion: "dev" });
   const anyEngine = engine as any;
 
@@ -344,7 +344,7 @@ test("return continuation missing and root frame missing branches", () => {
 });
 
 test("group and variable path error branches", () => {
-  const s = compile("main.script.xml", `<vars><var name="hp" type="number" value="1"/></vars><step><text value="x"/></step>`);
+  const s = compile("main.script.xml", `<vars><var name="hp" type="number" value="1"/></vars><step><text>x</text></step>`);
   const engine = new ScriptLangEngine({ scripts: { "main.script.xml": s }, compilerVersion: "dev" });
   engine.start("main.script.xml");
   engine.next();
@@ -363,7 +363,7 @@ test("group and variable path error branches", () => {
 test("boolean, type map, and arg validation error branches", () => {
   const a = compile(
     "a.script.xml",
-    `<vars><var name="v" type="number" value="1"/></vars><step><if when="1"><text value="x"/></if></step>`
+    `<vars><var name="v" type="number" value="1"/></vars><step><if when="1"><text>x</text></if></step>`
   );
   const engine = new ScriptLangEngine({ scripts: { "a.script.xml": a }, compilerVersion: "dev" });
   engine.start("a.script.xml");
@@ -422,7 +422,7 @@ test("undefined assignment and type mismatch branches", () => {
 });
 
 test("direct next with corrupted node kind hits unknown node branch", () => {
-  const s = compile("main.script.xml", `<vars/><step><text value="x"/></step>`);
+  const s = compile("main.script.xml", `<vars/><step><text>x</text></step>`);
   const engine = new ScriptLangEngine({ scripts: { "main.script.xml": s }, compilerVersion: "dev" });
   engine.start("main.script.xml");
   const anyEngine = engine as any;
@@ -436,7 +436,7 @@ test("direct next with corrupted node kind hits unknown node branch", () => {
 });
 
 test("next throws when runtime frame points to unknown group", () => {
-  const s = compile("main.script.xml", `<vars/><step><text value="x"/></step>`);
+  const s = compile("main.script.xml", `<vars/><step><text>x</text></step>`);
   const engine = new ScriptLangEngine({ scripts: { "main.script.xml": s }, compilerVersion: "dev" });
   engine.start("main.script.xml");
   const anyEngine = engine as any;
@@ -446,7 +446,7 @@ test("next throws when runtime frame points to unknown group", () => {
 
 test("engine start/reset, empty-step completion, and direct return target path", () => {
   const main = compile("main.script.xml", `<vars/><step/>`);
-  const target = compile("target.script.xml", `<vars/><step><text value="T"/></step>`);
+  const target = compile("target.script.xml", `<vars/><step><text>T</text></step>`);
   const engine = new ScriptLangEngine({
     scripts: { "main.script.xml": main, "target.script.xml": target },
     compilerVersion: "dev",
@@ -490,7 +490,7 @@ test("engine start/reset, empty-step completion, and direct return target path",
 test("direct executeReturn missing target and createScriptRootScope var loop path", () => {
   const script = compile(
     "vars.script.xml",
-    `<vars><var name="hp" type="number" value="3"/></vars><step><text value="ok"/></step>`
+    `<vars><var name="hp" type="number" value="3"/></vars><step><text>ok</text></step>`
   );
   const engine = new ScriptLangEngine({
     scripts: { "vars.script.xml": script },
@@ -506,11 +506,11 @@ test("direct executeReturn missing target and createScriptRootScope var loop pat
 test("resume reconstructs continuation-bearing runtime frames", () => {
   const main = compile(
     "main.script.xml",
-    `<vars/><step><call script="child.script.xml"/><text value="done"/></step>`
+    `<vars/><step><call script="child.script.xml"/><text>done</text></step>`
   );
   const child = compile(
     "child.script.xml",
-    `<vars/><step><choice><option text="go"><text value="ok"/></option></choice></step>`
+    `<vars/><step><choice><option text="go"><text>ok</text></option></choice></step>`
   );
   const engine = new ScriptLangEngine({
     scripts: { "main.script.xml": main, "child.script.xml": child },
@@ -531,10 +531,10 @@ test("resume reconstructs continuation-bearing runtime frames", () => {
 test("engine helper paths for return target and root scope arg assignment", () => {
   const waiting = compile(
     "waiting.script.xml",
-    `<vars/><step><choice><option text="ok"><text value="ok"/></option></choice></step>`
+    `<vars/><step><choice><option text="ok"><text>ok</text></option></choice></step>`
   );
   const target = compileScript(
-    `<script name="target.script.xml" args="n:number"><text value="ok"/></script>`,
+    `<script name="target.script.xml" args="n:number"><text>ok</text></script>`,
     "target.script.xml"
   );
   const engine = new ScriptLangEngine({
@@ -570,18 +570,18 @@ test("engine control-flow branches for pending choices and hidden options", () =
 <script name="control.script.xml">
   <var name="n" type="number" value="1"/>
   <while when="false">
-    <text value="never"/>
+    <text>never</text>
   </while>
   <choice>
-    <option text="hidden" when="false"><text value="nope"/></option>
-    <option text="visible"><text value="ok"/></option>
+    <option text="hidden" when="false"><text>nope</text></option>
+    <option text="visible"><text>ok</text></option>
   </choice>
   <choice>
-    <option text="all-hidden" when="false"><text value="x"/></option>
+    <option text="all-hidden" when="false"><text>x</text></option>
   </choice>
   <if when="false">
-    <text value="then"/>
-    <else><text value="else"/></else>
+    <text>then</text>
+    <else><text>else</text></else>
   </if>
 </script>
 `,
@@ -602,7 +602,7 @@ test("engine control-flow branches for pending choices and hidden options", () =
 });
 
 test("engine finishFrame and executeReturn continuation branches", () => {
-  const script = compile("main.script.xml", `<vars><var name="x" type="number" value="1"/></vars><step><text value="x"/></step>`);
+  const script = compile("main.script.xml", `<vars><var name="x" type="number" value="1"/></vars><step><text>x</text></step>`);
   const engine = new ScriptLangEngine({ scripts: { "main.script.xml": script }, compilerVersion: "dev" });
   engine.start("main.script.xml");
   const anyEngine = engine as any;
@@ -660,7 +660,7 @@ test("engine finishFrame and executeReturn continuation branches", () => {
 test("engine variable helpers cover type, path, and extra-scope branches", () => {
   const script = compileScript(
     `<script name="state.script.xml" args="num:number">
-      <text value="x"/>
+      <text>x</text>
     </script>`,
     "state.script.xml"
   );
@@ -735,8 +735,8 @@ test("resume covers conditional option filters and frameCounter fallback branch"
 <script name="resume-branches.script.xml">
   <if when="true">
     <choice>
-      <option text="A" when="true"><text value="A"/></option>
-      <option text="B"><text value="B"/></option>
+      <option text="A" when="true"><text>A</text></option>
+      <option text="B"><text>B</text></option>
     </choice>
   </if>
 </script>

@@ -4,13 +4,18 @@ This repository uses Vitest and a strict pre-test quality gate.
 
 ## Mandatory Flow
 
-1. Run `npm test`.
-2. `pretest` runs automatically before tests:
+1. Sync docs before gates:
+   - `/README.md`
+   - `/ARCHITECTURE.md`
+   - `/docs/` (all impacted specs/plans/workflow docs)
+   - audit `/docs/exec-plans/active/`; move only truly completed plans to `/docs/exec-plans/completed/`
+2. Run `npm test`.
+3. `pretest` runs automatically before tests:
    - `npm run validate:docs`
    - `npm run lint`
    - `npm run typecheck`
    - `npm run coverage:strict` (`vitest run --coverage`)
-3. Only if all gates pass does `test` continue.
+4. Only if all gates pass does `test` continue.
 
 ## Coverage Rule
 

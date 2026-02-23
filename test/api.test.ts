@@ -13,7 +13,7 @@ test("createEngineFromXml and resumeEngineFromXml", () => {
       <code>hp = hp + 1;</code>
     </option>
   </choice>
-  <text value="HP \${hp}"/>
+  <text>HP \${hp}</text>
 </script>
 `,
   };
@@ -38,8 +38,8 @@ test("createEngineFromXml and resumeEngineFromXml", () => {
 
 test("compileScriptsFromXmlMap returns compiled map keyed by script name", () => {
   const compiled = compileScriptsFromXmlMap({
-    "a.script.xml": `<script name="a"><text value="a"/></script>`,
-    "b.script.xml": `<script name="b"><text value="b"/></script>`,
+    "a.script.xml": `<script name="a"><text>a</text></script>`,
+    "b.script.xml": `<script name="b"><text>b</text></script>`,
   });
   assert.equal(Object.keys(compiled).length, 2);
   assert.ok(compiled.a);
@@ -49,8 +49,8 @@ test("compileScriptsFromXmlMap returns compiled map keyed by script name", () =>
 test("compileScriptsFromXmlMap rejects duplicate script name", () => {
   assert.throws(() =>
     compileScriptsFromXmlMap({
-      "a1.script.xml": `<script name="dup"><text value="a"/></script>`,
-      "a2.script.xml": `<script name="dup"><text value="b"/></script>`,
+      "a1.script.xml": `<script name="dup"><text>a</text></script>`,
+      "a2.script.xml": `<script name="dup"><text>b</text></script>`,
     })
   );
 });
@@ -63,7 +63,7 @@ test("compileScriptsFromXmlMap handles empty input", () => {
 test("createEngineFromXml works with default optional options", () => {
   const engine = createEngineFromXml({
     scriptsXml: {
-      "main.script.xml": `<script name="main"><text value="ok"/></script>`,
+      "main.script.xml": `<script name="main"><text>ok</text></script>`,
     },
     entryScript: "main",
   });
@@ -75,7 +75,7 @@ test("resumeEngineFromXml works with default optional options", () => {
     "main.script.xml": `
 <script name="main">
   <choice>
-    <option text="ok"><text value="done"/></option>
+    <option text="ok"><text>done</text></option>
   </choice>
 </script>
 `,
@@ -97,14 +97,14 @@ test("api create/resume error paths", () => {
   assert.throws(() =>
     createEngineFromXml({
       scriptsXml: {
-        "main.script.xml": `<script name="main"><text value="x"/></script>`,
+        "main.script.xml": `<script name="main"><text>x</text></script>`,
       },
       entryScript: "missing",
     })
   );
 
   const scriptsXml = {
-    "main.script.xml": `<script name="main"><choice><option text="x"><text value="x"/></option></choice></script>`,
+    "main.script.xml": `<script name="main"><choice><option text="x"><text>x</text></option></choice></script>`,
   };
   const engine = createEngineFromXml({
     scriptsXml,

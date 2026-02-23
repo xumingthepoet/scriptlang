@@ -1,14 +1,22 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
 
-import { ScriptLangEngine, compileScript } from "../src/index.js";
+import { ScriptLangEngine, ScriptLangError, compileScript } from "../src/index.js";
+
+const expectCode = (fn: () => unknown, code: string): void => {
+  assert.throws(fn, (error: unknown) => {
+    assert.ok(error instanceof ScriptLangError);
+    assert.equal(error.code, code);
+    return true;
+  });
+};
 
 test("next/choose and snapshot/resume roundtrip", () => {
   const main = compileScript(
     `
 <script name="main">
   <var name="hp" type="number" value="10"/>
-  <text value="HP \${hp}"/>
+  <text>HP \${hp}</text>
   <choice>
     <option text="Heal">
       <code>hp = hp + 5;</code>
@@ -17,7 +25,7 @@ test("next/choose and snapshot/resume roundtrip", () => {
       <code>hp = hp - 3;</code>
     </option>
   </choice>
-  <text value="After \${hp}"/>
+  <text>After \${hp}</text>
 </script>
 `,
     "main.script.xml"
@@ -57,15 +65,15 @@ test("choice options remain visible on re-entry and after resume", () => {
     <choice>
       <option text="Pick A">
         <code>round = round + 1;</code>
-        <text value="pick-\${round}"/>
+        <text>pick-\${round}</text>
       </option>
       <option text="Pick B">
         <code>round = round + 1;</code>
-        <text value="skip-\${round}"/>
+        <text>skip-\${round}</text>
       </option>
     </choice>
   </while>
-  <text value="done"/>
+  <text>done</text>
 </script>
 `,
     "main.script.xml"
@@ -118,7 +126,7 @@ test("call with ref writes back to caller var", () => {
 <script name="main">
   <var name="hp" type="number" value="1"/>
   <call script="buff" args="amount:3,target:ref:hp"/>
-  <text value="HP=\${hp}"/>
+  <text>HP=\${hp}</text>
 </script>
 `,
     "main.script.xml"
@@ -147,7 +155,7 @@ test("tail-position call compacts stack in waiting-choice snapshot", () => {
     `
 <script name="root">
   <call script="a"/>
-  <text value="done"/>
+  <text>done</text>
 </script>
 `,
     "root.script.xml"
@@ -164,7 +172,7 @@ test("tail-position call compacts stack in waiting-choice snapshot", () => {
     `
 <script name="b">
   <choice>
-    <option text="ok"><text value="B"/></option>
+    <option text="ok"><text>B</text></option>
   </choice>
 </script>
 `,
@@ -188,7 +196,7 @@ test("snapshot is rejected when not waiting choice", () => {
   const main = compileScript(
     `
 <script name="main">
-  <text value="x"/>
+  <text>x</text>
 </script>
 `,
     "main.script.xml"
@@ -204,17 +212,16 @@ test("snapshot is rejected when not waiting choice", () => {
 test("default values for arg types are initialized", () => {
   const main = compileScript(
     `
-<script name="defaults" args="s:string,b:boolean,n:null,arr:number[],m:Map&lt;string,number&gt;">
+<script name="defaults" args="s:string,b:boolean,arr:number[],m:Map&lt;string,number&gt;">
   <code>
     if (s !== "") throw new Error("s");
     if (b !== false) throw new Error("b");
-    if (n !== null) throw new Error("n");
     if (!Array.isArray(arr) || arr.length !== 0) throw new Error("arr");
     if (!m || typeof m !== "object" || !("size" in m) || Number(m.size) !== 0) {
       throw new Error("m");
     }
   </code>
-  <text value="ok"/>
+  <text>ok</text>
 </script>
 `,
     "defaults.script.xml"
@@ -225,6 +232,106 @@ test("default values for arg types are initialized", () => {
   });
   engine.start("defaults");
   assert.deepEqual(engine.next(), { kind: "text", text: "ok" });
+});
+
+test("null values are rejected for declared variables", () => {
+  const numberScript = compileScript(
+    `
+<script name="number-null">
+  <var name="hp" type="number" value="1"/>
+  <code>hp = null;</code>
+</script>
+`,
+    "number-null.script.xml"
+  );
+  const arrayScript = compileScript(
+    `
+<script name="array-null">
+  <var name="values" type="number[]" value="[1,2]"/>
+  <code>values = [1, null];</code>
+</script>
+`,
+    "array-null.script.xml"
+  );
+  const mapScript = compileScript(
+    `
+<script name="map-null">
+  <var name="scores" type="Map&lt;string,number&gt;" value="new Map([['a', 1]])"/>
+  <code>scores = new Map([['a', null]]);</code>
+</script>
+`,
+    "map-null.script.xml"
+  );
+
+  const numberEngine = new ScriptLangEngine({
+    scripts: { "number-null": numberScript },
+    compilerVersion: "dev",
+  });
+  numberEngine.start("number-null");
+  expectCode(() => numberEngine.next(), "ENGINE_TYPE_MISMATCH");
+
+  const arrayEngine = new ScriptLangEngine({
+    scripts: { "array-null": arrayScript },
+    compilerVersion: "dev",
+  });
+  arrayEngine.start("array-null");
+  expectCode(() => arrayEngine.next(), "ENGINE_TYPE_MISMATCH");
+
+  const mapEngine = new ScriptLangEngine({
+    scripts: { "map-null": mapScript },
+    compilerVersion: "dev",
+  });
+  mapEngine.start("map-null");
+  expectCode(() => mapEngine.next(), "ENGINE_TYPE_MISMATCH");
+});
+
+test("resume rejects snapshot frames with legacy null primitive metadata", () => {
+  const main = compileScript(
+    `
+<script name="main">
+  <var name="hp" type="number" value="1"/>
+  <choice>
+    <option text="ok"><text>x</text></option>
+  </choice>
+</script>
+`,
+    "main.script.xml"
+  );
+  const engine = new ScriptLangEngine({
+    scripts: { main },
+    compilerVersion: "dev",
+  });
+  engine.start("main");
+  const out = engine.next();
+  assert.equal(out.kind, "choices");
+  const snapshot = engine.snapshot();
+  const primitiveNull = JSON.parse('{"kind":"primitive","name":"null"}');
+  const arrayOfNull = JSON.parse('{"kind":"array","elementType":{"kind":"primitive","name":"null"}}');
+  const mapOfNull = JSON.parse('{"kind":"map","keyType":"string","valueType":{"kind":"primitive","name":"null"}}');
+
+  const primitiveMutated = structuredClone(snapshot);
+  primitiveMutated.runtimeFrames[0].varTypes = { hp: primitiveNull };
+  const primitiveRestored = new ScriptLangEngine({
+    scripts: { main },
+    compilerVersion: "dev",
+  });
+  expectCode(() => primitiveRestored.resume(primitiveMutated), "SNAPSHOT_TYPE_UNSUPPORTED");
+
+  const arrayMutated = structuredClone(snapshot);
+  arrayMutated.runtimeFrames[0].varTypes = { hp: arrayOfNull };
+  const arrayRestored = new ScriptLangEngine({
+    scripts: { main },
+    compilerVersion: "dev",
+  });
+  expectCode(() => arrayRestored.resume(arrayMutated), "SNAPSHOT_TYPE_UNSUPPORTED");
+
+  const mapMutated = structuredClone(snapshot);
+  mapMutated.runtimeFrames[0].varTypes = { hp: mapOfNull };
+  const mapRestored = new ScriptLangEngine({
+    scripts: { main },
+    compilerVersion: "dev",
+  });
+  expectCode(() => mapRestored.resume(mapMutated), "SNAPSHOT_TYPE_UNSUPPORTED");
 });
 
 test("type mismatch in code node fails fast", () => {
@@ -250,7 +357,7 @@ test("var declaration without value uses type default", () => {
     `
 <script name="main">
   <var name="hp" type="number"/>
-  <text value="hp=\${hp}"/>
+  <text>hp=\${hp}</text>
 </script>
 `,
     "main.script.xml"

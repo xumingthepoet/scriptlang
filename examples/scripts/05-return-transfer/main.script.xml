@@ -1,4 +1,4 @@
 <script name="main">
-  <text value="jumping"/>
+  <text>jumping</text>
   <return script="next"/>
 </script>

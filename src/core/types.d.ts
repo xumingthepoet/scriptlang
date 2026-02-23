@@ -1,4 +1,4 @@
-export type PrimitiveTypeName = "number" | "string" | "boolean" | "null";
+export type PrimitiveTypeName = "number" | "string" | "boolean";
 
 export type ScriptType =
   | { kind: "primitive"; name: PrimitiveTypeName }

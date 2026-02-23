@@ -13,7 +13,7 @@ Example:
 
 ```xml
 <script name="main" args="hp:number">
-  <text value="HP is ${hp}"/>
+  <text>HP is ${hp}</text>
 </script>
 ```
 
@@ -95,19 +95,13 @@ Rules:
 
 Supported type expressions:
 
-- Primitive: `number`, `string`, `boolean`, `null`
+- Primitive: `number`, `string`, `boolean`
 - Array: `T[]`
 - Map: `Map<string, T>`
 
 ## 6. `<text>`
 
-Forms:
-
-```xml
-<text value="HP=${hp}"/>
-```
-
-or
+Allowed form:
 
 ```xml
 <text>
@@ -116,19 +110,16 @@ or
 ```
 
 Interpolation `${expr}` is evaluated at runtime.
+Rules:
+- `value` attribute is not allowed on `<text>`.
+- Inline content must be non-empty (after trim).
 
 ## 7. `<code>`
 
-Forms:
+Allowed form:
 
 ```xml
 <code>hp = hp + 1;</code>
-```
-
-or
-
-```xml
-<code value="hp = hp + 1;"/>
 ```
 
 Rules:
@@ -136,6 +127,8 @@ Rules:
 - Can read/write visible scoped variables.
 - Type checks are enforced for declared variables.
 - Assignment to `undefined` is rejected.
+- `value` attribute is not allowed on `<code>`.
+- Inline content must be non-empty (after trim).
 
 ## 8. `<if>` / `<else>`
 
@@ -143,9 +136,9 @@ Syntax:
 
 ```xml
 <if when="hp > 0">
-  <text value="alive"/>
+  <text>alive</text>
   <else>
-    <text value="dead"/>
+    <text>dead</text>
   </else>
 </if>
 ```
@@ -179,7 +172,7 @@ Syntax:
     <code>hp = hp - 1;</code>
   </option>
   <option text="Run">
-    <text value="You ran away."/>
+    <text>You ran away.</text>
   </option>
 </choice>
 ```
@@ -227,15 +220,18 @@ Example:
 
 ```xml
 <if when="a &lt; b">
-  <text value="ok"/>
+  <text>ok</text>
 </if>
 ```
 
 ## 14. Common Authoring Errors
 
 1. Using removed nodes (`vars/step/set/push/remove`) -> compile error.
-2. Missing required attributes (`name/type/when/script/text`) -> compile error.
+2. Missing required attributes (`name/type/when/script`) -> compile error.
 3. Calling unknown script ID -> runtime error.
 4. Ref mode mismatch with script param declaration -> runtime error.
 5. Condition not boolean at runtime -> runtime error.
-6. Writing wrong type or `undefined` -> runtime error.
+6. Writing wrong type, `undefined`, or `null` into declared script variables -> runtime error.
+7. Using `null` as a declared type (`type="null"` or `args="x:null"`) -> compile error (`TYPE_PARSE_ERROR`).
+8. Using `value` attribute on `<text>/<code>` -> compile error (`XML_ATTR_NOT_ALLOWED`).
+9. Leaving `<text>/<code>` inline content empty -> compile error (`XML_EMPTY_NODE_CONTENT`).

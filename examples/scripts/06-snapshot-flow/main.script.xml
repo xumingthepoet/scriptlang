@@ -1,6 +1,6 @@
 <script name="main">
   <var name="hp" type="number" value="10"/>
-  <text value="before ${hp}"/>
+  <text>before ${hp}</text>
   <choice>
     <option text="Heal">
       <code>hp = hp + 5;</code>
@@ -9,5 +9,5 @@
       <code>hp = hp - 2;</code>
     </option>
   </choice>
-  <text value="after ${hp}"/>
+  <text>after ${hp}</text>
 </script>

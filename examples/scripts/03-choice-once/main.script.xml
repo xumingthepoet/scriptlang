@@ -4,13 +4,13 @@
     <choice>
       <option text="Pick">
         <code>round = round + 1;</code>
-        <text value="picked"/>
+        <text>picked</text>
       </option>
       <option text="Skip">
         <code>round = round + 1;</code>
-        <text value="skip"/>
+        <text>skip</text>
       </option>
     </choice>
   </while>
-  <text value="done"/>
+  <text>done</text>
 </script>

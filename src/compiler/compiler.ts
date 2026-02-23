@@ -22,8 +22,6 @@ import { parseXmlDocument } from "./xml.js";
 import type { XmlElementNode, XmlNode } from "./xml-types.js";
 
 const REMOVED_NODES = new Set(["vars", "step", "set", "push", "remove"]);
-const PRIMITIVE_TYPES = new Set(["number", "string", "boolean", "null"]);
-
 function getAttr(node: XmlElementNode, name: string, required = false): string | null {
   const value = node.attributes[name];
   if (required && (value === undefined || value === "")) {
@@ -71,8 +69,8 @@ class GroupBuilder {
 
 const parseType = (raw: string, span: SourceSpan): ScriptType => {
   const source = raw.trim();
-  if (PRIMITIVE_TYPES.has(source)) {
-    return { kind: "primitive", name: source as "number" | "string" | "boolean" | "null" };
+  if (source === "number" || source === "string" || source === "boolean") {
+    return { kind: "primitive", name: source };
   }
   if (source.endsWith("[]")) {
     return { kind: "array", elementType: parseType(source.slice(0, -2), span) };
@@ -206,6 +204,25 @@ const inlineTextContent = (node: XmlElementNode): string =>
     .join("\n")
     .trim();
 
+const parseInlineRequired = (node: XmlElementNode): string => {
+  if (Object.hasOwn(node.attributes, "value")) {
+    throw new ScriptLangError(
+      "XML_ATTR_NOT_ALLOWED",
+      `Attribute "value" is not allowed on <${node.name}>. Use inline content instead.`,
+      node.location
+    );
+  }
+  const content = inlineTextContent(node);
+  if (content.length === 0) {
+    throw new ScriptLangError(
+      "XML_EMPTY_NODE_CONTENT",
+      `<${node.name}> requires non-empty inline content.`,
+      node.location
+    );
+  }
+  return content;
+};
+
 const parseVarDeclaration = (node: XmlElementNode): VarDeclaration => {
   const name = getAttr(node, "name", true) as string;
   const typeSource = getAttr(node, "type", true) as string;
@@ -255,7 +272,7 @@ const compileGroup = (
       const textNode: TextNode = {
         id: builder.nextNodeId("text"),
         kind: "text",
-        value: getAttr(child, "value", false) ?? inlineTextContent(child),
+        value: parseInlineRequired(child),
         location: child.location,
       };
       compiled = textNode;
@@ -263,7 +280,7 @@ const compileGroup = (
       const codeNode: CodeNode = {
         id: builder.nextNodeId("code"),
         kind: "code",
-        code: getAttr(child, "value", false) ?? inlineTextContent(child),
+        code: parseInlineRequired(child),
         location: child.location,
       };
       compiled = codeNode;

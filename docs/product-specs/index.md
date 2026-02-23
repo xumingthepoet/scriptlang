@@ -24,7 +24,7 @@
 - Executable nodes are direct children of `<script>`.
 - Supported executable nodes:
   - `<var name="..." type="..." value="..."/>`
-  - `<text value="..."/>`
+  - `<text>...</text>`
   - `<code>...</code>`
   - `<if when="...">...</if>` with optional `<else>`.
   - `<while when="...">...</while>`
@@ -45,6 +45,6 @@
 - Type behavior:
   - Script parameters come from `<script args="...">`.
   - `<var>` scope is declaration-point to current block end.
-  - Runtime rejects `undefined` assignments.
+  - Runtime rejects `undefined` and `null` assignments into declared script variables.
   - Runtime enforces declared types on script variables.
-  - Supported language types are primitives, arrays, and `Map<string, T>` (no `Record<string, T>`).
+  - Supported language types are primitives (`number|string|boolean`), arrays, and `Map<string, T>` (no `null` type and no `Record<string, T>`).

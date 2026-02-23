@@ -42,12 +42,25 @@ interface PendingChoice {
 
 const deepClone = <T>(value: T): T => structuredClone(value);
 
+const isPrimitiveTypeName = (name: string): name is "number" | "string" | "boolean" => {
+  return name === "number" || name === "string" || name === "boolean";
+};
+
+const assertSupportedPrimitiveType = (
+  typeName: string,
+  errorCode: "ENGINE_TYPE_MISMATCH" | "SNAPSHOT_TYPE_UNSUPPORTED"
+): void => {
+  if (!isPrimitiveTypeName(typeName)) {
+    throw new ScriptLangError(errorCode, `Unsupported primitive type "${typeName}".`);
+  }
+};
+
 const defaultValueFromType = (type: ScriptType): unknown => {
   if (type.kind === "primitive") {
+    assertSupportedPrimitiveType(type.name, "ENGINE_TYPE_MISMATCH");
     if (type.name === "number") return 0;
     if (type.name === "string") return "";
-    if (type.name === "boolean") return false;
-    return null;
+    return false;
   }
   if (type.kind === "array") return [];
   return new Map<string, unknown>();
@@ -65,7 +78,7 @@ const isTypeCompatible = (value: unknown, type: ScriptType): boolean => {
     return false;
   }
   if (type.kind === "primitive") {
-    if (type.name === "null") return value === null;
+    assertSupportedPrimitiveType(type.name, "ENGINE_TYPE_MISMATCH");
     return typeof value === type.name;
   }
   if (type.kind === "array") {
@@ -80,6 +93,18 @@ const isTypeCompatible = (value: unknown, type: ScriptType): boolean => {
     }
   }
   return true;
+};
+
+const assertSnapshotTypeSupported = (type: ScriptType): void => {
+  if (type.kind === "primitive") {
+    assertSupportedPrimitiveType(type.name, "SNAPSHOT_TYPE_UNSUPPORTED");
+    return;
+  }
+  if (type.kind === "array") {
+    assertSnapshotTypeSupported(type.elementType);
+    return;
+  }
+  assertSnapshotTypeSupported(type.valueType);
 };
 
 export interface ScriptLangEngineOptions {
@@ -364,6 +389,9 @@ export class ScriptLangEngine {
       : frame.scriptRoot
         ? this.buildParamTypeMap(lookup.scriptName)
         : {};
+    for (const type of Object.values(varTypes)) {
+      assertSnapshotTypeSupported(type);
+    }
     return {
       frameId: frame.frameId,
       groupId: frame.groupId,

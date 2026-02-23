@@ -187,7 +187,7 @@ test("agent error protocol paths", () => {
   const noMainDir = fs.mkdtempSync(path.join(os.tmpdir(), "scriptlang-no-main-"));
   fs.writeFileSync(
     path.join(noMainDir, "only.script.xml"),
-    `<script name="only"><text value="x"/></script>`
+    `<script name="only"><text>x</text></script>`
   );
   const missingMain = runWithCapture([
     "start",

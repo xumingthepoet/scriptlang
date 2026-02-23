@@ -1,6 +1,6 @@
 <script name="main">
   <var name="hp" type="number" value="1"/>
-  <text value="before hp=${hp}"/>
+  <text>before hp=${hp}</text>
   <call script="buff" args="amount:3,target:ref:hp"/>
-  <text value="after hp=${hp}"/>
+  <text>after hp=${hp}</text>
 </script>

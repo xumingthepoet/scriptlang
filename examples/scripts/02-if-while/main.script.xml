@@ -1,13 +1,13 @@
 <script name="main">
   <var name="hp" type="number" value="3"/>
   <if when="hp > 2">
-    <text value="strong"/>
+    <text>strong</text>
     <else>
-      <text value="weak"/>
+      <text>weak</text>
     </else>
   </if>
   <while when="hp > 0">
     <code>hp = hp - 1;</code>
   </while>
-  <text value="hp=${hp}"/>
+  <text>hp=${hp}</text>
 </script>

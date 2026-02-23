@@ -1,5 +1,5 @@
 <script name="defeat">
-  <text value="Ending: Defeat"/>
+  <text>Ending: Defeat</text>
   <text>
 Too many weak turns let the enemy out-trade you.
   </text>

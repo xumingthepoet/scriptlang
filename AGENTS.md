@@ -15,13 +15,20 @@ This repository is set up for agent-first engineering of `ScriptLang`.
 3. **Code after plan**: implementation must follow the approved plan.
 4. **Move plan to completed in the same commit** when delivering the implementation (no merge step required).
 
+## Development-Phase Compatibility Policy
+- This project is in active development; changes do **not** need to preserve compatibility with older syntax formats or legacy behavior.
+- Remove legacy traces, compatibility shims, and migration paths during implementation unless a task explicitly requires keeping them.
+- Prefer clean replacement over transitional coexistence: implement as if old behavior never existed.
+
 ## Boundaries
 - Keep parser, compiler, runtime, and host integration isolated.
 - Do not mix XML parsing concerns with runtime execution logic.
 - Do not bypass type checks with ad hoc runtime mutation paths.
-- Keep snapshot/restore format versioned and backward-aware.
+- Keep snapshot/restore format versioned; do not keep backward-compat layers unless explicitly required by the task.
 
 ## Quality Gates
+- **Sync docs before gates**: update `/README.md`, `/ARCHITECTURE.md`, and `/docs/` so they reflect the latest code behavior before running any gate commands.
+- **Sync exec plans during doc sync**: verify each item in `/docs/exec-plans/active/`; if a plan is truly complete (code/docs/tests/gates all satisfied), mark its checklist done and move it to `/docs/exec-plans/completed/` in the same delivery commit.
 - Run `npm run validate:docs` before commit.
 - Run `npm run lint` before commit.
 - Add/adjust tests for parser, runtime control-flow, and snapshot behavior with every behavior change.

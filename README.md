@@ -88,11 +88,11 @@ const engine = createEngineFromXml({
     "main.script.xml": `
 <script name="main">
   <var name="hp" type="number" value="10"/>
-  <text value="HP \${hp}"/>
+  <text>HP \${hp}</text>
   <choice>
     <option text="Heal"><code>hp = hp + 5;</code></option>
   </choice>
-  <text value="After \${hp}"/>
+  <text>After \${hp}</text>
 </script>
 `,
   },

@@ -6,8 +6,8 @@
   <var name="potions" type="number" value="1"/>
   <var name="rounds" type="number" value="0"/>
 
-  <text value="Battle start: ${playerName}(${playerHp}) vs ${enemyName}(${enemyHp})"/>
-  <text value="Tip: if you keep using weak attacks, you will lose."/>
+  <text>Battle start: ${playerName}(${playerHp}) vs ${enemyName}(${enemyHp})</text>
+  <text>Tip: if you keep using weak attacks, you will lose.</text>
 
   <call
     script="battle-loop"
@@ -15,10 +15,10 @@
   />
 
   <if when="playerHp > 0 &amp;&amp; enemyHp &lt;= 0">
-    <text value="Result: ${playerName} wins in ${rounds} rounds. hp=${playerHp}"/>
+    <text>Result: ${playerName} wins in ${rounds} rounds. hp=${playerHp}</text>
     <return script="victory"/>
     <else>
-      <text value="Result: ${enemyName} wins in ${rounds} rounds. hp=${enemyHp}"/>
+      <text>Result: ${enemyName} wins in ${rounds} rounds. hp=${enemyHp}</text>
       <return script="defeat"/>
     </else>
   </if>

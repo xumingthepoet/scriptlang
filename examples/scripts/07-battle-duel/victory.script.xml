@@ -1,5 +1,5 @@
 <script name="victory">
-  <text value="Ending: Victory"/>
+  <text>Ending: Victory</text>
   <text>
 You chose enough pressure and won the duel.
   </text>
