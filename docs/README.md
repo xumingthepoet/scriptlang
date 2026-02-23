@@ -1,5 +1,6 @@
 # Docs Index
 
+- `/docs/HARNESS.md`: canonical harness workflow authority and process ownership map.
 - `/docs/product-specs/`: product behavior and language spec.
   - `/docs/product-specs/syntax-manual.md`: ScriptLang concrete syntax manual.
 - `/docs/design-docs/`: architecture and engineering philosophy.

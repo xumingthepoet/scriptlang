@@ -15,6 +15,7 @@ This repository is initialized for **agent-first harness engineering**:
 
 ## Repo Map
 - `/AGENTS.md`: required workflow for engineers and coding agents.
+- `/docs/HARNESS.md`: canonical harness workflow authority.
 - `/ARCHITECTURE.md`: module boundaries and long-term structure.
 - `/PLANS.md`: execution plan template.
 - `/docs/product-specs/`: product behavior contracts.
@@ -33,9 +34,8 @@ This repository is initialized for **agent-first harness engineering**:
 - `npm run player:agent -- <subcommand> ...`: run non-interactive agent mode from build output (`start` supports `--example` or `--scripts-dir`).
 
 ## Harness Workflow Notes
-- Before running gate commands, sync `/README.md`, `/ARCHITECTURE.md`, and impacted files under `/docs/`.
-- During doc sync, audit `/docs/exec-plans/active/`; move only truly completed plans to `/docs/exec-plans/completed/`.
-- After `npm test` passes, commit changes before ending the conversation handoff.
+- Process authority lives in `/docs/HARNESS.md`.
+- Use `/AGENTS.md` for startup checklist and `/docs/TEST_WORKFLOW.md` for test/coverage mechanics.
 
 ## Script Player
 

@@ -1,23 +1,18 @@
 # Test and Coverage Workflow
 
 This repository uses Vitest and a strict pre-test quality gate.
+This document owns test and coverage mechanics only.
+For end-to-end delivery sequence (doc sync, plan movement, commit policy), use `/docs/HARNESS.md`.
 
 ## Mandatory Flow
 
-1. Sync docs before gates:
-   - `/README.md`
-   - `/ARCHITECTURE.md`
-   - `/docs/` (all impacted specs/plans/workflow docs)
-   - audit `/docs/exec-plans/active/`; move only truly completed plans to `/docs/exec-plans/completed/`
-   - if gate has not been executed successfully, do not mark plan completion or move plans
-2. Run `npm test`.
-3. `pretest` runs automatically before tests:
+1. Run `npm test`.
+2. `pretest` runs automatically before tests:
    - `npm run validate:docs`
    - `npm run lint`
    - `npm run typecheck`
    - `npm run coverage:strict` (`vitest run --coverage`)
-4. Only if all gates pass does `test` continue.
-5. If `npm test` passes, create a `git commit` before ending the delivery conversation (no extra approval ping required).
+3. Only if all gates pass does `test` continue.
 
 ## Coverage Rule
 

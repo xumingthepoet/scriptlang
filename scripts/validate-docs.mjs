@@ -11,6 +11,7 @@ const requiredPaths = [
   "ARCHITECTURE.md",
   "PLANS.md",
   "docs/README.md",
+  "docs/HARNESS.md",
   "docs/design-docs/core-beliefs.md",
   "docs/product-specs/index.md",
   "docs/product-specs/syntax-manual.md",
@@ -40,6 +41,11 @@ const readIfExists = (rel) => {
 const agents = readIfExists("AGENTS.md");
 if (!agents.includes("Required Workflow")) {
   errors.push("AGENTS.md must include a 'Required Workflow' section.");
+}
+
+const harness = readIfExists("docs/HARNESS.md");
+if (!harness.includes("Responsibility Map")) {
+  errors.push("docs/HARNESS.md must include a 'Responsibility Map' section.");
 }
 
 const architecture = readIfExists("ARCHITECTURE.md");

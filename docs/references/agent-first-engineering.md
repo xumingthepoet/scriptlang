@@ -14,3 +14,8 @@ These references informed the initialization scaffold for this repository:
 - Treat plans as executable specs for non-trivial changes.
 - Prefer typed intermediate structures and fail early on invalid states.
 
+## Harness Engineering Notes Applied
+- Prefer reusable harness rules over ad hoc prompt repetition.
+- Externalize stable context into repo files and keep them lean.
+- Keep one authority per rule category to reduce instruction conflicts.
+- Continuously remove outdated instructions to fight process entropy.

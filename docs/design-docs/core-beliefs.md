@@ -5,11 +5,11 @@ This project follows an agent-first harness mindset:
 1. **Tight feedback loops over one-shot implementation**
    - Build workflow and checks first.
    - Keep behavior observable and debuggable at every layer.
-   - Finish delivery with a commit after gates pass.
+   - Operational workflow details are centralized in `/docs/HARNESS.md`.
 2. **Docs are executable constraints**
    - Product spec, architecture, and execution plan must exist before major code changes.
    - Changes without updated docs are incomplete.
-   - Before gate runs, sync README/ARCHITECTURE/docs and audit active execution plans for real completion.
+   - Responsibility boundaries between docs must remain explicit.
 3. **Strict boundaries and predictable structure**
    - Parser, analyzer, runtime, and host integration are separate modules.
    - Control-flow semantics live in runtime, not parser.
@@ -18,7 +18,7 @@ This project follows an agent-first harness mindset:
    - Reject invalid states as early as possible.
 5. **Execution plans are first-class artifacts**
    - Every non-trivial change starts from a decision-complete plan.
-   - Plans are moved from `active` to `completed` in the delivery commit only after real completion is verified.
+   - Plan lifecycle specifics live in `/docs/exec-plans/README.md`.
 6. **Architecture docs are living references**
    - Architecture is not static prose; it is maintained alongside behavior changes.
 7. **Deterministic core behavior**
