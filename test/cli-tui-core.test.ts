@@ -113,11 +113,42 @@ test("external scripts-dir includes .types.xml files", () => {
   assert.ok(loaded.scriptsXml["game.types.xml"]);
 });
 
+test("external scripts-dir includes .json files", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "scriptlang-json-dir-"));
+  fs.writeFileSync(
+    path.join(dir, "main.script.xml"),
+    `<!-- include: game.json -->
+<script name="main"><text>\${game.player.name}</text></script>`
+  );
+  fs.writeFileSync(path.join(dir, "game.json"), `{"player":{"name":"Hero"}}`);
+
+  const loaded = loadScenarioByScriptsDir(dir);
+  assert.ok(loaded.scriptsXml["main.script.xml"]);
+  assert.ok(loaded.scriptsXml["game.json"]);
+});
+
 test("loadScenarioById auto-includes discovered .types.xml files", () => {
   const scenarioDir = path.join(getScenarioScriptsRoot(), "01-text-code");
   const injectedName = "extra.types.xml";
   const injectedContent =
     `<types name="extra"><type name="X"><field name="hp" type="number"/></type></types>`;
+  const injectedPath = path.join(scenarioDir, injectedName);
+
+  try {
+    fs.writeFileSync(injectedPath, injectedContent);
+    const loaded = loadScenarioById("01-text-code");
+    assert.ok(loaded.scriptsXml[injectedName]);
+  } finally {
+    if (fs.existsSync(injectedPath)) {
+      fs.unlinkSync(injectedPath);
+    }
+  }
+});
+
+test("loadScenarioById auto-includes discovered .json files", () => {
+  const scenarioDir = path.join(getScenarioScriptsRoot(), "01-text-code");
+  const injectedName = "extra.json";
+  const injectedContent = `{"bonus":1}`;
   const injectedPath = path.join(scenarioDir, injectedName);
 
   try {

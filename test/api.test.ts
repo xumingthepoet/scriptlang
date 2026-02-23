@@ -135,8 +135,9 @@ test("compile project supports include graph and global custom types", () => {
   const xmlByPath = {
     "main.script.xml": `
 <!-- include: gamestate.types.xml -->
+<!-- include: game.json -->
 <script name="main" args="BattleState:state">
-  <text>p=\${state.player.hp},e=\${state.enemy.hp}</text>
+  <text>p=\${state.player.hp},e=\${state.enemy.hp},name=\${game.player.name}</text>
 </script>
 `,
     "gamestate.types.xml": `
@@ -158,14 +159,23 @@ test("compile project supports include graph and global custom types", () => {
   </type>
 </types>
 `,
+    "game.json": `{"player":{"name":"Hero"}}`,
   };
 
   const project = compileProjectFromXmlMap({ xmlByPath });
   assert.equal(project.entryScript, "main");
   assert.ok(project.scripts.main);
+  assert.equal(
+    (
+      project.globalJson.game as {
+        player: { name: string };
+      }
+    ).player.name,
+    "Hero"
+  );
 
   const engine = createEngineFromXml({ scriptsXml: xmlByPath });
-  assert.deepEqual(engine.next(), { kind: "text", text: "p=0,e=0" });
+  assert.deepEqual(engine.next(), { kind: "text", text: "p=0,e=0,name=Hero" });
 });
 
 test("project include and type errors are surfaced", () => {

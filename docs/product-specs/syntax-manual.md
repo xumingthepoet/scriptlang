@@ -7,6 +7,7 @@ This manual defines the concrete XML authoring syntax for ScriptLang V3.
 - File extensions:
   - `.script.xml` for executable scripts
   - `.types.xml` for global custom type declarations
+  - `.json` for global read-only data assets
 - Root elements:
   - `<script name="...">`
   - `<types name="...">`
@@ -27,18 +28,23 @@ ScriptLang supports include directives in file header comments:
 ```xml
 <!-- include: shared.types.xml -->
 <!-- include: combat.script.xml -->
+<!-- include: config.json -->
 <script name="main">...</script>
 ```
 
 Rules:
 
-- Format is exactly `<!-- include: rel/path.xml -->`.
+- Format is exactly `<!-- include: rel/path.ext -->`.
 - One include per line.
 - Allowed in both `.script.xml` and `.types.xml`.
 - Include paths are resolved relative to the current file path.
 - Include graph traversal starts from the `.script.xml` file whose root is `<script name="main">`.
 - Only files reachable from that main include closure are compiled.
-- Custom type visibility is scoped per script file: a script can use only types reachable from that script's own include closure (transitive).
+- Reachable file roots are:
+  - `.script.xml` -> `<script>`
+  - `.types.xml` -> `<types>`
+  - `.json` -> strict JSON payload (`JSON.parse`)
+- Custom type and JSON-global visibility is scoped per script file: a script can use only assets reachable from that script's own include closure (transitive).
 - Include cycles and missing include targets are compile errors.
 
 ## 3. Script Top-Level Structure
@@ -149,6 +155,21 @@ Supported type expressions:
 - Array: `T[]`
 - Map: `Map<string, T>`
 - Custom object type: `TypeName` (declared in `.types.xml` reachable from the current script's include closure)
+
+## 7.1 JSON Global Symbols
+
+When a reachable included file ends with `.json`, ScriptLang injects it as a global read-only symbol.
+
+Rules:
+
+- Symbol name is the file basename without `.json`.
+  - `x.json -> x`
+  - `config/player.json -> player`
+- Symbol name must be a valid JS identifier (`[A-Za-z_$][A-Za-z0-9_$]*`).
+- Duplicate symbol names across reachable JSON files are compile errors.
+- JSON is parsed with strict `JSON.parse` (comments and trailing commas are invalid).
+- JSON symbols are visible only to scripts that can reach the JSON file in their own include closure.
+- JSON symbols are fully read-only at runtime (both `x = ...` and `x.a.b = ...` are rejected).
 
 ## 8. `<text>`
 
@@ -305,3 +326,6 @@ Example:
 13. Using `value` attribute on `<text>/<code>` -> compile error (`XML_ATTR_NOT_ALLOWED`).
 14. Leaving `<text>/<code>` inline content empty -> compile error (`XML_EMPTY_NODE_CONTENT`).
 15. Using `ref:` in `<return script="..." args="..."/>` -> compile error (`XML_RETURN_REF_UNSUPPORTED`).
+16. Including malformed JSON data -> compile error (`JSON_PARSE_ERROR`).
+17. JSON basename is not a valid identifier -> compile error (`JSON_SYMBOL_INVALID`).
+18. Duplicate JSON symbol basename across reachable files -> compile error (`JSON_SYMBOL_DUPLICATE`).

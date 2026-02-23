@@ -22,6 +22,7 @@ Both modes run the same ScriptLang engine semantics.
   - `entryScript`
   - one or more `.script.xml` files.
   - optional `.types.xml` files for global custom type declarations.
+  - optional `.json` files for global read-only game data.
 - Bundled examples currently include:
   - `01-text-code`
   - `02-if-while`
@@ -111,6 +112,7 @@ Rules:
   - external scripts directory: `--scripts-dir <path>`
 - for `--scripts-dir`, entry script is fixed to script name `main`.
 - when multiple script files exist, `main` must include required script/type files via header `include` directives.
+- included `.json` assets in the same scenario source are loaded and available to script runtime through include closure rules.
 - `choose` resumes from `--state-in`, applies selection, then runs to next boundary.
 - `state` is persisted only when output boundary is `CHOICES`.
 - if boundary is `END`, output must be `STATE_OUT:NONE`.

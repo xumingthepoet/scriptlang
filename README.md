@@ -57,7 +57,7 @@ Play the complex battle demo:
 npm run player:tui -- --example 07-battle-duel
 ```
 
-Play scripts from an external directory (entry is always `<script name="main">`; multi-file dependencies must be included from `main` via header `include`):
+Play scripts from an external directory (entry is always `<script name="main">`; multi-file dependencies including `.script.xml` / `.types.xml` / `.json` data files must be included from `main` via header `include`):
 
 ```bash
 npm run player:tui -- --scripts-dir /absolute/path/to/scripts
@@ -101,15 +101,17 @@ const engine = createEngineFromXml({
 `,
     "main.script.xml": `
 <!-- include: gamestate.types.xml -->
+<!-- include: game.json -->
 <script name="main">
   <var name="hero" type="Actor" value="{ hp: 10, name: 'Rin' }"/>
-  <text>HP \${hero.hp}</text>
+  <text>\${game.title} HP \${hero.hp}</text>
   <choice>
     <option text="Heal"><code>hero.hp = hero.hp + 5;</code></option>
   </choice>
   <text>After \${hero.hp}</text>
 </script>
 `,
+    "game.json": `{"title":"Demo"}`,
   },
 });
 

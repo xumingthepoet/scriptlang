@@ -63,7 +63,9 @@ export interface LoadedScenario {
 
 const isScriptXmlFile = (file: string): boolean => file.endsWith(".script.xml");
 const isTypesXmlFile = (file: string): boolean => file.endsWith(".types.xml");
-const isScenarioXmlFile = (file: string): boolean => isScriptXmlFile(file) || isTypesXmlFile(file);
+const isJsonDataFile = (file: string): boolean => file.endsWith(".json");
+const isScenarioXmlFile = (file: string): boolean =>
+  isScriptXmlFile(file) || isTypesXmlFile(file) || isJsonDataFile(file);
 
 const makeCliError = (code: string, message: string): Error & { code: string } => {
   const error = new Error(message) as Error & { code: string };
@@ -106,7 +108,15 @@ export const loadScenarioById = (scenarioId: string): LoadedScenario => {
     .readdirSync(scenarioDir)
     .filter((file) => isTypesXmlFile(file))
     .sort();
-  const files = [...requiredFiles, ...typeFiles.filter((file) => !requiredFiles.includes(file))];
+  const jsonFiles = fs
+    .readdirSync(scenarioDir)
+    .filter((file) => isJsonDataFile(file))
+    .sort();
+  const files = [
+    ...requiredFiles,
+    ...typeFiles.filter((file) => !requiredFiles.includes(file)),
+    ...jsonFiles.filter((file) => !requiredFiles.includes(file)),
+  ];
 
   for (let i = 0; i < files.length; i += 1) {
     const name = files[i];

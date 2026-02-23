@@ -1,4 +1,7 @@
-import { compileProjectScriptsFromXmlMap } from "./compiler/index.js";
+import {
+  compileProjectBundleFromXmlMap,
+  compileProjectScriptsFromXmlMap,
+} from "./compiler/index.js";
 import { ScriptLangError } from "./core/errors.js";
 import type { SnapshotV1 } from "./core/types.js";
 import { ScriptLangEngine, type HostFunctionMap } from "./runtime/index.js";
@@ -20,6 +23,7 @@ export const compileScriptsFromXmlMap = (
 export interface CompileProjectFromXmlMapResult {
   scripts: ReturnType<typeof compileScriptsFromXmlMap>;
   entryScript: string;
+  globalJson: Record<string, unknown>;
 }
 
 const resolveEntryScript = (
@@ -41,9 +45,10 @@ const resolveEntryScript = (
 export const compileProjectFromXmlMap = (
   options: { xmlByPath: Record<string, string>; entryScript?: string }
 ): CompileProjectFromXmlMapResult => {
-  const scripts = compileScriptsFromXmlMap(options.xmlByPath);
+  const compiled = compileProjectBundleFromXmlMap(options.xmlByPath);
+  const scripts = compiled.scripts;
   const entryScript = resolveEntryScript(scripts, options.entryScript);
-  return { scripts, entryScript };
+  return { scripts, entryScript, globalJson: compiled.globalJson };
 };
 
 export const createEngineFromXml = (options: CreateEngineFromXmlOptions): ScriptLangEngine => {
@@ -53,6 +58,7 @@ export const createEngineFromXml = (options: CreateEngineFromXmlOptions): Script
   });
   const engine = new ScriptLangEngine({
     scripts: compiled.scripts,
+    globalJson: compiled.globalJson,
     hostFunctions: options.hostFunctions,
     compilerVersion: options.compilerVersion,
     vmTimeoutMs: options.vmTimeoutMs,
@@ -70,9 +76,10 @@ export interface ResumeEngineFromXmlOptions {
 }
 
 export const resumeEngineFromXml = (options: ResumeEngineFromXmlOptions): ScriptLangEngine => {
-  const scripts = compileScriptsFromXmlMap(options.scriptsXml);
+  const compiled = compileProjectBundleFromXmlMap(options.scriptsXml);
   const engine = new ScriptLangEngine({
-    scripts,
+    scripts: compiled.scripts,
+    globalJson: compiled.globalJson,
     hostFunctions: options.hostFunctions,
     compilerVersion: options.compilerVersion,
     vmTimeoutMs: options.vmTimeoutMs,

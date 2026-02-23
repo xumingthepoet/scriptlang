@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
-import { test } from "vitest";
+import { test, vi } from "vitest";
 
-import { ScriptLangError, compileProjectScriptsFromXmlMap, compileScript } from "../src/index.js";
+import {
+  ScriptLangError,
+  compileProjectBundleFromXmlMap,
+  compileProjectScriptsFromXmlMap,
+  compileScript,
+} from "../src/index.js";
 
 test("compile script into implicit groups with params and var nodes", () => {
   const xml = `
@@ -532,5 +537,75 @@ test("project compiler include source defensive branches", () => {
         missingOnFourthRead as unknown as Record<string, string>
       ),
     "XML_INCLUDE_MISSING"
+  );
+});
+
+test("project compiler loads JSON globals and validates symbol rules", () => {
+  const bundled = compileProjectBundleFromXmlMap({
+    "main.script.xml": `<!-- include: game.json -->
+<!-- include: child.script.xml -->
+<script name="main"><text>\${game.player.name}</text></script>`,
+    "child.script.xml": `<script name="child"><text>x</text></script>`,
+    "game.json": `{"player":{"name":"Hero","stats":{"hp":12}}}`,
+  });
+  assert.equal(bundled.globalJson.game !== undefined, true);
+  assert.equal(
+    (
+      bundled.globalJson.game as {
+        player: { name: string };
+      }
+    ).player.name,
+    "Hero"
+  );
+  assert.deepEqual(bundled.scripts.main.visibleJsonGlobals, ["game"]);
+  assert.deepEqual(bundled.scripts.child.visibleJsonGlobals, []);
+
+  expectCode(
+    () =>
+      compileProjectBundleFromXmlMap({
+        "main.script.xml": `<!-- include: bad.json -->
+<script name="main"><text>x</text></script>`,
+        "bad.json": `{"x": }`,
+      }),
+    "JSON_PARSE_ERROR"
+  );
+
+  const parseSpy = vi.spyOn(JSON, "parse").mockImplementationOnce(() => {
+    throw "boom";
+  });
+  try {
+    expectCode(
+      () =>
+        compileProjectBundleFromXmlMap({
+          "main.script.xml": `<!-- include: bad.json -->
+<script name="main"><text>x</text></script>`,
+          "bad.json": `{"x":1}`,
+        }),
+      "JSON_PARSE_ERROR"
+    );
+  } finally {
+    parseSpy.mockRestore();
+  }
+
+  expectCode(
+    () =>
+      compileProjectBundleFromXmlMap({
+        "main.script.xml": `<!-- include: game-data.json -->
+<script name="main"><text>x</text></script>`,
+        "game-data.json": `{"x":1}`,
+      }),
+    "JSON_SYMBOL_INVALID"
+  );
+
+  expectCode(
+    () =>
+      compileProjectBundleFromXmlMap({
+        "main.script.xml": `<!-- include: a/config.json -->
+<!-- include: b/config.json -->
+<script name="main"><text>x</text></script>`,
+        "a/config.json": `{"x":1}`,
+        "b/config.json": `{"x":2}`,
+      }),
+    "JSON_SYMBOL_DUPLICATE"
   );
 });

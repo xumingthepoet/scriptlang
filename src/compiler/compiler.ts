@@ -26,6 +26,7 @@ import type { XmlElementNode, XmlNode } from "./xml-types.js";
 const REMOVED_NODES = new Set(["vars", "step", "set", "push", "remove"]);
 const INCLUDE_DIRECTIVE = /^<!--\s*include:\s*(.+?)\s*-->$/;
 const CUSTOM_TYPE_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const JSON_GLOBAL_NAME_PATTERN = /^[$A-Za-z_][$0-9A-Za-z_]*$/;
 
 type NamedTypeResolver = ((name: string, span: SourceSpan) => ScriptType) | undefined;
 
@@ -51,6 +52,12 @@ interface ParsedTypeDecl {
 
 export interface CompileScriptOptions {
   resolveNamedType?: (name: string, span: SourceSpan) => ScriptType;
+  visibleJsonGlobals?: string[];
+}
+
+export interface CompileProjectBundleFromXmlMapResult {
+  scripts: Record<string, ScriptIR>;
+  globalJson: Record<string, unknown>;
 }
 
 function getAttr(node: XmlElementNode, name: string, required = false): string | null {
@@ -742,6 +749,61 @@ const collectScriptVisibleTypeNames = (
   return visibleTypeNames;
 };
 
+const collectScriptVisibleJsonNames = (
+  scriptPath: string,
+  includeGraph: Record<string, string[]>,
+  jsonSymbolByPath: Record<string, string>
+): Set<string> => {
+  const visibleJsonNames = new Set<string>();
+  const visited = new Set<string>();
+  const stack = [scriptPath];
+
+  while (stack.length > 0) {
+    const current = stack.pop() as string;
+    if (visited.has(current)) {
+      continue;
+    }
+    visited.add(current);
+
+    const jsonSymbol = jsonSymbolByPath[current];
+    if (jsonSymbol) {
+      visibleJsonNames.add(jsonSymbol);
+    }
+
+    const includes = includeGraph[current];
+    for (let i = 0; i < includes.length; i += 1) {
+      stack.push(includes[i]);
+    }
+  }
+
+  return visibleJsonNames;
+};
+
+const isJsonAssetPath = (filePath: string): boolean => filePath.endsWith(".json");
+
+const parseJsonGlobalSymbol = (filePath: string): string => {
+  const symbol = path.posix.basename(filePath, ".json");
+  if (!JSON_GLOBAL_NAME_PATTERN.test(symbol)) {
+    throw new ScriptLangError(
+      "JSON_SYMBOL_INVALID",
+      `Invalid JSON global symbol "${symbol}" derived from "${filePath}". JSON basename must be a valid identifier.`
+    );
+  }
+  return symbol;
+};
+
+const parseJsonGlobalValue = (source: string, filePath: string): unknown => {
+  try {
+    return JSON.parse(source);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown JSON parse error.";
+    throw new ScriptLangError(
+      "JSON_PARSE_ERROR",
+      `Failed to parse JSON include "${filePath}": ${message}`
+    );
+  }
+};
+
 export const compileScript = (
   xmlSource: string,
   scriptPath: string,
@@ -769,19 +831,23 @@ export const compileScript = (
     params,
     rootGroupId,
     groups: builder.groups,
+    visibleJsonGlobals: options.visibleJsonGlobals ? [...options.visibleJsonGlobals] : undefined,
   };
 };
 
-export const compileProjectScriptsFromXmlMap = (
+export const compileProjectBundleFromXmlMap = (
   xmlByPath: Record<string, string>
-): Record<string, ScriptIR> => {
+): CompileProjectBundleFromXmlMapResult => {
   const reachablePaths = collectReachablePaths(xmlByPath);
   if (reachablePaths.length === 0) {
-    return {};
+    return { scripts: {}, globalJson: {} };
   }
 
   const parsedRoots: Record<string, XmlElementNode> = {};
   const typeDecls: ParsedTypeDecl[] = [];
+  const jsonSymbolByPath: Record<string, string> = {};
+  const globalJson: Record<string, unknown> = {};
+  const jsonPathBySymbol: Record<string, string> = {};
 
   for (let i = 0; i < reachablePaths.length; i += 1) {
     const filePath = reachablePaths[i];
@@ -789,6 +855,21 @@ export const compileProjectScriptsFromXmlMap = (
     if (source === undefined) {
       throw new ScriptLangError("XML_INCLUDE_MISSING", `Included file not found: ${filePath}.`);
     }
+
+    if (isJsonAssetPath(filePath)) {
+      const symbol = parseJsonGlobalSymbol(filePath);
+      if (jsonPathBySymbol[symbol]) {
+        throw new ScriptLangError(
+          "JSON_SYMBOL_DUPLICATE",
+          `Duplicate JSON global symbol "${symbol}" from "${filePath}" and "${jsonPathBySymbol[symbol]}".`
+        );
+      }
+      jsonPathBySymbol[symbol] = filePath;
+      jsonSymbolByPath[filePath] = symbol;
+      globalJson[symbol] = parseJsonGlobalValue(source, filePath);
+      continue;
+    }
+
     const document = parseXmlDocument(source);
     const root = document.root;
     parsedRoots[filePath] = root;
@@ -820,6 +901,9 @@ export const compileProjectScriptsFromXmlMap = (
   const compiled: Record<string, ScriptIR> = {};
   for (let i = 0; i < reachablePaths.length; i += 1) {
     const filePath = reachablePaths[i];
+    if (isJsonAssetPath(filePath)) {
+      continue;
+    }
     if (parsedRoots[filePath].name !== "script") {
       continue;
     }
@@ -834,8 +918,12 @@ export const compileProjectScriptsFromXmlMap = (
       }
       return resolvedTypes[name] as ScriptType;
     };
+    const visibleJsonGlobals = Array.from(
+      collectScriptVisibleJsonNames(filePath, includeGraph, jsonSymbolByPath)
+    ).sort();
     const ir = compileScript(xmlByPath[filePath], filePath, {
       resolveNamedType: resolveNamedTypeForScript,
+      visibleJsonGlobals,
     });
     if (compiled[ir.scriptName]) {
       throw new ScriptLangError(
@@ -846,5 +934,14 @@ export const compileProjectScriptsFromXmlMap = (
     compiled[ir.scriptName] = ir;
   }
 
-  return compiled;
+  return {
+    scripts: compiled,
+    globalJson,
+  };
+};
+
+export const compileProjectScriptsFromXmlMap = (
+  xmlByPath: Record<string, string>
+): Record<string, ScriptIR> => {
+  return compileProjectBundleFromXmlMap(xmlByPath).scripts;
 };

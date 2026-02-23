@@ -117,6 +117,7 @@ export interface ScriptIR {
   params: ScriptParam[];
   rootGroupId: string;
   groups: Record<string, ImplicitGroup>;
+  visibleJsonGlobals?: string[];
 }
 
 export interface RuntimeScopeFrame {

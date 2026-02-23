@@ -819,6 +819,64 @@ test("engine variable helpers cover type, path, and extra-scope branches", () =>
   );
 });
 
+test("engine readonly JSON globals cover visibility and mutation branches", () => {
+  const script = compileScript(
+    `<script name="globals.script.xml">
+      <text>\${g.player.hp}</text>
+    </script>`,
+    "globals.script.xml"
+  );
+  script.visibleJsonGlobals = ["g"];
+
+  const engine = new ScriptLangEngine({
+    scripts: { "globals.script.xml": script },
+    compilerVersion: "dev",
+    globalJson: {
+      g: {
+        player: { hp: 7 },
+      },
+    },
+  });
+  engine.start("globals.script.xml");
+  assert.deepEqual(engine.next(), { kind: "text", text: "7" });
+
+  const anyEngine = engine as any;
+  const globalView = anyEngine.readVariable("g", [], "globals.script.xml");
+  const globalViewAgain = anyEngine.readVariable("g", [], "globals.script.xml");
+  assert.equal(globalView, globalViewAgain);
+  assert.equal(anyEngine.isVisibleJsonGlobal(null, "g"), false);
+
+  const savedFrames = anyEngine.frames;
+  anyEngine.frames = [];
+  assert.equal(anyEngine.resolveCurrentScriptName(), null);
+  anyEngine.frames = [{ ...savedFrames[0], groupId: "ghost.group" }];
+  assert.equal(anyEngine.resolveCurrentScriptName(), null);
+  anyEngine.frames = savedFrames;
+
+  expectCode(() => anyEngine.writeVariable("g", { player: { hp: 9 } }, [], "globals.script.xml"), "ENGINE_GLOBAL_READONLY");
+  expectCode(() => anyEngine.runCode("g.player.hp = 9;"), "ENGINE_GLOBAL_READONLY");
+  expectCode(() => anyEngine.runCode("delete g.player.hp;"), "ENGINE_GLOBAL_READONLY");
+  expectCode(
+    () => anyEngine.runCode("Object.defineProperty(g.player, 'hp', { value: 1 });"),
+    "ENGINE_GLOBAL_READONLY"
+  );
+  expectCode(() => anyEngine.runCode("Object.setPrototypeOf(g, null);"), "ENGINE_GLOBAL_READONLY");
+
+  const extraScope = [{ local: null as unknown }];
+  anyEngine.writeVariable("local", globalView, extraScope, "globals.script.xml");
+  assert.equal(extraScope[0].local === globalView, false);
+
+  const savedVisible = anyEngine.visibleJsonByScript["globals.script.xml"];
+  delete anyEngine.visibleJsonByScript["globals.script.xml"];
+  anyEngine.runCode("const noop = 1;");
+  anyEngine.visibleJsonByScript["globals.script.xml"] = savedVisible;
+
+  const framesForSandbox = anyEngine.frames;
+  anyEngine.frames = [];
+  anyEngine.buildSandbox([]);
+  anyEngine.frames = framesForSandbox;
+});
+
 test("resume covers conditional option filters and frameCounter fallback branch", () => {
   const script = compileScript(
     `

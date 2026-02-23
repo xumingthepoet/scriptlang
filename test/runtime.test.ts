@@ -238,6 +238,69 @@ test("return transfer flushes inherited ref writes before switching script", () 
   assert.deepEqual(engine.next(), { kind: "end" });
 });
 
+test("json include globals support deep reads and reject mutations", () => {
+  const deepRead = createEngineFromXml({
+    scriptsXml: {
+      "main.script.xml": `
+<!-- include: x.json -->
+<script name="main">
+  <text>\${x.a.b.c[123].e.f.g}</text>
+</script>
+`,
+      "x.json": `{"a":{"b":{"c":{"123":{"e":{"f":{"g":"ok"}}}}}}}`,
+    },
+  });
+  assert.deepEqual(deepRead.next(), { kind: "text", text: "ok" });
+
+  const topWrite = createEngineFromXml({
+    scriptsXml: {
+      "main.script.xml": `
+<!-- include: x.json -->
+<script name="main">
+  <code>x = { a: 1 };</code>
+</script>
+`,
+      "x.json": `{"a":{"b":1}}`,
+    },
+  });
+  expectCode(() => topWrite.next(), "ENGINE_GLOBAL_READONLY");
+
+  const nestedWrite = createEngineFromXml({
+    scriptsXml: {
+      "main.script.xml": `
+<!-- include: x.json -->
+<script name="main">
+  <code>x.a.b = 2;</code>
+</script>
+`,
+      "x.json": `{"a":{"b":1}}`,
+    },
+  });
+  expectCode(() => nestedWrite.next(), "ENGINE_GLOBAL_READONLY");
+});
+
+test("json globals follow per-script include visibility", () => {
+  const engine = createEngineFromXml({
+    scriptsXml: {
+      "main.script.xml": `
+<!-- include: x.json -->
+<!-- include: child.script.xml -->
+<script name="main">
+  <call script="child"/>
+</script>
+`,
+      "child.script.xml": `
+<script name="child">
+  <text>\${x.a}</text>
+</script>
+`,
+      "x.json": `{"a":1}`,
+    },
+  });
+
+  assert.throws(() => engine.next());
+});
+
 test("tail-position call compacts stack in waiting-choice snapshot", () => {
   const root = compileScript(
     `

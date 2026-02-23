@@ -8,6 +8,7 @@
 - Implicit group-based execution model.
 - Type-checked variables declared via `<script args="...">` and executable `<var .../>`.
 - Custom types declared in `*.types.xml` files and resolved per-script include closure.
+- JSON global data declared in `*.json` files and resolved per-script include closure.
 - Header include graph resolution via `<!-- include: ... -->` (closure starts from `script name="main"`).
 - `<code>` node as primary mutation and logic mechanism.
 - Ink-style pull runtime API: `next()`, `choose()`, `waitingChoice`, `snapshot()`, `resume()`.
@@ -23,11 +24,14 @@
 - Allowed roots: `<script>` and `<types>`.
 - Script ID is `name`; runtime lookup and `<call script="...">` use this ID.
 - Type collection root: `<types name="...">`.
-- Header include directives are supported in both roots:
-  - `<!-- include: rel/path.xml -->`
+- Header include directives are supported in script/type XML roots:
+  - `<!-- include: rel/path.ext -->`
   - include traversal starts at the file that declares `<script name="main">`
   - only files reachable from that closure are compiled
-  - each script can use only custom types reachable from that script file's own include closure (transitive)
+  - each script can use only custom types and JSON globals reachable from that script file's own include closure (transitive)
+- Reachable `.json` assets are compiled into global read-only symbols:
+  - symbol name is file basename without `.json`
+  - invalid symbol names and duplicate symbols are compile errors
 - Optional script params in `args="[ref:]type:name,[ref:]type:name2"`.
 - Executable nodes are direct children of `<script>`.
 - Supported executable nodes:
@@ -60,4 +64,6 @@
   - Runtime enforces declared types on script variables.
   - Supported language types are primitives (`number|string|boolean`), arrays, `Map<string, T>`, and custom object types visible to the current script include closure.
   - Custom object types are strict: missing/extra/wrong-typed fields are rejected.
+  - Reachable included `.json` files are exposed as read-only globals by symbol name (`file.json -> file`) and are visible only in the including script's include closure.
+  - Any write to JSON globals (top-level or nested) is a runtime error.
   - `createEngineFromXml` defaults to `main` when `entryScript` is omitted.

@@ -40,6 +40,7 @@ interface PendingChoice {
 }
 
 const deepClone = <T>(value: T): T => structuredClone(value);
+const isObjectLike = (value: unknown): value is object => value !== null && typeof value === "object";
 
 const isPrimitiveTypeName = (name: string): name is "number" | "string" | "boolean" => {
   return name === "number" || name === "string" || name === "boolean";
@@ -154,6 +155,7 @@ const assertSnapshotTypeSupported = (type: ScriptType): void => {
 
 export interface ScriptLangEngineOptions {
   scripts: Record<string, ScriptIR>;
+  globalJson?: Record<string, unknown>;
   hostFunctions?: HostFunctionMap;
   compilerVersion?: string;
   vmTimeoutMs?: number;
@@ -165,6 +167,11 @@ export class ScriptLangEngine {
   private readonly compilerVersion: string;
   private readonly vmTimeoutMs: number;
   private readonly groupLookup: Record<string, GroupLookup>;
+  private readonly globalJsonRaw: Record<string, unknown>;
+  private readonly globalJsonReadonly: Record<string, unknown>;
+  private readonly visibleJsonByScript: Record<string, Set<string>>;
+  private readonly readonlyProxyByRaw = new WeakMap<object, unknown>();
+  private readonly rawByReadonlyProxy = new WeakMap<object, object>();
 
   private frames: RuntimeFrame[] = [];
   private pendingChoice: PendingChoice | null = null;
@@ -174,15 +181,23 @@ export class ScriptLangEngine {
 
   constructor(options: ScriptLangEngineOptions) {
     this.scripts = options.scripts;
+    this.globalJsonRaw = options.globalJson ?? {};
     this.hostFunctions = options.hostFunctions ?? {};
     this.compilerVersion = options.compilerVersion ?? "dev";
     this.vmTimeoutMs = options.vmTimeoutMs ?? 100;
     this.groupLookup = {};
+    this.globalJsonReadonly = {};
+    this.visibleJsonByScript = {};
 
     for (const [scriptName, script] of Object.entries(this.scripts)) {
       for (const [groupId, group] of Object.entries(script.groups)) {
         this.groupLookup[groupId] = { scriptName, group };
       }
+      this.visibleJsonByScript[scriptName] = new Set(script.visibleJsonGlobals ?? []);
+    }
+
+    for (const [name, value] of Object.entries(this.globalJsonRaw)) {
+      this.globalJsonReadonly[name] = this.makeReadonlyGlobalValue(value);
     }
   }
 
@@ -400,6 +415,77 @@ export class ScriptLangEngine {
     this.waitingChoice = false;
     this.ended = false;
     this.frameCounter = 1;
+  }
+
+  private throwReadonlyGlobalMutation(name: string | null = null): never {
+    if (name) {
+      throw new ScriptLangError(
+        "ENGINE_GLOBAL_READONLY",
+        `Global JSON "${name}" is readonly and cannot be mutated.`
+      );
+    }
+    throw new ScriptLangError(
+      "ENGINE_GLOBAL_READONLY",
+      "Global JSON data is readonly and cannot be mutated."
+    );
+  }
+
+  private makeReadonlyGlobalValue(value: unknown): unknown {
+    if (!isObjectLike(value)) {
+      return value;
+    }
+    const cached = this.readonlyProxyByRaw.get(value);
+    if (cached) {
+      return cached;
+    }
+
+    const proxy = new Proxy(value, {
+      get: (target, prop, receiver) => {
+        const next = Reflect.get(target, prop, receiver);
+        return this.makeReadonlyGlobalValue(next);
+      },
+      set: () => this.throwReadonlyGlobalMutation(),
+      deleteProperty: () => this.throwReadonlyGlobalMutation(),
+      defineProperty: () => this.throwReadonlyGlobalMutation(),
+      setPrototypeOf: () => this.throwReadonlyGlobalMutation(),
+    });
+    this.readonlyProxyByRaw.set(value, proxy);
+    this.rawByReadonlyProxy.set(proxy, value);
+    return proxy;
+  }
+
+  private normalizeStoredValue(value: unknown): unknown {
+    if (!isObjectLike(value)) {
+      return value;
+    }
+    const raw = this.rawByReadonlyProxy.get(value);
+    if (!raw) {
+      return value;
+    }
+    return deepClone(raw);
+  }
+
+  private resolveCurrentScriptName(): string | null {
+    const top = this.frames[this.frames.length - 1];
+    if (!top) {
+      return null;
+    }
+    const lookup = this.groupLookup[top.groupId];
+    if (!lookup) {
+      return null;
+    }
+    return lookup.scriptName;
+  }
+
+  private isVisibleJsonGlobal(scriptName: string | null, name: string): boolean {
+    if (!scriptName) {
+      return false;
+    }
+    const visible = this.visibleJsonByScript[scriptName];
+    if (!visible || !visible.has(name)) {
+      return false;
+    }
+    return name in this.globalJsonReadonly;
   }
 
   private findFrame(frameId: number): RuntimeFrame | null {
@@ -684,14 +770,15 @@ export class ScriptLangEngine {
           `Call argument "${name}" is not declared in target script args.`
         );
       }
-      if (value === undefined) {
+      const normalized = this.normalizeStoredValue(value);
+      if (normalized === undefined) {
         throw new ScriptLangError(
           "ENGINE_CALL_ARG_UNDEFINED",
           `Call argument "${name}" cannot be undefined.`
         );
       }
-      this.assertType(name, varTypes[name], value);
-      scope[name] = value;
+      this.assertType(name, varTypes[name], normalized);
+      scope[name] = normalized;
     }
     return { scope, varTypes };
   }
@@ -711,14 +798,15 @@ export class ScriptLangEngine {
     if (decl.initialValueExpr) {
       value = this.evalExpression(decl.initialValueExpr);
     }
-    if (value === undefined) {
+    const normalized = this.normalizeStoredValue(value);
+    if (normalized === undefined) {
       throw new ScriptLangError(
         "ENGINE_VAR_UNDEFINED",
         `Initial value for "${decl.name}" cannot be undefined.`
       );
     }
-    this.assertType(decl.name, decl.type, value);
-    frame.scope[decl.name] = value;
+    this.assertType(decl.name, decl.type, normalized);
+    frame.scope[decl.name] = normalized;
     frame.varTypes[decl.name] = decl.type;
   }
 
@@ -817,6 +905,7 @@ export class ScriptLangEngine {
   }
 
   private buildSandbox(extraScopes: Array<Record<string, unknown>>): vm.Context {
+    const scriptName = this.resolveCurrentScriptName();
     const variableNames = new Set<string>();
     for (const frame of this.frames) {
       for (const name of Object.keys(frame.scope)) {
@@ -828,13 +917,21 @@ export class ScriptLangEngine {
         variableNames.add(name);
       }
     }
+    if (scriptName) {
+      const visibleJson = this.visibleJsonByScript[scriptName];
+      if (visibleJson) {
+        for (const name of visibleJson) {
+          variableNames.add(name);
+        }
+      }
+    }
 
     const sandbox: Record<string, unknown> = Object.create(null);
     for (const name of variableNames) {
       Object.defineProperty(sandbox, name, {
         configurable: false,
         enumerable: true,
-        get: () => this.readVariable(name, extraScopes),
+        get: () => this.readVariable(name, extraScopes, scriptName),
         set: (value: unknown) => {
           if (value === undefined) {
             throw new ScriptLangError(
@@ -842,7 +939,7 @@ export class ScriptLangEngine {
               `Variable "${name}" cannot be assigned undefined.`
             );
           }
-          this.writeVariable(name, value, extraScopes);
+          this.writeVariable(name, value, extraScopes, scriptName);
         },
       });
     }
@@ -869,7 +966,11 @@ export class ScriptLangEngine {
     });
   }
 
-  private readVariable(name: string, extraScopes: Array<Record<string, unknown>> = []): unknown {
+  private readVariable(
+    name: string,
+    extraScopes: Array<Record<string, unknown>> = [],
+    scriptName: string | null = this.resolveCurrentScriptName()
+  ): unknown {
     for (let i = extraScopes.length - 1; i >= 0; i -= 1) {
       if (name in extraScopes[i]) {
         return extraScopes[i][name];
@@ -880,29 +981,38 @@ export class ScriptLangEngine {
         return this.frames[i].scope[name];
       }
     }
+    if (this.isVisibleJsonGlobal(scriptName, name)) {
+      return this.globalJsonReadonly[name];
+    }
     throw new ScriptLangError("ENGINE_VAR_READ", `Variable "${name}" is not defined.`);
   }
 
   private writeVariable(
     name: string,
     value: unknown,
-    extraScopes: Array<Record<string, unknown>> = []
+    extraScopes: Array<Record<string, unknown>> = [],
+    scriptName: string | null = this.resolveCurrentScriptName()
   ): void {
     for (let i = extraScopes.length - 1; i >= 0; i -= 1) {
       if (name in extraScopes[i]) {
-        extraScopes[i][name] = value;
+        extraScopes[i][name] = this.normalizeStoredValue(value);
         return;
       }
     }
     for (let i = this.frames.length - 1; i >= 0; i -= 1) {
       if (name in this.frames[i].scope) {
         const type = this.frames[i].varTypes[name];
+        const normalized = this.normalizeStoredValue(value);
         if (type) {
-          this.assertType(name, type, value);
+          this.assertType(name, type, normalized);
         }
-        this.frames[i].scope[name] = value;
+        this.frames[i].scope[name] = normalized;
         return;
       }
+    }
+    if (this.isVisibleJsonGlobal(scriptName, name)) {
+      this.throwReadonlyGlobalMutation(name);
+      return;
     }
     throw new ScriptLangError(
       "ENGINE_VAR_WRITE",
