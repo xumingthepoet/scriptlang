@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Box, Text, render, useApp, useInput } from "ink";
 
 import {
@@ -16,6 +16,9 @@ import {
 import { createPlayerState, loadPlayerState, savePlayerState } from "../core/state-store.js";
 
 export const DEFAULT_STATE_FILE = "./.scriptlang/save.bin";
+const CHOICE_VIEWPORT_ROWS = 5;
+const TYPEWRITER_CHARS_PER_SECOND = 5;
+const TYPEWRITER_TICK_MS = Math.floor(1000 / TYPEWRITER_CHARS_PER_SECOND);
 
 export interface TuiOptions {
   example: string | null;
@@ -63,41 +66,81 @@ export const parseTuiArgs = (argv: string[]): TuiOptions => {
   return options;
 };
 
-const applyBoundaryToState = (
-  boundary: BoundaryResult,
-  setChoices: (next: Array<{ index: number; id: string; text: string }>) => void,
-  setEnded: (next: boolean) => void
-): void => {
-  if (boundary.event === "CHOICES") {
-    setChoices(boundary.choices);
-    setEnded(false);
-    return;
-  }
-  setChoices([]);
-  setEnded(true);
-};
-
 const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFile: string }) => {
   const { exit } = useApp();
 
   const started = startScenario(scenario, PLAYER_COMPILER_VERSION);
   const engineRef = useRef(started.engine);
-  const [lines, setLines] = useState<string[]>(started.boundary.texts);
+  const [renderedLines, setRenderedLines] = useState<string[]>([]);
+  const [pendingLines, setPendingLines] = useState<string[]>(started.boundary.texts);
+  const [typingLine, setTypingLine] = useState<string | null>(null);
+  const [typingChars, setTypingChars] = useState(0);
   const [choices, setChoices] = useState(started.boundary.choices);
+  const [selectedChoiceIndex, setSelectedChoiceIndex] = useState(0);
+  const [choiceScrollOffset, setChoiceScrollOffset] = useState(0);
   const [ended, setEnded] = useState(started.boundary.event === "END");
   const [helpVisible, setHelpVisible] = useState(false);
   const [status, setStatus] = useState("ready");
 
+  useEffect(() => {
+    if (typingLine === null) {
+      if (pendingLines.length === 0) {
+        return;
+      }
+      const [nextLine, ...rest] = pendingLines;
+      setPendingLines(rest);
+      if (nextLine.length === 0) {
+        setRenderedLines((prev) => [...prev, nextLine]);
+        return;
+      }
+      setTypingLine(nextLine);
+      setTypingChars(1);
+      return;
+    }
+
+    if (typingChars >= typingLine.length) {
+      setRenderedLines((prev) => [...prev, typingLine]);
+      setTypingLine(null);
+      setTypingChars(0);
+      return;
+    }
+
+    const timer = globalThis.setTimeout(() => {
+      setTypingChars((prev) => prev + 1);
+    }, TYPEWRITER_TICK_MS);
+
+    return () => {
+      globalThis.clearTimeout(timer);
+    };
+  }, [pendingLines, typingLine, typingChars]);
+
+  const setBoundaryChoices = (boundary: BoundaryResult): void => {
+    if (boundary.event === "CHOICES") {
+      setChoices(boundary.choices);
+      setEnded(false);
+      setSelectedChoiceIndex(0);
+      setChoiceScrollOffset(0);
+      return;
+    }
+    setChoices([]);
+    setEnded(true);
+    setSelectedChoiceIndex(0);
+    setChoiceScrollOffset(0);
+  };
+
   const appendBoundary = (boundary: BoundaryResult): void => {
     if (boundary.texts.length > 0) {
-      setLines((prev) => [...prev, ...boundary.texts]);
+      setPendingLines((prev) => [...prev, ...boundary.texts]);
     }
-    applyBoundaryToState(boundary, setChoices, setEnded);
+    setBoundaryChoices(boundary);
   };
 
   const replaceBoundary = (boundary: BoundaryResult): void => {
-    setLines(boundary.texts);
-    applyBoundaryToState(boundary, setChoices, setEnded);
+    setRenderedLines([]);
+    setPendingLines(boundary.texts);
+    setTypingLine(null);
+    setTypingChars(0);
+    setBoundaryChoices(boundary);
   };
 
   const restart = (): void => {
@@ -105,6 +148,37 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
     engineRef.current = next.engine;
     replaceBoundary(next.boundary);
     setStatus("restarted");
+  };
+
+  const moveChoiceCursor = (delta: -1 | 1): void => {
+    if (choices.length === 0) {
+      setStatus("no pending choice");
+      return;
+    }
+    const nextIndex = Math.max(0, Math.min(choices.length - 1, selectedChoiceIndex + delta));
+    setSelectedChoiceIndex(nextIndex);
+    setChoiceScrollOffset((prev) => {
+      if (choices.length <= CHOICE_VIEWPORT_ROWS) {
+        return 0;
+      }
+      if (nextIndex < prev) {
+        return nextIndex;
+      }
+      if (nextIndex >= prev + CHOICE_VIEWPORT_ROWS) {
+        return nextIndex - CHOICE_VIEWPORT_ROWS + 1;
+      }
+      return prev;
+    });
+  };
+
+  const chooseCurrent = (): void => {
+    if (choices.length === 0) {
+      setStatus("no pending choice");
+      return;
+    }
+    const boundary = chooseAndContinue(engineRef.current, selectedChoiceIndex);
+    appendBoundary(boundary);
+    setStatus(`chose ${selectedChoiceIndex}`);
   };
 
   useInput((input, key) => {
@@ -119,6 +193,18 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
       }
       if (input === "r") {
         restart();
+        return;
+      }
+      if (key.upArrow) {
+        moveChoiceCursor(-1);
+        return;
+      }
+      if (key.downArrow) {
+        moveChoiceCursor(1);
+        return;
+      }
+      if (key.return) {
+        chooseCurrent();
         return;
       }
       if (input === "s") {
@@ -141,25 +227,32 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
         setStatus(`loaded from ${stateFile}`);
         return;
       }
-      if (/^[1-9]$/.test(input)) {
-        const index = Number.parseInt(input, 10) - 1;
-        if (choices.length === 0) {
-          setStatus("no pending choice");
-          return;
-        }
-        if (index < 0 || index >= choices.length) {
-          setStatus(`choice out of range: ${index}`);
-          return;
-        }
-        const boundary = chooseAndContinue(engineRef.current, index);
-        appendBoundary(boundary);
-        setStatus(`chose ${index}`);
-      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "unknown error";
       setStatus(message);
     }
   });
+
+  const lines = typingLine
+    ? [...renderedLines, typingLine.slice(0, Math.max(0, Math.min(typingChars, typingLine.length)))]
+    : renderedLines;
+  const visibleChoiceRows = Array.from({ length: CHOICE_VIEWPORT_ROWS }, (_value, rowIndex) => {
+    const absoluteIndex = choiceScrollOffset + rowIndex;
+    const choice = choices[absoluteIndex];
+    if (!choice) {
+      return { key: `choice-empty-${rowIndex}`, text: " ", selected: false };
+    }
+    return {
+      key: choice.id,
+      text: choice.text,
+      selected: absoluteIndex === selectedChoiceIndex,
+    };
+  });
+  const windowStart = choices.length === 0 ? 0 : choiceScrollOffset + 1;
+  const windowEnd =
+    choices.length === 0
+      ? 0
+      : Math.min(choiceScrollOffset + CHOICE_VIEWPORT_ROWS, choices.length);
 
   return (
     <Box flexDirection="column" paddingX={1}>
@@ -171,12 +264,23 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
       {lines.map((line, index) => (
         <Text key={`line-${index}`}>{line}</Text>
       ))}
-      {choices.length > 0 && <Text color="cyan">choices:</Text>}
-      {choices.map((choice) => (
-        <Text key={choice.id}>{`${choice.index + 1}. ${choice.text}`}</Text>
-      ))}
+      {choices.length > 0 && <Text color="cyan">choices (up/down + enter):</Text>}
+      {choices.length > 0 && (
+        <Box flexDirection="column">
+          {visibleChoiceRows.map((row) => (
+            <Text key={row.key} color={row.selected ? "green" : undefined}>
+              {row.selected ? `> ${row.text}` : `  ${row.text}`}
+            </Text>
+          ))}
+          {choices.length > CHOICE_VIEWPORT_ROWS && (
+            <Text color="gray">
+              {`window ${windowStart}-${windowEnd} / ${choices.length}`}
+            </Text>
+          )}
+        </Box>
+      )}
       {ended && <Text color="green">[end]</Text>}
-      <Text color="yellow">keys: 1..9 choose | s save | l load | r restart | h help | q quit</Text>
+      <Text color="yellow">keys: up/down move | enter choose | s save | l load | r restart | h help | q quit</Text>
       {helpVisible && (
         <Text color="magenta">
           snapshot is valid only when waiting at choices. if save fails, continue until a choice appears.

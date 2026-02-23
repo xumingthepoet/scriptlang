@@ -47,17 +47,25 @@ Behavior:
 - Displays:
   - current scenario title
   - accumulated text output
-  - choices (with numeric index) when waiting choice
+  - choices in a fixed-height viewport when waiting choice
   - status/help footer
+  - text output with typewriter animation at 5 chars/second
 
 Key bindings:
 
-- `1..9`: choose option index.
+- `↑` / `↓`: move current choice cursor.
+- `enter`: confirm current choice.
 - `s`: save state.
 - `l`: load state.
 - `r`: restart scenario from entry script.
 - `h`: toggle help.
 - `q`: quit.
+
+Choice viewport rules:
+
+- choice list height is fixed to 5 rows.
+- when choices exceed 5, viewport scrolls with cursor movement.
+- selected row is visually highlighted.
 
 State handling:
 
