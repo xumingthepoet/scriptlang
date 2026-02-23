@@ -21,6 +21,7 @@ test("agent list returns scenario rows", () => {
   assert.equal(result.lines[result.lines.length - 1], "STATE_OUT:NONE");
   assert.ok(result.lines.some((line) => line.includes("01-text-code")));
   assert.ok(result.lines.some((line) => line.includes("07-battle-duel")));
+  assert.ok(result.lines.some((line) => line.includes("08-json-globals")));
 });
 
 test("agent start emits choices and writes state", () => {

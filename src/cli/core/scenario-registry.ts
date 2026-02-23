@@ -45,6 +45,12 @@ const SCENARIOS = [
     entryScript: "main",
     files: ["main.script.xml", "battle-loop.script.xml", "victory.script.xml", "defeat.script.xml"],
   },
+  {
+    id: "08-json-globals",
+    title: "JSON Globals",
+    entryScript: "main",
+    files: ["main.script.xml"],
+  },
 ] as const;
 
 const EXTERNAL_SCENARIO_PREFIX = "scripts-dir:";

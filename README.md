@@ -57,6 +57,12 @@ Play the complex battle demo:
 npm run player:tui -- --example 07-battle-duel
 ```
 
+Play the JSON globals demo:
+
+```bash
+npm run player:tui -- --example 08-json-globals
+```
+
 Play scripts from an external directory (entry is always `<script name="main">`; multi-file dependencies including `.script.xml` / `.types.xml` / `.json` data files must be included from `main` via header `include`):
 
 ```bash
