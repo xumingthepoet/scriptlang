@@ -3,7 +3,7 @@
 ## Code Execution
 - `<code>` execution runs in a `node:vm` sandbox.
 - Only whitelisted host functions are exposed.
-- Execution timeouts are mandatory.
+- VM execution timeout is not enforced by runtime configuration.
 
 ## Input Handling
 - XML is parsed into typed structures before semantic execution.
@@ -12,4 +12,3 @@
 ## Persistence
 - Snapshot payload is treated as untrusted input on resume.
 - Resume validates schema version and required fields before use.
-

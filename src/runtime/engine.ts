@@ -158,14 +158,12 @@ export interface ScriptLangEngineOptions {
   globalJson?: Record<string, unknown>;
   hostFunctions?: HostFunctionMap;
   compilerVersion?: string;
-  vmTimeoutMs?: number;
 }
 
 export class ScriptLangEngine {
   private readonly scripts: Record<string, ScriptIR>;
   private readonly hostFunctions: HostFunctionMap;
   private readonly compilerVersion: string;
-  private readonly vmTimeoutMs: number;
   private readonly groupLookup: Record<string, GroupLookup>;
   private readonly globalJsonRaw: Record<string, unknown>;
   private readonly globalJsonReadonly: Record<string, unknown>;
@@ -184,7 +182,6 @@ export class ScriptLangEngine {
     this.globalJsonRaw = options.globalJson ?? {};
     this.hostFunctions = options.hostFunctions ?? {};
     this.compilerVersion = options.compilerVersion ?? "dev";
-    this.vmTimeoutMs = options.vmTimeoutMs ?? 100;
     this.groupLookup = {};
     this.globalJsonReadonly = {};
     this.visibleJsonByScript = {};
@@ -895,13 +892,13 @@ export class ScriptLangEngine {
   private evalExpression(expr: string, extraScopes: Array<Record<string, unknown>> = []): unknown {
     const sandbox = this.buildSandbox(extraScopes);
     const script = new vm.Script(`"use strict"; (${expr})`);
-    return script.runInContext(sandbox, { timeout: this.vmTimeoutMs });
+    return script.runInContext(sandbox);
   }
 
   private runCode(code: string): void {
     const sandbox = this.buildSandbox([]);
     const script = new vm.Script(`"use strict";\n${code}`);
-    script.runInContext(sandbox, { timeout: this.vmTimeoutMs });
+    script.runInContext(sandbox);
   }
 
   private buildSandbox(extraScopes: Array<Record<string, unknown>>): vm.Context {

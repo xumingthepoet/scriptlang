@@ -11,7 +11,6 @@ export interface CreateEngineFromXmlOptions {
   entryScript?: string;
   hostFunctions?: HostFunctionMap;
   compilerVersion?: string;
-  vmTimeoutMs?: number;
 }
 
 export const compileScriptsFromXmlMap = (
@@ -61,7 +60,6 @@ export const createEngineFromXml = (options: CreateEngineFromXmlOptions): Script
     globalJson: compiled.globalJson,
     hostFunctions: options.hostFunctions,
     compilerVersion: options.compilerVersion,
-    vmTimeoutMs: options.vmTimeoutMs,
   });
   engine.start(compiled.entryScript);
   return engine;
@@ -72,7 +70,6 @@ export interface ResumeEngineFromXmlOptions {
   snapshot: SnapshotV1;
   hostFunctions?: HostFunctionMap;
   compilerVersion?: string;
-  vmTimeoutMs?: number;
 }
 
 export const resumeEngineFromXml = (options: ResumeEngineFromXmlOptions): ScriptLangEngine => {
@@ -82,7 +79,6 @@ export const resumeEngineFromXml = (options: ResumeEngineFromXmlOptions): Script
     globalJson: compiled.globalJson,
     hostFunctions: options.hostFunctions,
     compilerVersion: options.compilerVersion,
-    vmTimeoutMs: options.vmTimeoutMs,
   });
   engine.resume(options.snapshot);
   return engine;
