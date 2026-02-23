@@ -7,7 +7,7 @@
 - XML-first branching narrative scripts.
 - Implicit group-based execution model.
 - Type-checked variables declared via `<script args="...">` and executable `<var .../>`.
-- Global custom types declared in `*.types.xml` files.
+- Custom types declared in `*.types.xml` files and resolved per-script include closure.
 - Header include graph resolution via `<!-- include: ... -->` (closure starts from `script name="main"`).
 - `<code>` node as primary mutation and logic mechanism.
 - Ink-style pull runtime API: `next()`, `choose()`, `waitingChoice`, `snapshot()`, `resume()`.
@@ -27,6 +27,7 @@
   - `<!-- include: rel/path.xml -->`
   - include traversal starts at the file that declares `<script name="main">`
   - only files reachable from that closure are compiled
+  - each script can use only custom types reachable from that script file's own include closure (transitive)
 - Optional script params in `args="name:type,name2:type:ref"`.
 - Executable nodes are direct children of `<script>`.
 - Supported executable nodes:
@@ -54,6 +55,6 @@
   - `<var>` scope is declaration-point to current block end.
   - Runtime rejects `undefined` and `null` assignments into declared script variables.
   - Runtime enforces declared types on script variables.
-  - Supported language types are primitives (`number|string|boolean`), arrays, `Map<string, T>`, and global custom object types.
+  - Supported language types are primitives (`number|string|boolean`), arrays, `Map<string, T>`, and custom object types visible to the current script include closure.
   - Custom object types are strict: missing/extra/wrong-typed fields are rejected.
   - `createEngineFromXml` defaults to `main` when `entryScript` is omitted.

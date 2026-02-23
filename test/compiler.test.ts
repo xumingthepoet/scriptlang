@@ -356,6 +356,18 @@ test("project compiler validates types include graph and script type references"
     "TYPE_UNKNOWN"
   );
 
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main.script.xml": `<!-- include: battle.script.xml -->
+<!-- include: actors.types.xml -->
+<script name="main"><text>m</text></script>`,
+        "battle.script.xml": `<script name="battle" args="actor:Combatant"><text>b</text></script>`,
+        "actors.types.xml": `<types name="actors"><type name="Combatant"><field name="hp" type="number"/></type></types>`,
+      }),
+    "TYPE_UNKNOWN"
+  );
+
   const compiled = compileProjectScriptsFromXmlMap({
     "main.script.xml": `<!-- include: a.script.xml -->
 <!-- include: b.script.xml -->
@@ -368,6 +380,16 @@ test("project compiler validates types include graph and script type references"
     "shared.types.xml": `<types name="shared"><type name="Score"><field name="n" type="number"/></type></types>`,
   });
   assert.deepEqual(Object.keys(compiled).sort(), ["a", "b", "main"]);
+
+  const compiledWithScopedTypes = compileProjectScriptsFromXmlMap({
+    "main.script.xml": `<!-- include: battle.script.xml -->
+<!-- include: actors.types.xml -->
+<script name="main"><text>m</text></script>`,
+    "battle.script.xml": `<!-- include: actors.types.xml -->
+<script name="battle" args="actor:Combatant"><text>b</text></script>`,
+    "actors.types.xml": `<types name="actors"><type name="Combatant"><field name="hp" type="number"/></type></types>`,
+  });
+  assert.deepEqual(Object.keys(compiledWithScopedTypes).sort(), ["battle", "main"]);
 
   expectCode(
     () =>
@@ -451,6 +473,29 @@ test("project compiler include source defensive branches", () => {
     () =>
       compileProjectScriptsFromXmlMap(
         missingOnThirdRead as unknown as Record<string, string>
+      ),
+    "XML_INCLUDE_MISSING"
+  );
+
+  let fourthReads = 0;
+  const missingOnFourthRead = new Proxy(
+    {
+      "main.script.xml": `<script name="main"><text>x</text></script>`,
+    },
+    {
+      get(target, prop, receiver) {
+        if (prop === "main.script.xml") {
+          fourthReads += 1;
+          return fourthReads <= 3 ? target["main.script.xml"] : undefined;
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    }
+  );
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap(
+        missingOnFourthRead as unknown as Record<string, string>
       ),
     "XML_INCLUDE_MISSING"
   );

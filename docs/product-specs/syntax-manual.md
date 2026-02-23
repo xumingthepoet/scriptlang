@@ -38,6 +38,7 @@ Rules:
 - Include paths are resolved relative to the current file path.
 - Include graph traversal starts from the `.script.xml` file whose root is `<script name="main">`.
 - Only files reachable from that main include closure are compiled.
+- Custom type visibility is scoped per script file: a script can use only types reachable from that script's own include closure (transitive).
 - Include cycles and missing include targets are compile errors.
 
 ## 3. Script Top-Level Structure
@@ -147,7 +148,7 @@ Supported type expressions:
 - Primitive: `number`, `string`, `boolean`
 - Array: `T[]`
 - Map: `Map<string, T>`
-- Custom object type: `TypeName` (declared globally in included `.types.xml`)
+- Custom object type: `TypeName` (declared in `.types.xml` reachable from the current script's include closure)
 
 ## 8. `<text>`
 
@@ -281,7 +282,7 @@ Example:
 3. Unknown/invalid include target -> compile error.
 4. Include cycle -> compile error.
 5. Duplicate type name or duplicate field name -> compile error.
-6. Unknown custom type reference -> compile error.
+6. Unknown custom type reference, or a type not visible from current script include closure -> compile error.
 7. Recursive custom type reference -> compile error.
 8. Calling unknown script ID -> runtime error.
 9. Ref mode mismatch with script param declaration -> runtime error.

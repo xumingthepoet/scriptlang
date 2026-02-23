@@ -592,6 +592,26 @@ const resolveIncludePath = (currentPath: string, includeSource: string): string 
   return path.posix.normalize(path.posix.join(path.posix.dirname(currentPath), normalizedInput));
 };
 
+const collectIncludeTargets = (filePath: string, xmlByPath: Record<string, string>): string[] => {
+  const source = xmlByPath[filePath];
+  if (source === undefined) {
+    throw new ScriptLangError("XML_INCLUDE_MISSING", `Included file not found: ${filePath}.`);
+  }
+  const includes = parseIncludeDirectives(source);
+  const targets: string[] = [];
+  for (let i = 0; i < includes.length; i += 1) {
+    const includeTarget = resolveIncludePath(filePath, includes[i]);
+    if (!(includeTarget in xmlByPath)) {
+      throw new ScriptLangError(
+        "XML_INCLUDE_MISSING",
+        `Included file "${includes[i]}" not found from "${filePath}".`
+      );
+    }
+    targets.push(includeTarget);
+  }
+  return targets;
+};
+
 const collectReachablePaths = (xmlByPath: Record<string, string>): string[] => {
   const scriptFiles = Object.keys(xmlByPath)
     .filter((filePath) => filePath.endsWith(".script.xml"))
@@ -650,15 +670,9 @@ const collectReachablePaths = (xmlByPath: Record<string, string>): string[] => {
     }
 
     stack.push(filePath);
-    const includes = parseIncludeDirectives(source);
-    for (let i = 0; i < includes.length; i += 1) {
-      const includeTarget = resolveIncludePath(filePath, includes[i]);
-      if (!(includeTarget in xmlByPath)) {
-        throw new ScriptLangError(
-          "XML_INCLUDE_MISSING",
-          `Included file "${includes[i]}" not found from "${filePath}".`
-        );
-      }
+    const includeTargets = collectIncludeTargets(filePath, xmlByPath);
+    for (let i = 0; i < includeTargets.length; i += 1) {
+      const includeTarget = includeTargets[i];
       visit(includeTarget);
     }
     stack.pop();
@@ -668,6 +682,51 @@ const collectReachablePaths = (xmlByPath: Record<string, string>): string[] => {
   visit(mainRoots[0]);
 
   return Array.from(visited).sort();
+};
+
+const buildIncludeGraphForReachablePaths = (
+  reachablePaths: string[],
+  xmlByPath: Record<string, string>
+): Record<string, string[]> => {
+  const reachableSet = new Set(reachablePaths);
+  const includeGraph: Record<string, string[]> = {};
+  for (let i = 0; i < reachablePaths.length; i += 1) {
+    const filePath = reachablePaths[i];
+    includeGraph[filePath] = collectIncludeTargets(filePath, xmlByPath).filter((target) =>
+      reachableSet.has(target)
+    );
+  }
+  return includeGraph;
+};
+
+const collectScriptVisibleTypeNames = (
+  scriptPath: string,
+  includeGraph: Record<string, string[]>,
+  typeNamesByPath: Record<string, string[]>
+): Set<string> => {
+  const visibleTypeNames = new Set<string>();
+  const visited = new Set<string>();
+  const stack = [scriptPath];
+
+  while (stack.length > 0) {
+    const current = stack.pop() as string;
+    if (visited.has(current)) {
+      continue;
+    }
+    visited.add(current);
+
+    const currentTypeNames = typeNamesByPath[current] ?? [];
+    for (let i = 0; i < currentTypeNames.length; i += 1) {
+      visibleTypeNames.add(currentTypeNames[i]);
+    }
+
+    const includes = includeGraph[current];
+    for (let i = 0; i < includes.length; i += 1) {
+      stack.push(includes[i]);
+    }
+  }
+
+  return visibleTypeNames;
 };
 
 export const compileScript = (
@@ -735,13 +794,15 @@ export const compileProjectScriptsFromXmlMap = (
   }
 
   const resolvedTypes = resolveTypeDeclarations(typeDecls);
-  const resolveNamedType = (name: string, span: SourceSpan): ScriptType => {
-    const resolved = resolvedTypes[name];
-    if (!resolved) {
-      throw new ScriptLangError("TYPE_UNKNOWN", `Unknown type "${name}".`, span);
+  const includeGraph = buildIncludeGraphForReachablePaths(reachablePaths, xmlByPath);
+  const typeNamesByPath: Record<string, string[]> = {};
+  for (let i = 0; i < typeDecls.length; i += 1) {
+    const decl = typeDecls[i];
+    if (!typeNamesByPath[decl.sourcePath]) {
+      typeNamesByPath[decl.sourcePath] = [];
     }
-    return resolved;
-  };
+    typeNamesByPath[decl.sourcePath].push(decl.name);
+  }
 
   const compiled: Record<string, ScriptIR> = {};
   for (let i = 0; i < reachablePaths.length; i += 1) {
@@ -749,8 +810,19 @@ export const compileProjectScriptsFromXmlMap = (
     if (parsedRoots[filePath].name !== "script") {
       continue;
     }
+    const visibleTypeNames = collectScriptVisibleTypeNames(filePath, includeGraph, typeNamesByPath);
+    const resolveNamedTypeForScript = (name: string, span: SourceSpan): ScriptType => {
+      if (!visibleTypeNames.has(name)) {
+        throw new ScriptLangError(
+          "TYPE_UNKNOWN",
+          `Unknown type "${name}" in "${filePath}". Include the corresponding .types.xml file from this script's include closure.`,
+          span
+        );
+      }
+      return resolvedTypes[name] as ScriptType;
+    };
     const ir = compileScript(xmlByPath[filePath], filePath, {
-      resolveNamedType,
+      resolveNamedType: resolveNamedTypeForScript,
     });
     if (compiled[ir.scriptName]) {
       throw new ScriptLangError(
