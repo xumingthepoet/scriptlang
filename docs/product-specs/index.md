@@ -28,7 +28,7 @@
   - include traversal starts at the file that declares `<script name="main">`
   - only files reachable from that closure are compiled
   - each script can use only custom types reachable from that script file's own include closure (transitive)
-- Optional script params in `args="name:type,name2:type:ref"`.
+- Optional script params in `args="[ref:]type:name,[ref:]type:name2"`.
 - Executable nodes are direct children of `<script>`.
 - Supported executable nodes:
   - `<var name="..." type="..." value="..."/>`
@@ -38,7 +38,7 @@
   - `<while when="...">...</while>`
   - `<choice><option ...>...</option></choice>`
   - `<option>` supports `text` (required) and `when` (optional); `once` is not supported.
-  - `<call script="..." args="name:value,name2:ref:path"/>`
+  - `<call script="..." args="[ref:]value,[ref:]value2"/>` (positional; maps to script arg declaration order)
   - `<return/>` and `<return script="..."/>`
 - Explicitly removed nodes: `<vars>`, `<step>`, `<set>`, `<push>`, `<remove>`.
 
@@ -52,6 +52,7 @@
   - Resume requires same compiler version string.
 - Type behavior:
   - Script parameters come from `<script args="...">`.
+  - `<call ... args="...">` arguments are positional and map by target script arg order.
   - `<var>` scope is declaration-point to current block end.
   - Runtime rejects `undefined` and `null` assignments into declared script variables.
   - Runtime enforces declared types on script variables.

@@ -1,7 +1,7 @@
 <!-- include: actors.types.xml -->
 <script
   name="battle-loop"
-  args="player:Combatant:ref,enemy:Combatant:ref"
+  args="ref:Combatant:player,ref:Combatant:enemy"
 >
   <var name="potions" type="number" value="1"/>
   <var name="rounds" type="number" value="0"/>

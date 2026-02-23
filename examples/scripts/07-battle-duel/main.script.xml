@@ -11,7 +11,7 @@
 
   <call
     script="battle-loop"
-    args="player:ref:player,enemy:ref:enemy"
+    args="ref:player,ref:enemy"
   />
 
   <if when="player.hp > 0 &amp;&amp; enemy.hp &lt;= 0">

@@ -130,7 +130,7 @@ test("call with ref writes back to caller var", () => {
     `
 <script name="main">
   <var name="hp" type="number" value="1"/>
-  <call script="buff" args="amount:3,target:ref:hp"/>
+  <call script="buff" args="3,ref:hp"/>
   <text>HP=\${hp}</text>
 </script>
 `,
@@ -138,7 +138,7 @@ test("call with ref writes back to caller var", () => {
   );
   const buff = compileScript(
     `
-<script name="buff" args="amount:number,target:number:ref">
+<script name="buff" args="number:amount,ref:number:target">
   <code>target = target + amount;</code>
   <return />
 </script>
@@ -217,7 +217,7 @@ test("snapshot is rejected when not waiting choice", () => {
 test("default values for arg types are initialized", () => {
   const main = compileScript(
     `
-<script name="defaults" args="s:string,b:boolean,arr:number[],m:Map&lt;string,number&gt;">
+<script name="defaults" args="string:s,boolean:b,number[]:arr,Map&lt;string,number&gt;:m">
   <code>
     if (s !== "") throw new Error("s");
     if (b !== false) throw new Error("b");

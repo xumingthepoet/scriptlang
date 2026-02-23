@@ -6,7 +6,6 @@ import type {
   ChoiceNode,
   ContinuationFrame,
   EngineOutput,
-  ScriptParam,
   ScriptIR,
   ScriptNode,
   ScriptType,
@@ -503,39 +502,35 @@ export class ScriptLangEngine {
         node.location
       );
     }
-    const paramMap = new Map<string, ScriptParam>();
-    for (let i = 0; i < targetScript.params.length; i += 1) {
-      const param = targetScript.params[i];
-      paramMap.set(param.name, param);
-    }
 
     const argValues: Record<string, unknown> = {};
     const refBindings: Record<string, string> = {};
-    for (const arg of node.args) {
-      const param = paramMap.get(arg.name);
+    for (let i = 0; i < node.args.length; i += 1) {
+      const arg = node.args[i];
+      const param = targetScript.params[i];
       if (!param) {
         throw new ScriptLangError(
           "ENGINE_CALL_ARG_UNKNOWN",
-          `Call argument "${arg.name}" is not declared in target script args.`
+          `Call argument at position ${i + 1} has no declared target script parameter.`
         );
       }
       if (param.isRef && !arg.isRef) {
         throw new ScriptLangError(
           "ENGINE_CALL_REF_MISMATCH",
-          `Call argument "${arg.name}" must use ref mode because target script declares it as ref.`
+          `Call argument at position ${i + 1} must use ref mode because target script declares "${param.name}" as ref.`
         );
       }
       if (!param.isRef && arg.isRef) {
         throw new ScriptLangError(
           "ENGINE_CALL_REF_MISMATCH",
-          `Call argument "${arg.name}" cannot use ref mode because target script does not declare it as ref.`
+          `Call argument at position ${i + 1} cannot use ref mode because target script does not declare "${param.name}" as ref.`
         );
       }
       if (arg.isRef) {
-        argValues[arg.name] = this.readPath(arg.valueExpr);
-        refBindings[arg.name] = arg.valueExpr;
+        argValues[param.name] = this.readPath(arg.valueExpr);
+        refBindings[param.name] = arg.valueExpr;
       } else {
-        argValues[arg.name] = this.evalExpression(arg.valueExpr);
+        argValues[param.name] = this.evalExpression(arg.valueExpr);
       }
     }
 

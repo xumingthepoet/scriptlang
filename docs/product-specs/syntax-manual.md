@@ -15,7 +15,7 @@ Example:
 
 ```xml
 <!-- include: gamestate.types.xml -->
-<script name="main" args="hp:number">
+<script name="main" args="number:hp">
   <text>HP is ${hp}</text>
 </script>
 ```
@@ -97,14 +97,14 @@ Example:
 
 `args` grammar:
 
-- `name:type`
-- `name:type:ref`
+- `type:name`
+- `ref:type:name`
 - comma-separated
 
 Example:
 
 ```xml
-<script name="buff" args="amount:number,target:number:ref">
+<script name="buff" args="number:amount,ref:number:target">
   <code>target = target + amount;</code>
 </script>
 ```
@@ -238,15 +238,16 @@ Syntax:
 Syntax:
 
 ```xml
-<call script="buff" args="amount:3,target:ref:hp"/>
+<call script="buff" args="3,ref:hp"/>
 ```
 
 Rules:
 
 - `script` is required and refers to target script `name`.
-- Call args are optional and default to pass-by-value.
-- For a target param declared `:ref`, caller must pass `name:ref:path`.
-- For a target param not declared `:ref`, caller must not pass `ref`.
+- Call args are optional, positional, and map by target script arg declaration order.
+- Call arg form is `[ref:]value`.
+- For a target param declared `ref:...`, caller must pass `ref:value`.
+- For a target param not declared `ref:...`, caller must not pass `ref:`.
 - `ref` values copy back when callee returns.
 
 ## 14. `<return>`
@@ -288,6 +289,6 @@ Example:
 9. Ref mode mismatch with script param declaration -> runtime error.
 10. Condition not boolean at runtime -> runtime error.
 11. Writing wrong type, `undefined`, or `null` into declared script variables -> runtime error.
-12. Using `null` as a declared type (`type="null"` or `args="x:null"`) -> compile error (`TYPE_PARSE_ERROR`).
+12. Using `null` as a declared type (`type="null"` or `args="null:x"`) -> compile error (`TYPE_PARSE_ERROR`).
 13. Using `value` attribute on `<text>/<code>` -> compile error (`XML_ATTR_NOT_ALLOWED`).
 14. Leaving `<text>/<code>` inline content empty -> compile error (`XML_EMPTY_NODE_CONTENT`).

@@ -99,7 +99,7 @@ test("compiler validation error branches", () => {
   expectCode(
     () =>
       compileScript(
-        `<script name="a.script.xml"><call script="x" args="bad"/></script>`,
+        `<script name="a.script.xml"><call script="x" args="ref:"/></script>`,
         "a.script.xml"
       ),
     "CALL_ARGS_PARSE_ERROR"
@@ -260,12 +260,12 @@ test("call and return error branches", () => {
   expectCode(() => e2.next(), "ENGINE_RETURN_TARGET");
 
   const refTarget = compileScript(
-    `<script name="ref-target.script.xml" args="x:number:ref"><return/></script>`,
+    `<script name="ref-target.script.xml" args="ref:number:x"><return/></script>`,
     "ref-target.script.xml"
   );
   const refCaller = compile(
     "ref-caller.script.xml",
-    `<vars><var name="hp" type="number" value="1"/></vars><step><call script="ref-target.script.xml" args="x:1"/></step>`
+    `<vars><var name="hp" type="number" value="1"/></vars><step><call script="ref-target.script.xml" args="1"/></step>`
   );
   const e3 = new ScriptLangEngine({
     scripts: {
@@ -278,12 +278,12 @@ test("call and return error branches", () => {
   expectCode(() => e3.next(), "ENGINE_CALL_REF_MISMATCH");
 
   const valueTarget = compileScript(
-    `<script name="value-target.script.xml" args="x:number"><return/></script>`,
+    `<script name="value-target.script.xml" args="number:x"><return/></script>`,
     "value-target.script.xml"
   );
   const valueCaller = compile(
     "value-caller.script.xml",
-    `<vars><var name="hp" type="number" value="1"/></vars><step><call script="value-target.script.xml" args="x:ref:hp"/></step>`
+    `<vars><var name="hp" type="number" value="1"/></vars><step><call script="value-target.script.xml" args="ref:hp"/></step>`
   );
   const e4 = new ScriptLangEngine({
     scripts: {
@@ -310,10 +310,10 @@ test("return script valid path", () => {
 test("tail call with ref unsupported branch", () => {
   const root = compile(
     "root.script.xml",
-    `<vars><var name="hp" type="number" value="1"/></vars><step><call script="child.script.xml" args="hp:ref:hp"/></step>`
+    `<vars><var name="hp" type="number" value="1"/></vars><step><call script="child.script.xml" args="ref:hp"/></step>`
   );
   const child = compileScript(
-    `<script name="child.script.xml" args="hp:number:ref"><return/></script>`,
+    `<script name="child.script.xml" args="ref:number:hp"><return/></script>`,
     "child.script.xml"
   );
   const parent = compile("parent.script.xml", `<vars/><step><call script="root.script.xml"/><text>x</text></step>`);
@@ -411,7 +411,7 @@ test("undefined assignment and type mismatch branches", () => {
   );
   const caller = compile(
     "caller.script.xml",
-    `<vars/><step><call script="target.script.xml" args="ghost:1"/></step>`
+    `<vars/><step><call script="target.script.xml" args="1,2"/></step>`
   );
   const e3 = new ScriptLangEngine({
     scripts: { "caller.script.xml": caller, "target.script.xml": target },
@@ -534,7 +534,7 @@ test("engine helper paths for return target and root scope arg assignment", () =
     `<vars/><step><choice><option text="ok"><text>ok</text></option></choice></step>`
   );
   const target = compileScript(
-    `<script name="target.script.xml" args="n:number"><text>ok</text></script>`,
+    `<script name="target.script.xml" args="number:n"><text>ok</text></script>`,
     "target.script.xml"
   );
   const engine = new ScriptLangEngine({
@@ -659,7 +659,7 @@ test("engine finishFrame and executeReturn continuation branches", () => {
 
 test("engine variable helpers cover type, path, and extra-scope branches", () => {
   const script = compileScript(
-    `<script name="state.script.xml" args="num:number">
+    `<script name="state.script.xml" args="number:num">
       <text>x</text>
     </script>`,
     "state.script.xml"

@@ -207,8 +207,8 @@ const parseScriptArgs = (root: XmlElementNode, resolveNamedType?: NamedTypeResol
 
   for (let i = 0; i < segments.length; i += 1) {
     const segment = segments[i];
-    const isRef = segment.endsWith(":ref");
-    const normalized = isRef ? segment.slice(0, -4).trim() : segment;
+    const isRef = segment.startsWith("ref:");
+    const normalized = isRef ? segment.slice("ref:".length).trim() : segment;
     const separator = normalized.indexOf(":");
     if (separator <= 0 || separator >= normalized.length - 1) {
       throw new ScriptLangError(
@@ -217,8 +217,8 @@ const parseScriptArgs = (root: XmlElementNode, resolveNamedType?: NamedTypeResol
         root.location
       );
     }
-    const name = normalized.slice(0, separator).trim();
-    const typeSource = normalized.slice(separator + 1).trim();
+    const typeSource = normalized.slice(0, separator).trim();
+    const name = normalized.slice(separator + 1).trim();
     if (names.has(name)) {
       throw new ScriptLangError(
         "SCRIPT_ARGS_DUPLICATE",
@@ -246,16 +246,12 @@ const parseArgs = (raw: string | null): CallArgument[] => {
     .map((part) => part.trim())
     .filter(Boolean)
     .map((part) => {
-      const separator = part.indexOf(":");
-      if (separator <= 0 || separator >= part.length - 1) {
+      const isRef = part.startsWith("ref:");
+      const normalized = isRef ? part.slice("ref:".length).trim() : part;
+      if (normalized.length === 0) {
         throw new ScriptLangError("CALL_ARGS_PARSE_ERROR", `Invalid call arg segment: "${part}".`);
       }
-      const name = part.slice(0, separator).trim();
-      const value = part.slice(separator + 1).trim();
-      if (value.startsWith("ref:")) {
-        return { name, valueExpr: value.slice("ref:".length), isRef: true };
-      }
-      return { name, valueExpr: value, isRef: false };
+      return { valueExpr: normalized, isRef };
     });
 };
 

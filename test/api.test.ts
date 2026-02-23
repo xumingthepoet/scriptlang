@@ -135,7 +135,7 @@ test("compile project supports include graph and global custom types", () => {
   const xmlByPath = {
     "main.script.xml": `
 <!-- include: gamestate.types.xml -->
-<script name="main" args="state:BattleState">
+<script name="main" args="BattleState:state">
   <text>p=\${state.player.hp},e=\${state.enemy.hp}</text>
 </script>
 `,

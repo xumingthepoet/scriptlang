@@ -78,7 +78,6 @@ export interface ChoiceNode extends BaseNode {
 }
 
 export interface CallArgument {
-  name: string;
   valueExpr: string;
   isRef: boolean;
 }

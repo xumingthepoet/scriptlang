@@ -5,7 +5,7 @@ import { ScriptLangError, compileProjectScriptsFromXmlMap, compileScript } from 
 
 test("compile script into implicit groups with params and var nodes", () => {
   const xml = `
-<script name="main" args="seed:number,target:number:ref">
+<script name="main" args="number:seed,ref:number:target">
   <var name="hp" type="number" value="100"/>
   <text>hello</text>
   <if when="hp > 0">
@@ -19,7 +19,7 @@ test("compile script into implicit groups with params and var nodes", () => {
   </while>
   <choice>
     <option text="Go" when="hp > 0">
-      <call script="next" args="value:hp"/>
+      <call script="next" args="hp"/>
     </option>
   </choice>
 </script>
@@ -57,7 +57,7 @@ test("reject removed nodes", () => {
 
 test("script args parser validates syntax and duplicates", () => {
   const ok = compileScript(
-    `<script name="ok" args="a:number,b:Map&lt;string,number&gt;:ref"><text>x</text></script>`,
+    `<script name="ok" args="number:a,ref:Map&lt;string,number&gt;:b"><text>x</text></script>`,
     "ok.script.xml"
   );
   assert.equal(ok.params[1].isRef, true);
@@ -74,7 +74,7 @@ test("script args parser validates syntax and duplicates", () => {
   );
 
   assert.throws(
-    () => compileScript(`<script name="x" args="a:number,a:string"><text>x</text></script>`, "dup.script.xml"),
+    () => compileScript(`<script name="x" args="number:a,string:a"><text>x</text></script>`, "dup.script.xml"),
     (error: unknown) => {
       assert.ok(error instanceof ScriptLangError);
       assert.equal(error.code, "SCRIPT_ARGS_DUPLICATE");
@@ -83,7 +83,7 @@ test("script args parser validates syntax and duplicates", () => {
   );
 
   const trailingComma = compileScript(
-    `<script name="x" args="a:number,"><text>x</text></script>`,
+    `<script name="x" args="number:a,"><text>x</text></script>`,
     "trailing.script.xml"
   );
   assert.equal(trailingComma.params.length, 1);
@@ -91,7 +91,7 @@ test("script args parser validates syntax and duplicates", () => {
   assert.throws(
     () =>
       compileScript(
-        `<script name="x" args="r:Record&lt;string,number&gt;"><text>x</text></script>`,
+        `<script name="x" args="Record&lt;string,number&gt;:r"><text>x</text></script>`,
         "record-removed.script.xml"
       ),
     (error: unknown) => {
@@ -104,7 +104,7 @@ test("script args parser validates syntax and duplicates", () => {
   assert.throws(
     () =>
       compileScript(
-        `<script name="x" args="n:null"><text>x</text></script>`,
+        `<script name="x" args="null:n"><text>x</text></script>`,
         "null-arg-removed.script.xml"
       ),
     (error: unknown) => {
@@ -132,7 +132,7 @@ test("null type is rejected in var declaration", () => {
 
 test("call args parser separator edge cases", () => {
   const quoted = compileScript(
-    `<script name="x"><call script="target" args="msg:&quot;a,b&quot;"/></script>`,
+    `<script name="x"><call script="target" args="&quot;a,b&quot;"/></script>`,
     "quoted.script.xml"
   );
   const quotedCall = quoted.groups[quoted.rootGroupId].nodes[0];
@@ -140,7 +140,7 @@ test("call args parser separator edge cases", () => {
   assert.equal(quotedCall.args.length, 1);
 
   const nested = compileScript(
-    `<script name="x"><call script="target" args="a:({k:[1,2]}),b:(1,2),c:'x,y'"/></script>`,
+    `<script name="x"><call script="target" args="({k:[1,2]}),(1,2),'x,y'"/></script>`,
     "nested.script.xml"
   );
   const nestedCall = nested.groups[nested.rootGroupId].nodes[0];
@@ -150,7 +150,7 @@ test("call args parser separator edge cases", () => {
   assert.throws(
     () =>
       compileScript(
-        `<script name="x"><call script="target" args="a:"/></script>`,
+        `<script name="x"><call script="target" args="ref:"/></script>`,
         "badargs.script.xml"
       ),
     (e: unknown) => {
@@ -163,7 +163,7 @@ test("call args parser separator edge cases", () => {
   assert.throws(
     () =>
       compileScript(
-        `<script name="x"><call script="target" args="a: "/></script>`,
+        `<script name="x"><call script="target" args="ref: "/></script>`,
         "badargs2.script.xml"
       ),
     (e: unknown) => {
@@ -176,7 +176,7 @@ test("call args parser separator edge cases", () => {
   assert.throws(
     () =>
       compileScript(
-        `<script name="x"><call script="target" args=" :x"/></script>`,
+        `<script name="x"><call script="target" args="ref:,1"/></script>`,
         "badargs3.script.xml"
       ),
     (e: unknown) => {
@@ -362,7 +362,7 @@ test("project compiler validates types include graph and script type references"
         "main.script.xml": `<!-- include: battle.script.xml -->
 <!-- include: actors.types.xml -->
 <script name="main"><text>m</text></script>`,
-        "battle.script.xml": `<script name="battle" args="actor:Combatant"><text>b</text></script>`,
+        "battle.script.xml": `<script name="battle" args="Combatant:actor"><text>b</text></script>`,
         "actors.types.xml": `<types name="actors"><type name="Combatant"><field name="hp" type="number"/></type></types>`,
       }),
     "TYPE_UNKNOWN"
@@ -386,7 +386,7 @@ test("project compiler validates types include graph and script type references"
 <!-- include: actors.types.xml -->
 <script name="main"><text>m</text></script>`,
     "battle.script.xml": `<!-- include: actors.types.xml -->
-<script name="battle" args="actor:Combatant"><text>b</text></script>`,
+<script name="battle" args="Combatant:actor"><text>b</text></script>`,
     "actors.types.xml": `<types name="actors"><type name="Combatant"><field name="hp" type="number"/></type></types>`,
   });
   assert.deepEqual(Object.keys(compiledWithScopedTypes).sort(), ["battle", "main"]);
