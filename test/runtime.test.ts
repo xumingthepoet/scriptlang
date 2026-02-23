@@ -155,6 +155,99 @@ test("call with ref writes back to caller var", () => {
   assert.deepEqual(engine.next(), { kind: "end" });
 });
 
+test("return transfer supports positional value args", () => {
+  const main = compileScript(
+    `
+<script name="main">
+  <var name="hp" type="number" value="2"/>
+  <return script="next" args="hp + 3"/>
+</script>
+`,
+    "main.script.xml"
+  );
+  const next = compileScript(
+    `
+<script name="next" args="number:value">
+  <text>v=\${value}</text>
+</script>
+`,
+    "next.script.xml"
+  );
+  const engine = new ScriptLangEngine({
+    scripts: { main, next },
+    compilerVersion: "dev",
+  });
+  engine.start("main");
+  assert.deepEqual(engine.next(), { kind: "text", text: "v=5" });
+  assert.deepEqual(engine.next(), { kind: "end" });
+});
+
+test("return transfer rejects ref args in v1", () => {
+  const main = compileScript(
+    `
+<script name="main">
+  <var name="hp" type="number" value="2"/>
+  <return script="next" args="ref:hp"/>
+</script>
+`,
+    "main.script.xml"
+  );
+  const next = compileScript(
+    `
+<script name="next" args="ref:number:target">
+  <text>x</text>
+</script>
+`,
+    "next.script.xml"
+  );
+  const engine = new ScriptLangEngine({
+    scripts: { main, next },
+    compilerVersion: "dev",
+  });
+  engine.start("main");
+  expectCode(() => engine.next(), "ENGINE_RETURN_REF_UNSUPPORTED");
+});
+
+test("return transfer flushes inherited ref writes before switching script", () => {
+  const main = compileScript(
+    `
+<script name="main">
+  <var name="hp" type="number" value="1"/>
+  <call script="mid" args="ref:hp"/>
+  <text>hp=\${hp}</text>
+</script>
+`,
+    "main.script.xml"
+  );
+  const mid = compileScript(
+    `
+<script name="mid" args="ref:number:x">
+  <code>x = x + 1;</code>
+  <return script="tail" args="x + 1"/>
+</script>
+`,
+    "mid.script.xml"
+  );
+  const tail = compileScript(
+    `
+<script name="tail" args="number:y">
+  <text>tail=\${y}</text>
+  <return/>
+</script>
+`,
+    "tail.script.xml"
+  );
+
+  const engine = new ScriptLangEngine({
+    scripts: { main, mid, tail },
+    compilerVersion: "dev",
+  });
+  engine.start("main");
+  assert.deepEqual(engine.next(), { kind: "text", text: "tail=3" });
+  assert.deepEqual(engine.next(), { kind: "text", text: "hp=2" });
+  assert.deepEqual(engine.next(), { kind: "end" });
+});
+
 test("tail-position call compacts stack in waiting-choice snapshot", () => {
   const root = compileScript(
     `

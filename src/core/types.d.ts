@@ -91,6 +91,7 @@ export interface CallNode extends BaseNode {
 export interface ReturnNode extends BaseNode {
   kind: "return";
   targetScript: string | null;
+  args: CallArgument[];
 }
 
 export type ScriptNode =

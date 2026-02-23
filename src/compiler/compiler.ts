@@ -422,10 +422,20 @@ const compileGroup = (
       };
       compiled = callNode;
     } else if (child.name === "return") {
+      const targetScript = getAttr(child, "script", false);
+      const args = parseArgs(getAttr(child, "args", false));
+      if (!targetScript && args.length > 0) {
+        throw new ScriptLangError(
+          "XML_RETURN_ARGS_WITHOUT_TARGET",
+          "<return> with args requires script attribute.",
+          child.location
+        );
+      }
       const returnNode: ReturnNode = {
         id: builder.nextNodeId("return"),
         kind: "return",
-        targetScript: getAttr(child, "script", false),
+        targetScript,
+        args,
         location: child.location,
       };
       compiled = returnNode;

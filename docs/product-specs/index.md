@@ -39,7 +39,7 @@
   - `<choice><option ...>...</option></choice>`
   - `<option>` supports `text` (required) and `when` (optional); `once` is not supported.
   - `<call script="..." args="[ref:]value,[ref:]value2"/>` (positional; maps to script arg declaration order)
-  - `<return/>` and `<return script="..."/>`
+  - `<return/>` and `<return script="..." args="[value,value2,...]"/>`
 - Explicitly removed nodes: `<vars>`, `<step>`, `<set>`, `<push>`, `<remove>`.
 
 ## Runtime Behavior (Implemented)
@@ -53,6 +53,7 @@
 - Type behavior:
   - Script parameters come from `<script args="...">`.
   - `<call ... args="...">` arguments are positional and map by target script arg order.
+  - `<return script="..." args="...">` arguments are positional and value-only (no `ref:` support in V1).
   - `<var>` scope is declaration-point to current block end.
   - Runtime rejects `undefined` and `null` assignments into declared script variables.
   - Runtime enforces declared types on script variables.

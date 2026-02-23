@@ -274,7 +274,7 @@ export class ScriptLangEngine {
           continue;
         }
         if (node.kind === "return") {
-          this.executeReturn(node.targetScript);
+          this.executeReturn(node);
           continue;
         }
 
@@ -566,16 +566,58 @@ export class ScriptLangEngine {
     this.pushRootFrame(targetScript.rootGroupId, rootScope, continuation, varTypes);
   }
 
-  private executeReturn(targetScript: string | null): void {
+  private executeReturn(node: Extract<ScriptNode, { kind: "return" }>): void {
     const rootIndex = this.findCurrentRootFrameIndex();
     const rootFrame = this.frames[rootIndex];
     const inherited = rootFrame.returnContinuation;
+    const targetScript = node.targetScript;
+    let target: ScriptIR | null = null;
+    const transferArgValues: Record<string, unknown> = {};
+
+    if (targetScript) {
+      target = this.requireReturnTargetScript(targetScript);
+      for (let i = 0; i < node.args.length; i += 1) {
+        const arg = node.args[i];
+        const param = target.params[i];
+        if (!param) {
+          throw new ScriptLangError(
+            "ENGINE_RETURN_ARG_UNKNOWN",
+            `Return argument at position ${i + 1} has no declared target script parameter.`,
+            node.location
+          );
+        }
+        if (arg.isRef) {
+          throw new ScriptLangError(
+            "ENGINE_RETURN_REF_UNSUPPORTED",
+            "Return transfer args do not support ref mode in V1.",
+            node.location
+          );
+        }
+        transferArgValues[param.name] = this.evalExpression(arg.valueExpr);
+      }
+    }
 
     this.frames.splice(rootIndex);
     if (targetScript) {
-      const script = this.requireReturnTargetScript(targetScript);
-      const { scope: rootScope, varTypes } = this.createScriptRootScope(targetScript, {});
-      this.pushRootFrame(script.rootGroupId, rootScope, inherited, varTypes);
+      const script = target as ScriptIR;
+
+      let forwardedContinuation = inherited;
+      if (inherited) {
+        const resumeFrame = this.findFrame(inherited.resumeFrameId);
+        if (resumeFrame) {
+          for (const [calleeVar, callerPath] of Object.entries(inherited.refBindings)) {
+            const value = deepClone(rootFrame.scope[calleeVar]);
+            this.writePath(callerPath, value);
+          }
+        }
+        forwardedContinuation = {
+          ...inherited,
+          refBindings: {},
+        };
+      }
+
+      const { scope: rootScope, varTypes } = this.createScriptRootScope(targetScript, transferArgValues);
+      this.pushRootFrame(script.rootGroupId, rootScope, forwardedContinuation, varTypes);
       return;
     }
 

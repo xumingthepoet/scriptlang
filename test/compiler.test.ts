@@ -72,6 +72,14 @@ test("script args parser validates syntax and duplicates", () => {
       return true;
     }
   );
+  assert.throws(
+    () => compileScript(`<script name="x" args="number:   "><text>x</text></script>`, "bad-empty-name.script.xml"),
+    (error: unknown) => {
+      assert.ok(error instanceof ScriptLangError);
+      assert.equal(error.code, "SCRIPT_ARGS_PARSE_ERROR");
+      return true;
+    }
+  );
 
   assert.throws(
     () => compileScript(`<script name="x" args="number:a,string:a"><text>x</text></script>`, "dup.script.xml"),
@@ -193,6 +201,17 @@ test("required attributes reject empty string", () => {
     (e: unknown) => {
       assert.ok(e instanceof ScriptLangError);
       assert.equal(e.code, "XML_MISSING_ATTR");
+      return true;
+    }
+  );
+});
+
+test("return args require script attribute", () => {
+  assert.throws(
+    () => compileScript(`<script name="x"><return args="1"/></script>`, "return-args.script.xml"),
+    (e: unknown) => {
+      assert.ok(e instanceof ScriptLangError);
+      assert.equal(e.code, "XML_RETURN_ARGS_WITHOUT_TARGET");
       return true;
     }
   );

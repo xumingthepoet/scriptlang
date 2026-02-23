@@ -259,6 +259,24 @@ test("call and return error branches", () => {
   e2.start("ret.script.xml");
   expectCode(() => e2.next(), "ENGINE_RETURN_TARGET");
 
+  const returnArgTarget = compileScript(
+    `<script name="ret-target.script.xml" args="number:v"><text>x</text></script>`,
+    "ret-target.script.xml"
+  );
+  const badReturnArgs = compile(
+    "ret-args.script.xml",
+    `<vars/><step><return script="ret-target.script.xml" args="1,2"/></step>`
+  );
+  const e2b = new ScriptLangEngine({
+    scripts: {
+      "ret-args.script.xml": badReturnArgs,
+      "ret-target.script.xml": returnArgTarget,
+    },
+    compilerVersion: "dev",
+  });
+  e2b.start("ret-args.script.xml");
+  expectCode(() => e2b.next(), "ENGINE_RETURN_ARG_UNKNOWN");
+
   const refTarget = compileScript(
     `<script name="ref-target.script.xml" args="ref:number:x"><return/></script>`,
     "ref-target.script.xml"
@@ -330,7 +348,16 @@ test("return continuation missing and root frame missing branches", () => {
   const engine = new ScriptLangEngine({ scripts: { "main.script.xml": s }, compilerVersion: "dev" });
   const anyEngine = engine as any;
 
-  expectCode(() => anyEngine.executeReturn(null), "ENGINE_ROOT_FRAME");
+  expectCode(
+    () =>
+      anyEngine.executeReturn({
+        kind: "return",
+        targetScript: null,
+        args: [],
+        location: { start: { line: 1, column: 1 }, end: { line: 1, column: 1 } },
+      }),
+    "ENGINE_ROOT_FRAME"
+  );
   expectCode(
     () =>
       anyEngine.executeCall({
@@ -478,7 +505,12 @@ test("engine start/reset, empty-step completion, and direct return target path",
   assert.deepEqual(engine.next(), { kind: "end" });
 
   engine.start("main.script.xml");
-  anyEngine.executeReturn("target.script.xml");
+  anyEngine.executeReturn({
+    kind: "return",
+    targetScript: "target.script.xml",
+    args: [],
+    location: { start: { line: 1, column: 1 }, end: { line: 1, column: 1 } },
+  });
   assert.equal(anyEngine.frames[0].groupId, target.rootGroupId);
   assert.deepEqual(engine.next(), { kind: "text", text: "T" });
 
@@ -498,7 +530,16 @@ test("direct executeReturn missing target and createScriptRootScope var loop pat
   });
   const anyEngine = engine as any;
   engine.start("vars.script.xml");
-  expectCode(() => anyEngine.executeReturn("missing.script.xml"), "ENGINE_RETURN_TARGET");
+  expectCode(
+    () =>
+      anyEngine.executeReturn({
+        kind: "return",
+        targetScript: "missing.script.xml",
+        args: [],
+        location: { start: { line: 1, column: 1 }, end: { line: 1, column: 1 } },
+      }),
+    "ENGINE_RETURN_TARGET"
+  );
   const built = anyEngine.createScriptRootScope("vars.script.xml", {});
   assert.equal((built.scope as Record<string, unknown>).hp, undefined);
 });
@@ -646,15 +687,64 @@ test("engine finishFrame and executeReturn continuation branches", () => {
   assert.deepEqual(anyEngine.frames, []);
 
   engine.start("main.script.xml");
-  anyEngine.executeReturn(null);
+  anyEngine.executeReturn({
+    kind: "return",
+    targetScript: null,
+    args: [],
+    location: { start: { line: 1, column: 1 }, end: { line: 1, column: 1 } },
+  });
   assert.equal(anyEngine.ended, true);
   assert.deepEqual(anyEngine.frames, []);
 
   engine.start("main.script.xml");
   anyEngine.frames[0].returnContinuation = { resumeFrameId: 999, nextNodeIndex: 0, refBindings: {} };
-  anyEngine.executeReturn(null);
+  anyEngine.executeReturn({
+    kind: "return",
+    targetScript: null,
+    args: [],
+    location: { start: { line: 1, column: 1 }, end: { line: 1, column: 1 } },
+  });
   assert.equal(anyEngine.ended, true);
   assert.deepEqual(anyEngine.frames, []);
+});
+
+test("executeReturn transfer with missing resume frame keeps running target then ends", () => {
+  const holder = compileScript(
+    `<script name="holder.script.xml" args="number:v"><text>x</text></script>`,
+    "holder.script.xml"
+  );
+  const target = compileScript(
+    `<script name="target.script.xml" args="number:n"><text>n=\${n}</text></script>`,
+    "target.script.xml"
+  );
+  const engine = new ScriptLangEngine({
+    scripts: { "holder.script.xml": holder, "target.script.xml": target },
+    compilerVersion: "dev",
+  });
+  const anyEngine = engine as any;
+  engine.start("holder.script.xml");
+
+  anyEngine.frames = [
+    {
+      frameId: 1,
+      groupId: holder.rootGroupId,
+      nodeIndex: 0,
+      scope: { v: 4 },
+      completion: "none",
+      scriptRoot: true,
+      returnContinuation: { resumeFrameId: 999, nextNodeIndex: 0, refBindings: { v: "v" } },
+      varTypes: { v: { kind: "primitive", name: "number" } },
+    },
+  ];
+
+  anyEngine.executeReturn({
+    kind: "return",
+    targetScript: "target.script.xml",
+    args: [{ valueExpr: "v + 1", isRef: false }],
+    location: { start: { line: 1, column: 1 }, end: { line: 1, column: 1 } },
+  });
+  assert.deepEqual(engine.next(), { kind: "text", text: "n=5" });
+  assert.deepEqual(engine.next(), { kind: "end" });
 });
 
 test("engine variable helpers cover type, path, and extra-scope branches", () => {
