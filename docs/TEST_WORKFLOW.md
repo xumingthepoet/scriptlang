@@ -1,13 +1,13 @@
 # Test and Coverage Workflow
 
-This repository uses Vitest and a strict pre-test quality gate.
+This repository uses Vitest and a strict quality gate wired into `npm test`.
 This document owns test and coverage mechanics only.
 For end-to-end delivery sequence (doc sync, plan movement, commit policy), use `/docs/HARNESS.md`.
 
 ## Mandatory Flow
 
 1. Run `npm test`.
-2. `pretest` runs automatically before tests:
+2. `npm test` runs gate commands before unit tests:
    - `npm run validate:docs`
    - `npm run lint`
    - `npm run typecheck`

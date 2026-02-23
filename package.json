@@ -17,8 +17,7 @@
     "test:unit": "vitest run",
     "coverage:strict": "vitest run --coverage",
     "quality:gate": "npm run validate:docs && npm run lint && npm run typecheck && npm run coverage:strict",
-    "pretest": "npm run quality:gate",
-    "test": "npm run test:unit"
+    "test": "npm run quality:gate && npm run test:unit"
   },
   "keywords": [],
   "author": "",
