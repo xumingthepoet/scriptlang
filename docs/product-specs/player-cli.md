@@ -49,7 +49,8 @@ Behavior:
   - accumulated text output
   - choices in a fixed-height viewport when waiting choice
   - status/help footer
-  - text output with typewriter animation at 20 chars/second
+  - text output with typewriter animation at 30 chars/second
+  - a visual divider line between text area and choice area
 
 Key bindings:
 
@@ -67,6 +68,7 @@ Choice viewport rules:
 - when choices exceed 5, viewport scrolls with cursor movement.
 - selected row is visually highlighted.
 - when new boundary text is still animating, choices must stay hidden and cannot be selected until text animation completes.
+- choice area keeps its reserved layout height even when choices are hidden, to avoid vertical layout jumps.
 
 State handling:
 

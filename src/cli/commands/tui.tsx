@@ -17,7 +17,7 @@ import { createPlayerState, loadPlayerState, savePlayerState } from "../core/sta
 
 export const DEFAULT_STATE_FILE = "./.scriptlang/save.bin";
 const CHOICE_VIEWPORT_ROWS = 5;
-const TYPEWRITER_CHARS_PER_SECOND = 20;
+const TYPEWRITER_CHARS_PER_SECOND = 30;
 const TYPEWRITER_TICK_MS = Math.floor(1000 / TYPEWRITER_CHARS_PER_SECOND);
 
 export interface TuiOptions {
@@ -250,9 +250,11 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
     ? [...renderedLines, typingLine.slice(0, Math.max(0, Math.min(typingChars, typingLine.length)))]
     : renderedLines;
   const typingInProgress = typingLine !== null || pendingLines.length > 0;
+  const choiceDisplayEnabled = !typingInProgress && choices.length > 0;
+  const choiceRowsSource = choiceDisplayEnabled ? choices : [];
   const visibleChoiceRows = Array.from({ length: CHOICE_VIEWPORT_ROWS }, (_value, rowIndex) => {
     const absoluteIndex = choiceScrollOffset + rowIndex;
-    const choice = choices[absoluteIndex];
+    const choice = choiceRowsSource[absoluteIndex];
     if (!choice) {
       return { key: `choice-empty-${rowIndex}`, text: " ", selected: false };
     }
@@ -262,11 +264,17 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
       selected: absoluteIndex === selectedChoiceIndex,
     };
   });
-  const windowStart = choices.length === 0 ? 0 : choiceScrollOffset + 1;
+  const windowStart = choiceRowsSource.length === 0 ? 0 : choiceScrollOffset + 1;
   const windowEnd =
-    choices.length === 0
+    choiceRowsSource.length === 0
       ? 0
-      : Math.min(choiceScrollOffset + CHOICE_VIEWPORT_ROWS, choices.length);
+      : Math.min(choiceScrollOffset + CHOICE_VIEWPORT_ROWS, choiceRowsSource.length);
+  const dividerWidth = Math.max(24, Math.min(80, (process.stdout.columns ?? 80) - 2));
+  const dividerLine = "─".repeat(dividerWidth);
+  const choiceWindowText =
+    choiceRowsSource.length > CHOICE_VIEWPORT_ROWS
+      ? `window ${windowStart}-${windowEnd} / ${choiceRowsSource.length}`
+      : " ";
 
   return (
     <Box flexDirection="column" paddingX={1}>
@@ -278,21 +286,16 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
       {lines.map((line, index) => (
         <Text key={`line-${index}`}>{line}</Text>
       ))}
-      {!typingInProgress && choices.length > 0 && <Text color="cyan">choices (up/down + enter):</Text>}
-      {!typingInProgress && choices.length > 0 && (
-        <Box flexDirection="column">
-          {visibleChoiceRows.map((row) => (
-            <Text key={row.key} color={row.selected ? "green" : undefined}>
-              {row.selected ? `> ${row.text}` : `  ${row.text}`}
-            </Text>
-          ))}
-          {choices.length > CHOICE_VIEWPORT_ROWS && (
-            <Text color="gray">
-              {`window ${windowStart}-${windowEnd} / ${choices.length}`}
-            </Text>
-          )}
-        </Box>
-      )}
+      <Text color="gray">{dividerLine}</Text>
+      <Text color="cyan">choices (up/down + enter):</Text>
+      <Box flexDirection="column">
+        {visibleChoiceRows.map((row) => (
+          <Text key={row.key} color={row.selected ? "green" : undefined}>
+            {row.selected ? `> ${row.text}` : `  ${row.text}`}
+          </Text>
+        ))}
+        <Text color="gray">{choiceWindowText}</Text>
+      </Box>
       {ended && <Text color="green">[end]</Text>}
       <Text color="yellow">keys: up/down move | enter choose | s save | l load | r restart | h help | q quit</Text>
       {helpVisible && (
