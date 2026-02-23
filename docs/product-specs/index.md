@@ -3,7 +3,7 @@
 - [ScriptLang Syntax Manual](./syntax-manual.md)
 - [ScriptLang Player CLI Spec](./player-cli.md)
 
-## ScriptLang V1 Scope
+## Current Scope (Runtime V1 + Syntax V2)
 - XML-first branching narrative scripts.
 - Implicit group-based execution model.
 - Type-checked variables declared via `<script args="...">` and executable `<var .../>`.

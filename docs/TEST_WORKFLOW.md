@@ -9,6 +9,7 @@ This repository uses Vitest and a strict pre-test quality gate.
    - `/ARCHITECTURE.md`
    - `/docs/` (all impacted specs/plans/workflow docs)
    - audit `/docs/exec-plans/active/`; move only truly completed plans to `/docs/exec-plans/completed/`
+   - if gate has not been executed successfully, do not mark plan completion or move plans
 2. Run `npm test`.
 3. `pretest` runs automatically before tests:
    - `npm run validate:docs`
@@ -16,6 +17,7 @@ This repository uses Vitest and a strict pre-test quality gate.
    - `npm run typecheck`
    - `npm run coverage:strict` (`vitest run --coverage`)
 4. Only if all gates pass does `test` continue.
+5. If `npm test` passes, create a `git commit` before ending the delivery conversation (no extra approval ping required).
 
 ## Coverage Rule
 

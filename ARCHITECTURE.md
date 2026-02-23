@@ -32,6 +32,6 @@ This document defines strict module boundaries for `ScriptLang`.
 
 ## Stability Rules
 - Internal IDs must be stable for identical source structure.
-- Cross-version restore is best-effort only when schema compatibility is declared.
+- During active development, cross-version restore is unsupported by default.
+- If compatibility is needed for a release line, declare it explicitly with schema/version constraints in product spec and plan docs.
 - New features must be added behind explicit IR node extensions, not ad hoc flags.
-

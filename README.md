@@ -9,7 +9,8 @@ This repository is initialized for **agent-first harness engineering**:
 - quality is measured by repeatable checks.
 
 ## Project Status
-- Current phase: ScriptLang V1 core compiler/runtime available.
+- Current phase: active development with V2 XML syntax and V1 snapshot schema (`snapshot.v1`).
+- Compatibility posture: no backward-compat requirement by default during development; remove legacy syntax/behavior unless a task explicitly requires compatibility.
 - Ongoing implementation tasks are tracked in `/docs/exec-plans/active/`.
 
 ## Repo Map
@@ -26,10 +27,15 @@ This repository is initialized for **agent-first harness engineering**:
 - `npm run lint`: run ESLint for `src/**/*.ts(x)`.
 - `npm run typecheck`: run TypeScript checks.
 - `npm run build`: compile TypeScript output into `dist/`.
-- `npm test`: docs validation + unit tests.
+- `npm test`: strict gate (`validate:docs` + `lint` + `typecheck` + `coverage:strict`) then unit tests.
 - `npm run player:dev -- <mode> ...`: run player from source via `tsx`.
 - `npm run player:tui -- (--example <id> | --scripts-dir <path>)`: run interactive Ink TUI player from build output.
 - `npm run player:agent -- <subcommand> ...`: run non-interactive agent mode from build output (`start` supports `--example` or `--scripts-dir`).
+
+## Harness Workflow Notes
+- Before running gate commands, sync `/README.md`, `/ARCHITECTURE.md`, and impacted files under `/docs/`.
+- During doc sync, audit `/docs/exec-plans/active/`; move only truly completed plans to `/docs/exec-plans/completed/`.
+- After `npm test` passes, commit changes before ending the conversation handoff.
 
 ## Script Player
 
