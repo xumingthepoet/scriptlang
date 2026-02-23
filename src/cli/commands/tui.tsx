@@ -17,7 +17,7 @@ import { createPlayerState, loadPlayerState, savePlayerState } from "../core/sta
 
 export const DEFAULT_STATE_FILE = "./.scriptlang/save.bin";
 const CHOICE_VIEWPORT_ROWS = 5;
-const TYPEWRITER_CHARS_PER_SECOND = 5;
+const TYPEWRITER_CHARS_PER_SECOND = 20;
 const TYPEWRITER_TICK_MS = Math.floor(1000 / TYPEWRITER_CHARS_PER_SECOND);
 
 export interface TuiOptions {
@@ -195,15 +195,28 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
         restart();
         return;
       }
+      const typingInProgress = typingLine !== null || pendingLines.length > 0;
       if (key.upArrow) {
+        if (typingInProgress) {
+          setStatus("text streaming...");
+          return;
+        }
         moveChoiceCursor(-1);
         return;
       }
       if (key.downArrow) {
+        if (typingInProgress) {
+          setStatus("text streaming...");
+          return;
+        }
         moveChoiceCursor(1);
         return;
       }
       if (key.return) {
+        if (typingInProgress) {
+          setStatus("text streaming...");
+          return;
+        }
         chooseCurrent();
         return;
       }
@@ -236,6 +249,7 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
   const lines = typingLine
     ? [...renderedLines, typingLine.slice(0, Math.max(0, Math.min(typingChars, typingLine.length)))]
     : renderedLines;
+  const typingInProgress = typingLine !== null || pendingLines.length > 0;
   const visibleChoiceRows = Array.from({ length: CHOICE_VIEWPORT_ROWS }, (_value, rowIndex) => {
     const absoluteIndex = choiceScrollOffset + rowIndex;
     const choice = choices[absoluteIndex];
@@ -264,8 +278,8 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
       {lines.map((line, index) => (
         <Text key={`line-${index}`}>{line}</Text>
       ))}
-      {choices.length > 0 && <Text color="cyan">choices (up/down + enter):</Text>}
-      {choices.length > 0 && (
+      {!typingInProgress && choices.length > 0 && <Text color="cyan">choices (up/down + enter):</Text>}
+      {!typingInProgress && choices.length > 0 && (
         <Box flexDirection="column">
           {visibleChoiceRows.map((row) => (
             <Text key={row.key} color={row.selected ? "green" : undefined}>
