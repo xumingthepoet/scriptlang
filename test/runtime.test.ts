@@ -182,30 +182,20 @@ test("return transfer supports positional value args", () => {
   assert.deepEqual(engine.next(), { kind: "end" });
 });
 
-test("return transfer rejects ref args in v1", () => {
-  const main = compileScript(
-    `
+test("return transfer rejects ref args at compile time", () => {
+  expectCode(
+    () =>
+      compileScript(
+        `
 <script name="main">
   <var name="hp" type="number" value="2"/>
   <return script="next" args="ref:hp"/>
 </script>
 `,
-    "main.script.xml"
+        "main.script.xml"
+      ),
+    "XML_RETURN_REF_UNSUPPORTED"
   );
-  const next = compileScript(
-    `
-<script name="next" args="ref:number:target">
-  <text>x</text>
-</script>
-`,
-    "next.script.xml"
-  );
-  const engine = new ScriptLangEngine({
-    scripts: { main, next },
-    compilerVersion: "dev",
-  });
-  engine.start("main");
-  expectCode(() => engine.next(), "ENGINE_RETURN_REF_UNSUPPORTED");
 });
 
 test("return transfer flushes inherited ref writes before switching script", () => {

@@ -431,6 +431,13 @@ const compileGroup = (
           child.location
         );
       }
+      if (args.some((arg) => arg.isRef)) {
+        throw new ScriptLangError(
+          "XML_RETURN_REF_UNSUPPORTED",
+          "<return> args must be value-only; ref mode is not supported.",
+          child.location
+        );
+      }
       const returnNode: ReturnNode = {
         id: builder.nextNodeId("return"),
         kind: "return",

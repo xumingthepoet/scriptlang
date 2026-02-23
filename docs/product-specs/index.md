@@ -53,7 +53,8 @@
 - Type behavior:
   - Script parameters come from `<script args="...">`.
   - `<call ... args="...">` arguments are positional and map by target script arg order.
-  - `<return script="..." args="...">` arguments are positional and value-only (no `ref:` support in V1).
+  - `<return script="..." args="...">` arguments are positional and value-only.
+  - Compiler rejects any `ref:` segment in return args.
   - `<var>` scope is declaration-point to current block end.
   - Runtime rejects `undefined` and `null` assignments into declared script variables.
   - Runtime enforces declared types on script variables.

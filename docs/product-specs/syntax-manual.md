@@ -273,7 +273,8 @@ Transfer return with args:
 Rules:
 
 - `args` is optional and positional, mapped by target script arg declaration order.
-- Return args are value-only in V1; `ref:` is not supported on `<return .../>`.
+- Return args are value-only in V1.
+- Using `ref:` in return args is a compile error.
 
 ## 15. XML Escaping Note
 
@@ -303,4 +304,4 @@ Example:
 12. Using `null` as a declared type (`type="null"` or `args="null:x"`) -> compile error (`TYPE_PARSE_ERROR`).
 13. Using `value` attribute on `<text>/<code>` -> compile error (`XML_ATTR_NOT_ALLOWED`).
 14. Leaving `<text>/<code>` inline content empty -> compile error (`XML_EMPTY_NODE_CONTENT`).
-15. Using `ref:` in `<return script="..." args="..."/>` -> runtime error (`ENGINE_RETURN_REF_UNSUPPORTED`).
+15. Using `ref:` in `<return script="..." args="..."/>` -> compile error (`XML_RETURN_REF_UNSUPPORTED`).

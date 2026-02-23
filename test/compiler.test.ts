@@ -217,6 +217,21 @@ test("return args require script attribute", () => {
   );
 });
 
+test("return args reject ref mode", () => {
+  assert.throws(
+    () =>
+      compileScript(
+        `<script name="x"><return script="next" args="ref:hp"/></script>`,
+        "return-ref-args.script.xml"
+      ),
+    (e: unknown) => {
+      assert.ok(e instanceof ScriptLangError);
+      assert.equal(e.code, "XML_RETURN_REF_UNSUPPORTED");
+      return true;
+    }
+  );
+});
+
 test("compile text node supports inline text content", () => {
   const ir = compileScript(
     `

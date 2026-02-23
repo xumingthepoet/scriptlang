@@ -586,13 +586,6 @@ export class ScriptLangEngine {
             node.location
           );
         }
-        if (arg.isRef) {
-          throw new ScriptLangError(
-            "ENGINE_RETURN_REF_UNSUPPORTED",
-            "Return transfer args do not support ref mode in V1.",
-            node.location
-          );
-        }
         transferArgValues[param.name] = this.evalExpression(arg.valueExpr);
       }
     }
