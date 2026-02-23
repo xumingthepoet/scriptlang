@@ -46,7 +46,7 @@ Behavior:
   - `end`
 - Displays:
   - current scenario title
-  - accumulated text output
+  - accumulated text output shown in a bounded terminal-height viewport (latest lines)
   - choices in a fixed-height viewport when waiting choice
   - status/help footer
   - text output with typewriter animation at 30 chars/second
@@ -69,6 +69,12 @@ Choice viewport rules:
 - selected row is visually highlighted.
 - when new boundary text is still animating, choices must stay hidden and cannot be selected until text animation completes.
 - choice area keeps its reserved layout height even when choices are hidden, to avoid vertical layout jumps.
+
+Text viewport rules:
+
+- text area is clipped to available terminal rows after reserving non-text UI rows.
+- only latest visible text lines are rendered when history exceeds viewport capacity.
+- this prevents terminal-level scroll growth and avoids streaming-time vertical jitter.
 
 State handling:
 

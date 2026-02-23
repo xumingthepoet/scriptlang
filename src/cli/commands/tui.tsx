@@ -19,6 +19,34 @@ export const DEFAULT_STATE_FILE = "./.scriptlang/save.bin";
 const CHOICE_VIEWPORT_ROWS = 5;
 const TYPEWRITER_CHARS_PER_SECOND = 30;
 const TYPEWRITER_TICK_MS = Math.floor(1000 / TYPEWRITER_CHARS_PER_SECOND);
+const ELLIPSIS = "…";
+
+const truncateToWidth = (value: string, width: number): string => {
+  if (width <= 0) {
+    return "";
+  }
+  if (value.length <= width) {
+    return value;
+  }
+  if (width === 1) {
+    return ELLIPSIS;
+  }
+  return `${value.slice(0, width - 1)}${ELLIPSIS}`;
+};
+
+const wrapLineToWidth = (value: string, width: number): string[] => {
+  if (width <= 0) {
+    return [""];
+  }
+  if (value.length === 0) {
+    return [""];
+  }
+  const rows: string[] = [];
+  for (let i = 0; i < value.length; i += width) {
+    rows.push(value.slice(i, i + width));
+  }
+  return rows;
+};
 
 export interface TuiOptions {
   example: string | null;
@@ -68,6 +96,10 @@ export const parseTuiArgs = (argv: string[]): TuiOptions => {
 
 const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFile: string }) => {
   const { exit } = useApp();
+  const [terminalSize, setTerminalSize] = useState(() => ({
+    columns: process.stdout.columns ?? 80,
+    rows: process.stdout.rows ?? 24,
+  }));
 
   const started = startScenario(scenario, PLAYER_COMPILER_VERSION);
   const engineRef = useRef(started.engine);
@@ -81,6 +113,19 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
   const [ended, setEnded] = useState(started.boundary.event === "END");
   const [helpVisible, setHelpVisible] = useState(false);
   const [status, setStatus] = useState("ready");
+
+  useEffect(() => {
+    const updateTerminalSize = (): void => {
+      setTerminalSize({
+        columns: process.stdout.columns ?? 80,
+        rows: process.stdout.rows ?? 24,
+      });
+    };
+    process.stdout.on("resize", updateTerminalSize);
+    return () => {
+      process.stdout.off("resize", updateTerminalSize);
+    };
+  }, []);
 
   useEffect(() => {
     if (typingLine === null) {
@@ -250,6 +295,23 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
     ? [...renderedLines, typingLine.slice(0, Math.max(0, Math.min(typingChars, typingLine.length)))]
     : renderedLines;
   const typingInProgress = typingLine !== null || pendingLines.length > 0;
+  const contentWidth = Math.max(16, terminalSize.columns - 2);
+  const choiceTextWidth = Math.max(8, contentWidth - 2);
+  const reservedRows =
+    3 + // header rows: scenario/state/status
+    1 + // divider
+    1 + // choice title
+    CHOICE_VIEWPORT_ROWS +
+    1 + // choice window info
+    (ended ? 1 : 0) +
+    1 + // keys
+    (helpVisible ? 1 : 0);
+  const availableTextRows = Math.max(1, terminalSize.rows - reservedRows);
+  const wrappedTextRows = lines.flatMap((line) => wrapLineToWidth(line, contentWidth));
+  const visibleTextRows =
+    wrappedTextRows.length <= availableTextRows
+      ? wrappedTextRows
+      : wrappedTextRows.slice(-availableTextRows);
   const choiceDisplayEnabled = !typingInProgress && choices.length > 0;
   const choiceRowsSource = choiceDisplayEnabled ? choices : [];
   const visibleChoiceRows = Array.from({ length: CHOICE_VIEWPORT_ROWS }, (_value, rowIndex) => {
@@ -260,7 +322,7 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
     }
     return {
       key: choice.id,
-      text: choice.text,
+      text: truncateToWidth(choice.text, choiceTextWidth),
       selected: absoluteIndex === selectedChoiceIndex,
     };
   });
@@ -269,25 +331,33 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
     choiceRowsSource.length === 0
       ? 0
       : Math.min(choiceScrollOffset + CHOICE_VIEWPORT_ROWS, choiceRowsSource.length);
-  const dividerWidth = Math.max(24, Math.min(80, (process.stdout.columns ?? 80) - 2));
-  const dividerLine = "─".repeat(dividerWidth);
+  const dividerLine = "─".repeat(contentWidth);
   const choiceWindowText =
     choiceRowsSource.length > CHOICE_VIEWPORT_ROWS
-      ? `window ${windowStart}-${windowEnd} / ${choiceRowsSource.length}`
+      ? truncateToWidth(`window ${windowStart}-${windowEnd} / ${choiceRowsSource.length}`, contentWidth)
       : " ";
+  const headerText = truncateToWidth(`${scenario.id} | ${scenario.title}`, contentWidth);
+  const stateText = truncateToWidth(`state: ${stateFile}`, contentWidth);
+  const statusText = truncateToWidth(`status: ${status}`, contentWidth);
+  const keyText = truncateToWidth(
+    "keys: up/down move | enter choose | s save | l load | r restart | h help | q quit",
+    contentWidth
+  );
+  const helpText = truncateToWidth(
+    "snapshot is valid only when waiting at choices. if save fails, continue until a choice appears.",
+    contentWidth
+  );
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Text>
-        {scenario.id} | {scenario.title}
-      </Text>
-      <Text color="gray">state: {stateFile}</Text>
-      <Text color="gray">status: {status}</Text>
-      {lines.map((line, index) => (
+      <Text>{headerText}</Text>
+      <Text color="gray">{stateText}</Text>
+      <Text color="gray">{statusText}</Text>
+      {visibleTextRows.map((line, index) => (
         <Text key={`line-${index}`}>{line}</Text>
       ))}
       <Text color="gray">{dividerLine}</Text>
-      <Text color="cyan">choices (up/down + enter):</Text>
+      <Text color="cyan">{truncateToWidth("choices (up/down + enter):", contentWidth)}</Text>
       <Box flexDirection="column">
         {visibleChoiceRows.map((row) => (
           <Text key={row.key} color={row.selected ? "green" : undefined}>
@@ -297,12 +367,8 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
         <Text color="gray">{choiceWindowText}</Text>
       </Box>
       {ended && <Text color="green">[end]</Text>}
-      <Text color="yellow">keys: up/down move | enter choose | s save | l load | r restart | h help | q quit</Text>
-      {helpVisible && (
-        <Text color="magenta">
-          snapshot is valid only when waiting at choices. if save fails, continue until a choice appears.
-        </Text>
-      )}
+      <Text color="yellow">{keyText}</Text>
+      {helpVisible && <Text color="magenta">{helpText}</Text>}
     </Box>
   );
 };
