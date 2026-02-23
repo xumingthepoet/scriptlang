@@ -93,6 +93,7 @@ Rules:
   - bundled example: `--example <id>`
   - external scripts directory: `--scripts-dir <path>`
 - for `--scripts-dir`, entry script is fixed to script name `main`.
+- when multiple script files exist, `main` must include required script/type files via header `include` directives.
 - `choose` resumes from `--state-in`, applies selection, then runs to next boundary.
 - `state` is persisted only when output boundary is `CHOICES`.
 - if boundary is `END`, output must be `STATE_OUT:NONE`.

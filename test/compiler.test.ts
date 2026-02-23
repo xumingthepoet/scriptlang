@@ -357,13 +357,34 @@ test("project compiler validates types include graph and script type references"
   );
 
   const compiled = compileProjectScriptsFromXmlMap({
+    "main.script.xml": `<!-- include: a.script.xml -->
+<!-- include: b.script.xml -->
+<!-- include: shared.types.xml -->
+<script name="main"><text>m</text></script>`,
     "a.script.xml": `<!-- include: shared.types.xml -->
 <script name="a"><text>a</text></script>`,
     "b.script.xml": `<!-- include: shared.types.xml -->
 <script name="b"><text>b</text></script>`,
     "shared.types.xml": `<types name="shared"><type name="Score"><field name="n" type="number"/></type></types>`,
   });
-  assert.deepEqual(Object.keys(compiled).sort(), ["a", "b"]);
+  assert.deepEqual(Object.keys(compiled).sort(), ["a", "b", "main"]);
+
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main-1.script.xml": `<script name="main"><text>a</text></script>`,
+        "main-2.script.xml": `<script name="main"><text>b</text></script>`,
+      }),
+    "API_DUPLICATE_SCRIPT_NAME"
+  );
+
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main.script.xml": `<types name="oops"></types>`,
+      }),
+    "XML_INVALID_ROOT"
+  );
 });
 
 test("project compiler include source defensive branches", () => {
@@ -407,6 +428,29 @@ test("project compiler include source defensive branches", () => {
     () =>
       compileProjectScriptsFromXmlMap(
         missingOnSecondRead as unknown as Record<string, string>
+      ),
+    "XML_INCLUDE_MISSING"
+  );
+
+  let thirdReads = 0;
+  const missingOnThirdRead = new Proxy(
+    {
+      "main.script.xml": `<script name="main"><text>x</text></script>`,
+    },
+    {
+      get(target, prop, receiver) {
+        if (prop === "main.script.xml") {
+          thirdReads += 1;
+          return thirdReads <= 2 ? target["main.script.xml"] : undefined;
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    }
+  );
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap(
+        missingOnThirdRead as unknown as Record<string, string>
       ),
     "XML_INCLUDE_MISSING"
   );

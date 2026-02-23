@@ -1,3 +1,6 @@
+<!-- include: battle-loop.script.xml -->
+<!-- include: victory.script.xml -->
+<!-- include: defeat.script.xml -->
 <script name="main">
   <var name="playerName" type="string" value="'Hero'"/>
   <var name="enemyName" type="string" value="'Bandit'"/>

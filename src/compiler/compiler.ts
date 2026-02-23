@@ -593,11 +593,42 @@ const resolveIncludePath = (currentPath: string, includeSource: string): string 
 };
 
 const collectReachablePaths = (xmlByPath: Record<string, string>): string[] => {
-  const roots = Object.keys(xmlByPath)
+  const scriptFiles = Object.keys(xmlByPath)
     .filter((filePath) => filePath.endsWith(".script.xml"))
     .sort();
-  if (roots.length === 0) {
+  if (scriptFiles.length === 0) {
     return [];
+  }
+
+  const mainRoots: string[] = [];
+  for (let i = 0; i < scriptFiles.length; i += 1) {
+    const filePath = scriptFiles[i];
+    const source = xmlByPath[filePath];
+    if (source === undefined) {
+      throw new ScriptLangError("XML_INCLUDE_MISSING", `Included file not found: ${filePath}.`);
+    }
+    const root = parseXmlDocument(source).root;
+    if (root.name !== "script") {
+      throw new ScriptLangError(
+        "XML_INVALID_ROOT",
+        `Expected <script> as root but got <${root.name}>.`,
+        root.location
+      );
+    }
+    const scriptName = getAttr(root, "name", true) as string;
+    if (scriptName === "main") {
+      mainRoots.push(filePath);
+    }
+  }
+
+  if (mainRoots.length === 0) {
+    return [];
+  }
+  if (mainRoots.length > 1) {
+    throw new ScriptLangError(
+      "API_DUPLICATE_SCRIPT_NAME",
+      'Duplicate script name "main" found across XML inputs.'
+    );
   }
 
   const visited = new Set<string>();
@@ -634,9 +665,7 @@ const collectReachablePaths = (xmlByPath: Record<string, string>): string[] => {
     visited.add(filePath);
   };
 
-  for (let i = 0; i < roots.length; i += 1) {
-    visit(roots[i]);
-  }
+  visit(mainRoots[0]);
 
   return Array.from(visited).sort();
 };

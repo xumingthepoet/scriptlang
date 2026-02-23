@@ -8,7 +8,7 @@
 - Implicit group-based execution model.
 - Type-checked variables declared via `<script args="...">` and executable `<var .../>`.
 - Global custom types declared in `*.types.xml` files.
-- Header include graph resolution via `<!-- include: ... -->`.
+- Header include graph resolution via `<!-- include: ... -->` (closure starts from `script name="main"`).
 - `<code>` node as primary mutation and logic mechanism.
 - Ink-style pull runtime API: `next()`, `choose()`, `waitingChoice`, `snapshot()`, `resume()`.
 
@@ -25,6 +25,8 @@
 - Type collection root: `<types name="...">`.
 - Header include directives are supported in both roots:
   - `<!-- include: rel/path.xml -->`
+  - include traversal starts at the file that declares `<script name="main">`
+  - only files reachable from that closure are compiled
 - Optional script params in `args="name:type,name2:type:ref"`.
 - Executable nodes are direct children of `<script>`.
 - Supported executable nodes:

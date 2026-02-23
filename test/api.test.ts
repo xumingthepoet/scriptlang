@@ -43,17 +43,23 @@ test("createEngineFromXml and resumeEngineFromXml", () => {
 
 test("compileScriptsFromXmlMap returns compiled map keyed by script name", () => {
   const compiled = compileScriptsFromXmlMap({
+    "main.script.xml": `<!-- include: a.script.xml -->
+<script name="main"><text>m</text></script>`,
     "a.script.xml": `<script name="a"><text>a</text></script>`,
     "b.script.xml": `<script name="b"><text>b</text></script>`,
   });
   assert.equal(Object.keys(compiled).length, 2);
+  assert.ok(compiled.main);
   assert.ok(compiled.a);
-  assert.ok(compiled.b);
+  assert.equal(compiled.b, undefined);
 });
 
 test("compileScriptsFromXmlMap rejects duplicate script name", () => {
   assert.throws(() =>
     compileScriptsFromXmlMap({
+      "main.script.xml": `<!-- include: a1.script.xml -->
+<!-- include: a2.script.xml -->
+<script name="main"><text>m</text></script>`,
       "a1.script.xml": `<script name="dup"><text>a</text></script>`,
       "a2.script.xml": `<script name="dup"><text>b</text></script>`,
     })
@@ -200,6 +206,18 @@ test("project include and type errors are surfaced", () => {
 `,
     })
   );
+});
+
+test("project compile only includes files reachable from main include closure", () => {
+  const compiled = compileScriptsFromXmlMap({
+    "main.script.xml": `<!-- include: linked.script.xml -->
+<script name="main"><text>m</text></script>`,
+    "linked.script.xml": `<script name="linked"><text>l</text></script>`,
+    "unused.script.xml": `<script name="unused"><text>u</text></script>`,
+  });
+  assert.ok(compiled.main);
+  assert.ok(compiled.linked);
+  assert.equal(compiled.unused, undefined);
 });
 
 test("createEngineFromXml requires main script to exist", () => {

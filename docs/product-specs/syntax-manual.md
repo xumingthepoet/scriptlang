@@ -36,6 +36,8 @@ Rules:
 - One include per line.
 - Allowed in both `.script.xml` and `.types.xml`.
 - Include paths are resolved relative to the current file path.
+- Include graph traversal starts from the `.script.xml` file whose root is `<script name="main">`.
+- Only files reachable from that main include closure are compiled.
 - Include cycles and missing include targets are compile errors.
 
 ## 3. Script Top-Level Structure

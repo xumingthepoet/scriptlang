@@ -57,7 +57,7 @@ Play the complex battle demo:
 npm run player:tui -- --example 07-battle-duel
 ```
 
-Play scripts from an external directory (entry is always `<script name="main">`):
+Play scripts from an external directory (entry is always `<script name="main">`; multi-file dependencies must be included from `main` via header `include`):
 
 ```bash
 npm run player:tui -- --scripts-dir /absolute/path/to/scripts
