@@ -325,13 +325,13 @@ test("json globals follow per-script include visibility", () => {
   assert.throws(() => engine.next());
 });
 
-test("builtin random returns deterministic uint32 sequence with seed", () => {
+test("builtin random returns deterministic bounded integer sequence with seed", () => {
   const scriptsXml = {
     "main.script.xml": `
 <script name="main">
-  <text>\${random()}</text>
-  <text>\${random()}</text>
-  <text>\${random()}</text>
+  <text>\${random(10)}</text>
+  <text>\${random(10)}</text>
+  <text>\${random(10)}</text>
 </script>
 `,
   };
@@ -344,7 +344,7 @@ test("builtin random returns deterministic uint32 sequence with seed", () => {
       assert.equal(out.kind, "text");
       const value = Number(out.text);
       assert.equal(Number.isInteger(value), true);
-      assert.equal(value >= 0 && value <= 0xffffffff, true);
+      assert.equal(value >= 0 && value <= 9, true);
       values.push(value);
     }
     assert.deepEqual(engine.next(), { kind: "end" });
@@ -352,22 +352,82 @@ test("builtin random returns deterministic uint32 sequence with seed", () => {
   };
 
   const seed42 = runWithSeed(42);
-  assert.deepEqual(seed42, [2581720956, 1925393290, 3661312704]);
+  assert.deepEqual(seed42, [6, 0, 4]);
   assert.deepEqual(runWithSeed(42), seed42);
   assert.notDeepEqual(runWithSeed(43), seed42);
 });
 
-test("builtin random rejects non-zero arity", () => {
+test("builtin random uses rejection sampling for large bounds", () => {
   const engine = createEngineFromXml({
     scriptsXml: {
       "main.script.xml": `
 <script name="main">
-  <text>\${random(1)}</text>
+  <text>\${random(2147483649)}</text>
+</script>
+`,
+    },
+    randomSeed: 42,
+  });
+  const out = engine.next();
+  assert.equal(out.kind, "text");
+  assert.equal(Number(out.text), 1925393290);
+});
+
+test("builtin random validates arity and integer argument", () => {
+  const engine = createEngineFromXml({
+    scriptsXml: {
+      "main.script.xml": `
+<script name="main">
+  <text>\${random()}</text>
 </script>
 `,
     },
   });
   expectCode(() => engine.next(), "ENGINE_RANDOM_ARITY");
+
+  const badArgEngine = createEngineFromXml({
+    scriptsXml: {
+      "main.script.xml": `
+<script name="main">
+  <text>\${random(1.5)}</text>
+</script>
+`,
+    },
+  });
+  expectCode(() => badArgEngine.next(), "ENGINE_RANDOM_ARG");
+
+  const badArityEngine = createEngineFromXml({
+    scriptsXml: {
+      "main.script.xml": `
+<script name="main">
+  <text>\${random(1,2)}</text>
+</script>
+`,
+    },
+  });
+  expectCode(() => badArityEngine.next(), "ENGINE_RANDOM_ARITY");
+
+  const badRangeEngine = createEngineFromXml({
+    scriptsXml: {
+      "main.script.xml": `
+<script name="main">
+  <text>\${random(0)}</text>
+</script>
+`,
+    },
+  });
+  expectCode(() => badRangeEngine.next(), "ENGINE_RANDOM_ARG");
+
+  const badUpperBoundEngine = createEngineFromXml({
+    scriptsXml: {
+      "main.script.xml": `
+<script name="main">
+  <text>\${random(4294967297)}</text>
+</script>
+`,
+    },
+  });
+  expectCode(() => badUpperBoundEngine.next(), "ENGINE_RANDOM_ARG");
 });
 
 test("engine rejects invalid random seed and reserved host function name", () => {
@@ -407,8 +467,8 @@ test("snapshot resume reuses pending choice items and prompt text for random-ren
   const scriptsXml = {
     "main.script.xml": `
 <script name="main">
-  <choice text="prompt-\${random()}">
-    <option text="roll-\${random()}">
+  <choice text="prompt-\${random(1000)}">
+    <option text="roll-\${random(1000)}">
       <text>ok</text>
     </option>
   </choice>

@@ -201,10 +201,12 @@ Rules:
 - Assignment to `undefined` is rejected.
 - `value` attribute is not allowed on `<code>`.
 - Inline content must be non-empty (after trim).
-- Builtin `random()` is available:
-  - signature is strictly `random()` (zero arguments only),
-  - return value is a `uint32` integer in `[0, 4294967295]`,
-  - any non-zero arity call is a runtime error.
+- Builtin `random(n)` is available:
+  - signature is strictly `random(n)` (exactly one argument),
+  - `n` must be a positive integer,
+  - return value is an integer in `[0, n-1]`,
+  - wrong arity is a runtime error (`ENGINE_RANDOM_ARITY`),
+  - invalid `n` value/type is a runtime error (`ENGINE_RANDOM_ARG`).
 - `Math.random` remains host VM behavior and is not rewritten by ScriptLang.
 
 ## 10. `<if>` / `<else>`
@@ -244,7 +246,7 @@ Rules:
 Syntax:
 
 ```xml
-<choice text="Choose your action (${random()})">
+<choice text="Choose your action (${random(100)})">
   <option text="Attack" when="hp > 0">
     <code>hp = hp - 1;</code>
   </option>

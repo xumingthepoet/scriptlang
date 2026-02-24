@@ -84,8 +84,8 @@ test("createEngineFromXml forwards randomSeed to builtin random", () => {
   const scriptsXml = {
     "main.script.xml": `
 <script name="main">
-  <text>\${random()}</text>
-  <text>\${random()}</text>
+  <text>\${random(100)}</text>
+  <text>\${random(100)}</text>
 </script>
 `,
   };

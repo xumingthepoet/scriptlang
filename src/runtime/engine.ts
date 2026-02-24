@@ -94,6 +94,7 @@ const parseRefPath = (path: string): string[] => {
 };
 
 const MAX_UINT32 = 0xffffffff;
+const MAX_UINT32_PLUS_ONE = 0x100000000;
 const DEFAULT_RANDOM_SEED = 1;
 
 const isUint32Integer = (value: unknown): value is number => {
@@ -876,10 +877,28 @@ export class ScriptLangEngine {
   }
 
   private evalRandomBuiltin(args: unknown[]): number {
-    if (args.length !== 0) {
-      throw new ScriptLangError("ENGINE_RANDOM_ARITY", "random() expects zero arguments.");
+    if (args.length !== 1) {
+      throw new ScriptLangError("ENGINE_RANDOM_ARITY", "random(n) expects exactly one argument.");
     }
-    return this.nextRandomUint32();
+    const n = args[0];
+    if (
+      typeof n !== "number" ||
+      !Number.isInteger(n) ||
+      n <= 0 ||
+      n > MAX_UINT32_PLUS_ONE
+    ) {
+      throw new ScriptLangError(
+        "ENGINE_RANDOM_ARG",
+        `random(n) expects positive integer n in [1, ${MAX_UINT32_PLUS_ONE}].`
+      );
+    }
+    const bound = n;
+    const threshold = Math.floor(MAX_UINT32_PLUS_ONE / bound) * bound;
+    let value = this.nextRandomUint32();
+    while (value >= threshold) {
+      value = this.nextRandomUint32();
+    }
+    return value % bound;
   }
 
   private assertSnapshotPendingChoiceItems(value: unknown): asserts value is ChoiceItem[] {

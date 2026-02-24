@@ -26,7 +26,7 @@ This project follows an agent-first harness mindset:
    - Language built-ins that affect control flow must be deterministic and captured by snapshot state.
 
 ## Practical Rules for ScriptLang
-- Builtin `random()` uses deterministic seeded PRNG semantics.
+- Builtin `random(n)` uses deterministic seeded PRNG semantics.
 - Variable mutation happens in `<code>` nodes only.
 - Snapshot/restore is group-stack based, not script-name based.
 - `call` semantics mirror entering a child group with continuation behavior.

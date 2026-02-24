@@ -17,7 +17,7 @@
 1. Every script compiles to a root implicit group.
 2. `if/while/choice/call` execute via implicit child groups.
 3. Snapshot persistence is based on current node/group path + ancestor scopes.
-4. Language-level `random()` builtin exists and is deterministic when seeded.
+4. Language-level `random(n)` builtin exists and is deterministic when seeded.
 5. Host function access is explicit and whitelisted.
 
 ## XML Surface (Implemented)
@@ -71,6 +71,7 @@
   - Any write to JSON globals (top-level or nested) is a runtime error.
   - `createEngineFromXml` defaults to `main` when `entryScript` is omitted.
 - Builtins:
-  - `random()` is available in script expressions and `<code>` blocks without `hostFunctions`.
-  - `random()` accepts zero arguments only and returns a `uint32` integer in `[0, 4294967295]`.
+  - `random(n)` is available in script expressions and `<code>` blocks without `hostFunctions`.
+  - `n` must be a positive integer.
+  - `random(n)` returns an integer in `[0, n-1]` using deterministic seeded PRNG state.
   - `Math.random` remains available and is not overridden by ScriptLang.
