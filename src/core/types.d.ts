@@ -30,6 +30,26 @@ export interface ScriptParam {
   location: SourceSpan;
 }
 
+export interface FunctionParam {
+  name: string;
+  type: ScriptType;
+  location: SourceSpan;
+}
+
+export interface FunctionReturn {
+  name: string;
+  type: ScriptType;
+  location: SourceSpan;
+}
+
+export interface FunctionDecl {
+  name: string;
+  params: FunctionParam[];
+  returnBinding: FunctionReturn;
+  code: string;
+  location: SourceSpan;
+}
+
 interface BaseNode {
   id: string;
   kind: string;
@@ -133,6 +153,7 @@ export interface ScriptIR {
   rootGroupId: string;
   groups: Record<string, ImplicitGroup>;
   visibleJsonGlobals?: string[];
+  visibleFunctions?: Record<string, FunctionDecl>;
 }
 
 export interface RuntimeScopeFrame {

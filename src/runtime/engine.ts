@@ -40,6 +40,12 @@ interface PendingChoice {
   promptText: string | null;
 }
 
+interface SandboxBuildOptions {
+  scriptName?: string | null;
+  includeFrameVars?: boolean;
+  extraScopeVarTypes?: Array<Record<string, ScriptType>>;
+}
+
 const ONCE_KEY_TEXT_PREFIX = "text:";
 const ONCE_KEY_OPTION_PREFIX = "option:";
 
@@ -216,6 +222,15 @@ export class ScriptLangEngine {
         this.groupLookup[groupId] = { scriptName, group };
       }
       this.visibleJsonByScript[scriptName] = new Set(script.visibleJsonGlobals ?? []);
+      const functionDecls = script.visibleFunctions ?? {};
+      for (const functionName of Object.keys(functionDecls)) {
+        if (Object.hasOwn(this.hostFunctions, functionName)) {
+          throw new ScriptLangError(
+            "ENGINE_HOST_FUNCTION_CONFLICT",
+            `hostFunctions cannot register "${functionName}" because it conflicts with defs function name in script "${scriptName}".`
+          );
+        }
+      }
     }
 
     for (const [name, value] of Object.entries(this.globalJsonRaw)) {
@@ -1190,24 +1205,43 @@ export class ScriptLangEngine {
     return null;
   }
 
-  private evalExpression(expr: string, extraScopes: Array<Record<string, unknown>> = []): unknown {
-    const sandbox = this.buildSandbox(extraScopes);
+  private evalExpression(
+    expr: string,
+    extraScopes: Array<Record<string, unknown>> = [],
+    options: Omit<SandboxBuildOptions, "extraScopeVarTypes"> & {
+      extraScopeVarTypes?: Array<Record<string, ScriptType>>;
+    } = {}
+  ): unknown {
+    const sandbox = this.buildSandbox(extraScopes, options);
     const script = new vm.Script(`"use strict"; (${expr})`);
     return script.runInContext(sandbox);
   }
 
-  private runCode(code: string): void {
-    const sandbox = this.buildSandbox([]);
+  private runCode(
+    code: string,
+    options: Omit<SandboxBuildOptions, "extraScopeVarTypes"> & {
+      extraScopes?: Array<Record<string, unknown>>;
+      extraScopeVarTypes?: Array<Record<string, ScriptType>>;
+    } = {}
+  ): void {
+    const sandbox = this.buildSandbox(options.extraScopes ?? [], options);
     const script = new vm.Script(`"use strict";\n${code}`);
     script.runInContext(sandbox);
   }
 
-  private buildSandbox(extraScopes: Array<Record<string, unknown>>): vm.Context {
-    const scriptName = this.resolveCurrentScriptName();
+  private buildSandbox(
+    extraScopes: Array<Record<string, unknown>>,
+    options: SandboxBuildOptions = {}
+  ): vm.Context {
+    const includeFrameVars = options.includeFrameVars ?? true;
+    const scriptName =
+      options.scriptName === undefined ? this.resolveCurrentScriptName() : options.scriptName;
     const variableNames = new Set<string>();
-    for (const frame of this.frames) {
-      for (const name of Object.keys(frame.scope)) {
-        variableNames.add(name);
+    if (includeFrameVars) {
+      for (const frame of this.frames) {
+        for (const name of Object.keys(frame.scope)) {
+          variableNames.add(name);
+        }
       }
     }
     for (const scope of extraScopes) {
@@ -1223,6 +1257,7 @@ export class ScriptLangEngine {
         }
       }
     }
+    const visibleFunctions = scriptName ? this.scripts[scriptName]?.visibleFunctions ?? {} : {};
 
     const sandbox: Record<string, unknown> = Object.create(null);
     for (const name of variableNames) {
@@ -1237,8 +1272,25 @@ export class ScriptLangEngine {
               `Variable "${name}" cannot be assigned undefined.`
             );
           }
-          this.writeVariable(name, value, extraScopes, scriptName);
+          this.writeVariable(
+            name,
+            value,
+            extraScopes,
+            scriptName,
+            options.extraScopeVarTypes
+          );
         },
+      });
+    }
+    for (const [name, decl] of Object.entries(visibleFunctions)) {
+      if (Object.hasOwn(sandbox, name)) {
+        continue;
+      }
+      Object.defineProperty(sandbox, name, {
+        configurable: false,
+        enumerable: true,
+        writable: false,
+        value: (...args: unknown[]) => this.executeDeclaredFunction(scriptName as string, decl, args),
       });
     }
     for (const [name, fn] of Object.entries(this.hostFunctions)) {
@@ -1272,6 +1324,43 @@ export class ScriptLangEngine {
     });
   }
 
+  private executeDeclaredFunction(
+    scriptName: string,
+    decl: NonNullable<ScriptIR["visibleFunctions"]>[string],
+    args: unknown[]
+  ): unknown {
+    if (args.length !== decl.params.length) {
+      throw new ScriptLangError(
+        "ENGINE_FUNCTION_ARITY",
+        `Function "${decl.name}" expects ${decl.params.length} args but got ${args.length}.`
+      );
+    }
+    const localScope: Record<string, unknown> = {};
+    const localTypes: Record<string, ScriptType> = {};
+    for (let i = 0; i < decl.params.length; i += 1) {
+      const param = decl.params[i];
+      const normalized = this.normalizeStoredValue(args[i]);
+      this.assertType(param.name, param.type, normalized);
+      localScope[param.name] = normalized;
+      localTypes[param.name] = param.type;
+    }
+    const returnDefault = defaultValueFromType(decl.returnBinding.type);
+    this.assertType(decl.returnBinding.name, decl.returnBinding.type, returnDefault);
+    localScope[decl.returnBinding.name] = returnDefault;
+    localTypes[decl.returnBinding.name] = decl.returnBinding.type;
+
+    this.runCode(decl.code, {
+      scriptName,
+      includeFrameVars: false,
+      extraScopes: [localScope],
+      extraScopeVarTypes: [localTypes],
+    });
+
+    const result = localScope[decl.returnBinding.name];
+    this.assertType(decl.returnBinding.name, decl.returnBinding.type, result);
+    return result;
+  }
+
   private readVariable(
     name: string,
     extraScopes: Array<Record<string, unknown>> = [],
@@ -1297,11 +1386,17 @@ export class ScriptLangEngine {
     name: string,
     value: unknown,
     extraScopes: Array<Record<string, unknown>> = [],
-    scriptName: string | null = this.resolveCurrentScriptName()
+    scriptName: string | null = this.resolveCurrentScriptName(),
+    extraScopeVarTypes: Array<Record<string, ScriptType>> = []
   ): void {
     for (let i = extraScopes.length - 1; i >= 0; i -= 1) {
       if (name in extraScopes[i]) {
-        extraScopes[i][name] = this.normalizeStoredValue(value);
+        const normalized = this.normalizeStoredValue(value);
+        const type = extraScopeVarTypes[i]?.[name];
+        if (type) {
+          this.assertType(name, type, normalized);
+        }
+        extraScopes[i][name] = normalized;
         return;
       }
     }

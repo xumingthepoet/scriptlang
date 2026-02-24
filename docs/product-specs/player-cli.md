@@ -18,7 +18,7 @@ Both modes run the same ScriptLang engine semantics.
 - Entry script is fixed to `<script name="main">`.
 - A source directory may include:
   - one or more `.script.xml` files
-  - optional `.types.xml` files for global custom type declarations
+  - optional `.defs.xml` files for global declarations (`<type>`, `<function>`)
   - optional `.json` files for global read-only game data
 
 ## 3. TUI Mode
@@ -99,7 +99,7 @@ Rules:
 
 - `start` runs from source entry until boundary (`choices` or `end`).
 - `start` requires `--scripts-dir <path>` and `--state-out <path>`.
-- when multiple script files exist, `main` must include required script/type files via header `include` directives.
+- when multiple script files exist, `main` must include required script/defs files via header `include` directives.
 - included `.json` assets in the same source directory are loaded and available to script runtime through include closure rules.
 - `choose` resumes from `--state-in`, applies selection, then runs to next boundary.
 - `state` is persisted only when output boundary is `CHOICES`.

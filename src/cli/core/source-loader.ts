@@ -12,10 +12,10 @@ export interface LoadedScenario {
 }
 
 const isScriptXmlFile = (file: string): boolean => file.endsWith(".script.xml");
-const isTypesXmlFile = (file: string): boolean => file.endsWith(".types.xml");
+const isDefsXmlFile = (file: string): boolean => file.endsWith(".defs.xml");
 const isJsonDataFile = (file: string): boolean => file.endsWith(".json");
 const isScenarioXmlFile = (file: string): boolean =>
-  isScriptXmlFile(file) || isTypesXmlFile(file) || isJsonDataFile(file);
+  isScriptXmlFile(file) || isDefsXmlFile(file) || isJsonDataFile(file);
 
 const makeCliError = (code: string, message: string): Error & { code: string } => {
   const error = new Error(message) as Error & { code: string };

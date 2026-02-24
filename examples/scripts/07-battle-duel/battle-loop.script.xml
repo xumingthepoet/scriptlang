@@ -1,4 +1,4 @@
-<!-- include: actors.types.xml -->
+<!-- include: actors.defs.xml -->
 <script
   name="battle-loop"
   args="ref:Combatant:player,ref:Combatant:enemy"

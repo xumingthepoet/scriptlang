@@ -9,6 +9,9 @@ import type {
   ChoiceOption,
   CodeNode,
   ContinueNode,
+  FunctionDecl,
+  FunctionParam,
+  FunctionReturn,
   IfNode,
   ImplicitGroup,
   ReturnNode,
@@ -53,9 +56,26 @@ interface ParsedTypeDecl {
   collectionName: string;
 }
 
+interface ParsedFunctionParamDecl {
+  name: string;
+  typeExpr: ParsedTypeExpr;
+  location: SourceSpan;
+}
+
+interface ParsedFunctionDecl {
+  name: string;
+  params: ParsedFunctionParamDecl[];
+  returnBinding: ParsedFunctionParamDecl;
+  code: string;
+  location: SourceSpan;
+  sourcePath: string;
+  collectionName: string;
+}
+
 export interface CompileScriptOptions {
   resolveNamedType?: (name: string, span: SourceSpan) => ScriptType;
   visibleJsonGlobals?: string[];
+  visibleFunctions?: Record<string, FunctionDecl>;
 }
 
 export interface CompileProjectBundleFromXmlMapResult {
@@ -313,6 +333,113 @@ const parseScriptArgs = (root: XmlElementNode, resolveNamedType?: NamedTypeResol
   return params;
 };
 
+const parseScriptArgNamesOnly = (root: XmlElementNode): string[] => {
+  const raw = getAttr(root, "args", false);
+  if (!raw || raw.trim().length === 0) {
+    return [];
+  }
+  const segments = splitByTopLevelComma(raw).filter(Boolean);
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (let i = 0; i < segments.length; i += 1) {
+    const segment = segments[i];
+    const isRef = segment.startsWith("ref:");
+    const normalized = isRef ? segment.slice("ref:".length).trim() : segment;
+    const separator = normalized.indexOf(":");
+    if (separator <= 0 || separator >= normalized.length - 1) {
+      throw new ScriptLangError(
+        "SCRIPT_ARGS_PARSE_ERROR",
+        `Invalid script args segment: "${segment}".`,
+        root.location
+      );
+    }
+    const name = normalized.slice(separator + 1).trim();
+    assertNameNotReserved(name, "script arg", root.location);
+    if (seen.has(name)) {
+      throw new ScriptLangError(
+        "SCRIPT_ARGS_DUPLICATE",
+        `Script arg "${name}" is declared more than once.`,
+        root.location
+      );
+    }
+    seen.add(name);
+    names.push(name);
+  }
+  return names;
+};
+
+const parseFunctionArgs = (node: XmlElementNode): ParsedFunctionParamDecl[] => {
+  const raw = getAttr(node, "args", false);
+  if (!raw || raw.trim().length === 0) {
+    return [];
+  }
+  const segments = splitByTopLevelComma(raw).filter(Boolean);
+  const params: ParsedFunctionParamDecl[] = [];
+  const names = new Set<string>();
+  for (let i = 0; i < segments.length; i += 1) {
+    const segment = segments[i];
+    if (segment.startsWith("ref:")) {
+      throw new ScriptLangError(
+        "XML_FUNCTION_ARGS_REF_UNSUPPORTED",
+        `Function arg "${segment}" cannot use ref mode.`,
+        node.location
+      );
+    }
+    const separator = segment.indexOf(":");
+    if (separator <= 0 || separator >= segment.length - 1) {
+      throw new ScriptLangError(
+        "FUNCTION_ARGS_PARSE_ERROR",
+        `Invalid function args segment: "${segment}".`,
+        node.location
+      );
+    }
+    const typeSource = segment.slice(0, separator).trim();
+    const name = segment.slice(separator + 1).trim();
+    assertNameNotReserved(name, "function arg", node.location);
+    if (names.has(name)) {
+      throw new ScriptLangError(
+        "FUNCTION_ARGS_DUPLICATE",
+        `Function arg "${name}" is declared more than once.`,
+        node.location
+      );
+    }
+    names.add(name);
+    params.push({
+      name,
+      typeExpr: parseTypeExpr(typeSource, node.location),
+      location: node.location,
+    });
+  }
+  return params;
+};
+
+const parseFunctionReturn = (node: XmlElementNode): ParsedFunctionParamDecl => {
+  const raw = getRequiredNonEmptyAttr(node, "return");
+  if (raw.startsWith("ref:")) {
+    throw new ScriptLangError(
+      "XML_FUNCTION_RETURN_REF_UNSUPPORTED",
+      'Attribute "return" on <function> cannot use ref mode.',
+      node.location
+    );
+  }
+  const separator = raw.indexOf(":");
+  if (separator <= 0 || separator >= raw.length - 1) {
+    throw new ScriptLangError(
+      "FUNCTION_RETURN_PARSE_ERROR",
+      `Invalid function return segment: "${raw}".`,
+      node.location
+    );
+  }
+  const typeSource = raw.slice(0, separator).trim();
+  const name = raw.slice(separator + 1).trim();
+  assertNameNotReserved(name, "function return", node.location);
+  return {
+    name,
+    typeExpr: parseTypeExpr(typeSource, node.location),
+    location: node.location,
+  };
+};
+
 const parseArgs = (raw: string | null): CallArgument[] => {
   if (!raw || raw.trim().length === 0) {
     return [];
@@ -354,6 +481,18 @@ const parseInlineRequired = (node: XmlElementNode): string => {
     );
   }
   return content;
+};
+
+const parseInlineRequiredNoElementChildren = (node: XmlElementNode): string => {
+  const elementChild = asElements(node.children)[0];
+  if (elementChild) {
+    throw new ScriptLangError(
+      "XML_FUNCTION_CHILD_NODE_INVALID",
+      `<${node.name}> cannot contain child elements. Only inline code text is allowed.`,
+      elementChild.location
+    );
+  }
+  return parseInlineRequired(node);
 };
 
 const parseVarDeclaration = (
@@ -623,58 +762,103 @@ const compileGroup = (
   }
 };
 
-const parseTypeDeclarationsFromRoot = (root: XmlElementNode, sourcePath: string): ParsedTypeDecl[] => {
-  const collectionName = getAttr(root, "name", true) as string;
-  assertNameNotReserved(collectionName, "types collection", root.location);
-  const declarations: ParsedTypeDecl[] = [];
-
-  for (const child of asElements(root.children)) {
-    if (child.name !== "type") {
+const parseTypeDeclarationNode = (
+  node: XmlElementNode,
+  sourcePath: string,
+  collectionName: string
+): ParsedTypeDecl => {
+  const typeName = getAttr(node, "name", true) as string;
+  assertNameNotReserved(typeName, "type", node.location);
+  const fields: ParsedTypeFieldDecl[] = [];
+  const fieldNames = new Set<string>();
+  for (const fieldNode of asElements(node.children)) {
+    if (fieldNode.name !== "field") {
       throw new ScriptLangError(
-        "XML_TYPES_NODE_INVALID",
-        `<types> only accepts <type>, got <${child.name}>.`,
-        child.location
+        "XML_DEFS_FIELD_INVALID",
+        `<type> only accepts <field>, got <${fieldNode.name}>.`,
+        fieldNode.location
       );
     }
-    const typeName = getAttr(child, "name", true) as string;
-    assertNameNotReserved(typeName, "type", child.location);
-    const fields: ParsedTypeFieldDecl[] = [];
-    const fieldNames = new Set<string>();
-    for (const fieldNode of asElements(child.children)) {
-      if (fieldNode.name !== "field") {
-        throw new ScriptLangError(
-          "XML_TYPES_FIELD_INVALID",
-          `<type> only accepts <field>, got <${fieldNode.name}>.`,
-          fieldNode.location
-        );
-      }
-      const fieldName = getAttr(fieldNode, "name", true) as string;
-      assertNameNotReserved(fieldName, "field", fieldNode.location);
-      if (fieldNames.has(fieldName)) {
-        throw new ScriptLangError(
-          "TYPE_FIELD_DUPLICATE",
-          `Field "${fieldName}" is declared more than once in type "${typeName}".`,
-          fieldNode.location
-        );
-      }
-      fieldNames.add(fieldName);
-      const fieldTypeRaw = getAttr(fieldNode, "type", true) as string;
-      fields.push({
-        name: fieldName,
-        typeExpr: parseTypeExpr(fieldTypeRaw, fieldNode.location),
-        location: fieldNode.location,
-      });
+    const fieldName = getAttr(fieldNode, "name", true) as string;
+    assertNameNotReserved(fieldName, "field", fieldNode.location);
+    if (fieldNames.has(fieldName)) {
+      throw new ScriptLangError(
+        "TYPE_FIELD_DUPLICATE",
+        `Field "${fieldName}" is declared more than once in type "${typeName}".`,
+        fieldNode.location
+      );
     }
-    declarations.push({
-      name: typeName,
-      fields,
-      location: child.location,
-      sourcePath,
-      collectionName,
+    fieldNames.add(fieldName);
+    const fieldTypeRaw = getAttr(fieldNode, "type", true) as string;
+    fields.push({
+      name: fieldName,
+      typeExpr: parseTypeExpr(fieldTypeRaw, fieldNode.location),
+      location: fieldNode.location,
     });
   }
+  return {
+    name: typeName,
+    fields,
+    location: node.location,
+    sourcePath,
+    collectionName,
+  };
+};
 
-  return declarations;
+const parseFunctionDeclarationNode = (
+  node: XmlElementNode,
+  sourcePath: string,
+  collectionName: string
+): ParsedFunctionDecl => {
+  const name = getAttr(node, "name", true) as string;
+  assertNameNotReserved(name, "function", node.location);
+  const params = parseFunctionArgs(node);
+  const returnBinding = parseFunctionReturn(node);
+  if (params.some((param) => param.name === returnBinding.name)) {
+    throw new ScriptLangError(
+      "FUNCTION_RETURN_NAME_CONFLICT",
+      `Function "${name}" return variable "${returnBinding.name}" conflicts with parameter name.`,
+      node.location
+    );
+  }
+  const code = parseInlineRequiredNoElementChildren(node);
+  return {
+    name,
+    params,
+    returnBinding,
+    code,
+    location: node.location,
+    sourcePath,
+    collectionName,
+  };
+};
+
+const parseDeclarationsFromDefsRoot = (
+  root: XmlElementNode,
+  sourcePath: string
+): { typeDecls: ParsedTypeDecl[]; functionDecls: ParsedFunctionDecl[] } => {
+  const collectionName = getAttr(root, "name", true) as string;
+  assertNameNotReserved(collectionName, "defs collection", root.location);
+  const typeDecls: ParsedTypeDecl[] = [];
+  const functionDecls: ParsedFunctionDecl[] = [];
+
+  for (const child of asElements(root.children)) {
+    if (child.name === "type") {
+      typeDecls.push(parseTypeDeclarationNode(child, sourcePath, collectionName));
+      continue;
+    }
+    if (child.name === "function") {
+      functionDecls.push(parseFunctionDeclarationNode(child, sourcePath, collectionName));
+      continue;
+    }
+    throw new ScriptLangError(
+      "XML_DEFS_NODE_INVALID",
+      `<defs> only accepts <type> and <function>, got <${child.name}>.`,
+      child.location
+    );
+  }
+
+  return { typeDecls, functionDecls };
 };
 
 const resolveTypeDeclarations = (decls: ParsedTypeDecl[]): Record<string, ScriptType> => {
@@ -877,30 +1061,37 @@ const buildIncludeGraphForReachablePaths = (
   return includeGraph;
 };
 
+const collectScriptVisiblePaths = (
+  scriptPath: string,
+  includeGraph: Record<string, string[]>
+): Set<string> => {
+  const visiblePaths = new Set<string>();
+  const stack = [scriptPath];
+  while (stack.length > 0) {
+    const current = stack.pop() as string;
+    if (visiblePaths.has(current)) {
+      continue;
+    }
+    visiblePaths.add(current);
+    const includes = includeGraph[current];
+    for (let i = 0; i < includes.length; i += 1) {
+      stack.push(includes[i]);
+    }
+  }
+  return visiblePaths;
+};
+
 const collectScriptVisibleTypeNames = (
   scriptPath: string,
   includeGraph: Record<string, string[]>,
   typeNamesByPath: Record<string, string[]>
 ): Set<string> => {
   const visibleTypeNames = new Set<string>();
-  const visited = new Set<string>();
-  const stack = [scriptPath];
-
-  while (stack.length > 0) {
-    const current = stack.pop() as string;
-    if (visited.has(current)) {
-      continue;
-    }
-    visited.add(current);
-
+  const visiblePaths = collectScriptVisiblePaths(scriptPath, includeGraph);
+  for (const current of visiblePaths) {
     const currentTypeNames = typeNamesByPath[current] ?? [];
     for (let i = 0; i < currentTypeNames.length; i += 1) {
       visibleTypeNames.add(currentTypeNames[i]);
-    }
-
-    const includes = includeGraph[current];
-    for (let i = 0; i < includes.length; i += 1) {
-      stack.push(includes[i]);
     }
   }
 
@@ -913,24 +1104,11 @@ const collectScriptVisibleJsonNames = (
   jsonSymbolByPath: Record<string, string>
 ): Set<string> => {
   const visibleJsonNames = new Set<string>();
-  const visited = new Set<string>();
-  const stack = [scriptPath];
-
-  while (stack.length > 0) {
-    const current = stack.pop() as string;
-    if (visited.has(current)) {
-      continue;
-    }
-    visited.add(current);
-
+  const visiblePaths = collectScriptVisiblePaths(scriptPath, includeGraph);
+  for (const current of visiblePaths) {
     const jsonSymbol = jsonSymbolByPath[current];
     if (jsonSymbol) {
       visibleJsonNames.add(jsonSymbol);
-    }
-
-    const includes = includeGraph[current];
-    for (let i = 0; i < includes.length; i += 1) {
-      stack.push(includes[i]);
     }
   }
 
@@ -960,6 +1138,125 @@ const parseJsonGlobalValue = (source: string, filePath: string): unknown => {
       "JSON_PARSE_ERROR",
       `Failed to parse JSON include "${filePath}": ${message}`
     );
+  }
+};
+
+const collectVarNamesInNode = (node: XmlElementNode, names: Set<string>): void => {
+  if (node.name === "var") {
+    const name = node.attributes.name;
+    if (name && name.length > 0) {
+      names.add(name);
+    }
+  }
+  for (let i = 0; i < node.children.length; i += 1) {
+    const child = node.children[i];
+    if (child.kind !== "element") {
+      continue;
+    }
+    collectVarNamesInNode(child, names);
+  }
+};
+
+const collectScriptDeclaredSymbolNames = (scriptRoot: XmlElementNode): Set<string> => {
+  const names = new Set<string>(parseScriptArgNamesOnly(scriptRoot));
+  collectVarNamesInNode(scriptRoot, names);
+  return names;
+};
+
+const resolveFunctionDeclForScript = (
+  decl: ParsedFunctionDecl,
+  resolveNamedType: (name: string, span: SourceSpan) => ScriptType
+): FunctionDecl => {
+  const params: FunctionParam[] = decl.params.map((param) => ({
+    name: param.name,
+    type: resolveTypeExpr(param.typeExpr, param.location, resolveNamedType),
+    location: param.location,
+  }));
+  const returnBinding: FunctionReturn = {
+    name: decl.returnBinding.name,
+    type: resolveTypeExpr(decl.returnBinding.typeExpr, decl.returnBinding.location, resolveNamedType),
+    location: decl.returnBinding.location,
+  };
+  return {
+    name: decl.name,
+    params,
+    returnBinding,
+    code: decl.code,
+    location: decl.location,
+  };
+};
+
+const resolveVisibleFunctionsForScript = (
+  scriptPath: string,
+  includeGraph: Record<string, string[]>,
+  functionDeclsByPath: Record<string, ParsedFunctionDecl[]>,
+  resolveNamedType: (name: string, span: SourceSpan) => ScriptType
+): Record<string, FunctionDecl> => {
+  const visiblePaths = collectScriptVisiblePaths(scriptPath, includeGraph);
+  const visibleFunctions: Record<string, FunctionDecl> = {};
+  for (const visiblePath of visiblePaths) {
+    const decls = functionDeclsByPath[visiblePath] ?? [];
+    for (let i = 0; i < decls.length; i += 1) {
+      const decl = decls[i];
+      if (visibleFunctions[decl.name]) {
+        throw new ScriptLangError(
+          "FUNCTION_DECL_DUPLICATE_VISIBLE",
+          `Duplicate function "${decl.name}" is visible to "${scriptPath}" from include closure.`,
+          decl.location
+        );
+      }
+      visibleFunctions[decl.name] = resolveFunctionDeclForScript(decl, resolveNamedType);
+    }
+  }
+  return visibleFunctions;
+};
+
+const assertFunctionNameConflicts = (
+  scriptPath: string,
+  functionMap: Record<string, FunctionDecl>,
+  scriptSymbols: Set<string>,
+  visibleJsonGlobals: Set<string>
+): void => {
+  for (const functionName of Object.keys(functionMap)) {
+    const functionDecl = functionMap[functionName];
+    if (scriptSymbols.has(functionName)) {
+      throw new ScriptLangError(
+        "FUNCTION_NAME_CONFLICT_SCRIPT_SYMBOL",
+        `Function "${functionName}" in "${scriptPath}" conflicts with script arg/var name.`,
+        functionDecl.location
+      );
+    }
+    if (visibleJsonGlobals.has(functionName)) {
+      throw new ScriptLangError(
+        "FUNCTION_NAME_CONFLICT_JSON_SYMBOL",
+        `Function "${functionName}" in "${scriptPath}" conflicts with visible JSON global symbol.`,
+        functionDecl.location
+      );
+    }
+    if (functionName === "random" || functionName === "Math") {
+      throw new ScriptLangError(
+        "FUNCTION_NAME_CONFLICT_BUILTIN",
+        `Function "${functionName}" in "${scriptPath}" conflicts with reserved builtin/global name.`,
+        functionDecl.location
+      );
+    }
+    for (let i = 0; i < functionDecl.params.length; i += 1) {
+      const paramName = functionDecl.params[i].name;
+      if (functionMap[paramName]) {
+        throw new ScriptLangError(
+          "FUNCTION_LOCAL_NAME_CONFLICT",
+          `Function "${functionName}" local symbol "${paramName}" conflicts with visible function name.`,
+          functionDecl.params[i].location
+        );
+      }
+    }
+    if (functionMap[functionDecl.returnBinding.name]) {
+      throw new ScriptLangError(
+        "FUNCTION_LOCAL_NAME_CONFLICT",
+        `Function "${functionName}" local symbol "${functionDecl.returnBinding.name}" conflicts with visible function name.`,
+        functionDecl.returnBinding.location
+      );
+    }
   }
 };
 
@@ -996,6 +1293,7 @@ export const compileScript = (
     rootGroupId,
     groups: builder.groups,
     visibleJsonGlobals: options.visibleJsonGlobals ? [...options.visibleJsonGlobals] : undefined,
+    visibleFunctions: options.visibleFunctions ? { ...options.visibleFunctions } : undefined,
   };
 };
 
@@ -1009,6 +1307,7 @@ export const compileProjectBundleFromXmlMap = (
 
   const parsedRoots: Record<string, XmlElementNode> = {};
   const typeDecls: ParsedTypeDecl[] = [];
+  const functionDecls: ParsedFunctionDecl[] = [];
   const jsonSymbolByPath: Record<string, string> = {};
   const globalJson: Record<string, unknown> = {};
   const jsonPathBySymbol: Record<string, string> = {};
@@ -1038,14 +1337,16 @@ export const compileProjectBundleFromXmlMap = (
     const root = document.root;
     parsedRoots[filePath] = root;
 
-    if (root.name === "types") {
-      typeDecls.push(...parseTypeDeclarationsFromRoot(root, filePath));
+    if (root.name === "defs") {
+      const declarations = parseDeclarationsFromDefsRoot(root, filePath);
+      typeDecls.push(...declarations.typeDecls);
+      functionDecls.push(...declarations.functionDecls);
       continue;
     }
     if (root.name !== "script") {
       throw new ScriptLangError(
         "XML_INVALID_ROOT",
-        `Expected <script> or <types> as root but got <${root.name}>.`,
+        `Expected <script> or <defs> as root but got <${root.name}>.`,
         root.location
       );
     }
@@ -1060,6 +1361,14 @@ export const compileProjectBundleFromXmlMap = (
       typeNamesByPath[decl.sourcePath] = [];
     }
     typeNamesByPath[decl.sourcePath].push(decl.name);
+  }
+  const functionDeclsByPath: Record<string, ParsedFunctionDecl[]> = {};
+  for (let i = 0; i < functionDecls.length; i += 1) {
+    const decl = functionDecls[i];
+    if (!functionDeclsByPath[decl.sourcePath]) {
+      functionDeclsByPath[decl.sourcePath] = [];
+    }
+    functionDeclsByPath[decl.sourcePath].push(decl);
   }
 
   const compiled: Record<string, ScriptIR> = {};
@@ -1076,18 +1385,26 @@ export const compileProjectBundleFromXmlMap = (
       if (!visibleTypeNames.has(name)) {
         throw new ScriptLangError(
           "TYPE_UNKNOWN",
-          `Unknown type "${name}" in "${filePath}". Include the corresponding .types.xml file from this script's include closure.`,
+          `Unknown type "${name}" in "${filePath}". Include the corresponding .defs.xml file from this script's include closure.`,
           span
         );
       }
       return resolvedTypes[name] as ScriptType;
     };
-    const visibleJsonGlobals = Array.from(
-      collectScriptVisibleJsonNames(filePath, includeGraph, jsonSymbolByPath)
-    ).sort();
+    const visibleJsonSet = collectScriptVisibleJsonNames(filePath, includeGraph, jsonSymbolByPath);
+    const visibleJsonGlobals = Array.from(visibleJsonSet).sort();
+    const visibleFunctions = resolveVisibleFunctionsForScript(
+      filePath,
+      includeGraph,
+      functionDeclsByPath,
+      resolveNamedTypeForScript
+    );
+    const scriptSymbols = collectScriptDeclaredSymbolNames(parsedRoots[filePath]);
+    assertFunctionNameConflicts(filePath, visibleFunctions, scriptSymbols, visibleJsonSet);
     const ir = compileScript(xmlByPath[filePath], filePath, {
       resolveNamedType: resolveNamedTypeForScript,
       visibleJsonGlobals,
+      visibleFunctions,
     });
     if (compiled[ir.scriptName]) {
       throw new ScriptLangError(

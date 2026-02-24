@@ -184,14 +184,14 @@ test("api create/resume error paths", () => {
 test("compile project supports include graph and global custom types", () => {
   const xmlByPath = {
     "main.script.xml": `
-<!-- include: gamestate.types.xml -->
+<!-- include: gamestate.defs.xml -->
 <!-- include: game.json -->
 <script name="main" args="BattleState:state">
   <text>p=\${state.player.hp},e=\${state.enemy.hp},name=\${game.player.name}</text>
 </script>
 `,
-    "gamestate.types.xml": `
-<types name="gamestate">
+    "gamestate.defs.xml": `
+<defs name="gamestate">
   <type name="Actor">
     <field name="hp" type="number"/>
     <field name="label" type="string"/>
@@ -200,14 +200,14 @@ test("compile project supports include graph and global custom types", () => {
     <field name="player" type="Actor"/>
     <field name="enemy" type="Actor"/>
   </type>
-</types>
+</defs>
 `,
-    "unused.types.xml": `
-<types name="unused">
+    "unused.defs.xml": `
+<defs name="unused">
   <type name="Ghost">
     <field name="hp" type="number"/>
   </type>
-</types>
+</defs>
 `,
     "game.json": `{"player":{"name":"Hero"}}`,
   };
@@ -232,7 +232,7 @@ test("project include and type errors are surfaced", () => {
   assert.throws(() =>
     compileScriptsFromXmlMap({
       "main.script.xml": `
-<!-- include: missing.types.xml -->
+<!-- include: missing.defs.xml -->
 <script name="main"><text>x</text></script>
 `,
     })
@@ -254,15 +254,15 @@ test("project include and type errors are surfaced", () => {
   assert.throws(() =>
     compileScriptsFromXmlMap({
       "main.script.xml": `
-<!-- include: types-a.types.xml -->
-<!-- include: types-b.types.xml -->
+<!-- include: types-a.defs.xml -->
+<!-- include: types-b.defs.xml -->
 <script name="main"><text>x</text></script>
 `,
-      "types-a.types.xml": `
-<types name="a"><type name="Dup"><field name="n" type="number"/></type></types>
+      "types-a.defs.xml": `
+<defs name="a"><type name="Dup"><field name="n" type="number"/></type></defs>
 `,
-      "types-b.types.xml": `
-<types name="b"><type name="Dup"><field name="s" type="string"/></type></types>
+      "types-b.defs.xml": `
+<defs name="b"><type name="Dup"><field name="s" type="string"/></type></defs>
 `,
     })
   );

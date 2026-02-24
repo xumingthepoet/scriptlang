@@ -504,9 +504,9 @@ test("reserved __ prefix is rejected for types/fields/json symbols", () => {
   expectCode(
     () =>
       compileProjectScriptsFromXmlMap({
-        "main.script.xml": `<!-- include: bad.types.xml -->
+        "main.script.xml": `<!-- include: bad.defs.xml -->
 <script name="main"><text>x</text></script>`,
-        "bad.types.xml": `<types name="__meta"><type name="A"><field name="x" type="number"/></type></types>`,
+        "bad.defs.xml": `<defs name="__meta"><type name="A"><field name="x" type="number"/></type></defs>`,
       }),
     "NAME_RESERVED_PREFIX"
   );
@@ -514,9 +514,9 @@ test("reserved __ prefix is rejected for types/fields/json symbols", () => {
   expectCode(
     () =>
       compileProjectScriptsFromXmlMap({
-        "main.script.xml": `<!-- include: bad.types.xml -->
+        "main.script.xml": `<!-- include: bad.defs.xml -->
 <script name="main"><text>x</text></script>`,
-        "bad.types.xml": `<types name="meta"><type name="__A"><field name="x" type="number"/></type></types>`,
+        "bad.defs.xml": `<defs name="meta"><type name="__A"><field name="x" type="number"/></type></defs>`,
       }),
     "NAME_RESERVED_PREFIX"
   );
@@ -524,9 +524,9 @@ test("reserved __ prefix is rejected for types/fields/json symbols", () => {
   expectCode(
     () =>
       compileProjectScriptsFromXmlMap({
-        "main.script.xml": `<!-- include: bad.types.xml -->
+        "main.script.xml": `<!-- include: bad.defs.xml -->
 <script name="main"><text>x</text></script>`,
-        "bad.types.xml": `<types name="meta"><type name="A"><field name="__x" type="number"/></type></types>`,
+        "bad.defs.xml": `<defs name="meta"><type name="A"><field name="__x" type="number"/></type></defs>`,
       }),
     "NAME_RESERVED_PREFIX"
   );
@@ -636,33 +636,33 @@ const expectCode = (fn: () => unknown, code: string): void => {
   });
 };
 
-test("project compiler validates types include graph and script type references", () => {
+test("project compiler validates defs include graph and script type references", () => {
   expectCode(
     () =>
       compileProjectScriptsFromXmlMap({
-        "main.script.xml": `<!-- include: bad.types.xml -->
+        "main.script.xml": `<!-- include: bad.defs.xml -->
 <script name="main"><text>x</text></script>`,
-        "bad.types.xml": `<types name="bad"><bad/></types>`,
+        "bad.defs.xml": `<defs name="bad"><bad/></defs>`,
       }),
-    "XML_TYPES_NODE_INVALID"
+    "XML_DEFS_NODE_INVALID"
   );
 
   expectCode(
     () =>
       compileProjectScriptsFromXmlMap({
-        "main.script.xml": `<!-- include: bad.types.xml -->
+        "main.script.xml": `<!-- include: bad.defs.xml -->
 <script name="main"><text>x</text></script>`,
-        "bad.types.xml": `<types name="bad"><type name="A"><bad/></type></types>`,
+        "bad.defs.xml": `<defs name="bad"><type name="A"><bad/></type></defs>`,
       }),
-    "XML_TYPES_FIELD_INVALID"
+    "XML_DEFS_FIELD_INVALID"
   );
 
   expectCode(
     () =>
       compileProjectScriptsFromXmlMap({
-        "main.script.xml": `<!-- include: bad.types.xml -->
+        "main.script.xml": `<!-- include: bad.defs.xml -->
 <script name="main"><text>x</text></script>`,
-        "bad.types.xml": `<types name="bad"><type name="A"><field name="x" type="number"/><field name="x" type="number"/></type></types>`,
+        "bad.defs.xml": `<defs name="bad"><type name="A"><field name="x" type="number"/><field name="x" type="number"/></type></defs>`,
       }),
     "TYPE_FIELD_DUPLICATE"
   );
@@ -670,9 +670,9 @@ test("project compiler validates types include graph and script type references"
   expectCode(
     () =>
       compileProjectScriptsFromXmlMap({
-        "main.script.xml": `<!-- include: bad.types.xml -->
+        "main.script.xml": `<!-- include: bad.defs.xml -->
 <script name="main"><text>x</text></script>`,
-        "bad.types.xml": `<types name="bad"><type name="A"><field name="x" type="Missing"/></type></types>`,
+        "bad.defs.xml": `<defs name="bad"><type name="A"><field name="x" type="Missing"/></type></defs>`,
       }),
     "TYPE_UNKNOWN"
   );
@@ -680,9 +680,9 @@ test("project compiler validates types include graph and script type references"
   expectCode(
     () =>
       compileProjectScriptsFromXmlMap({
-        "main.script.xml": `<!-- include: bad.types.xml -->
+        "main.script.xml": `<!-- include: bad.defs.xml -->
 <script name="main"><text>x</text></script>`,
-        "bad.types.xml": `<types name="bad"><type name="A"><field name="x" type="A"/></type></types>`,
+        "bad.defs.xml": `<defs name="bad"><type name="A"><field name="x" type="A"/></type></defs>`,
       }),
     "TYPE_RECURSIVE"
   );
@@ -699,9 +699,9 @@ test("project compiler validates types include graph and script type references"
   expectCode(
     () =>
       compileProjectScriptsFromXmlMap({
-        "main.script.xml": `<!-- include: /abs.types.xml -->
+        "main.script.xml": `<!-- include: /abs.defs.xml -->
 <script name="main"><text>x</text></script>`,
-        "/abs.types.xml": `<types name="abs"></types>`,
+        "/abs.defs.xml": `<defs name="abs"></defs>`,
       }),
     "XML_INCLUDE_INVALID"
   );
@@ -728,10 +728,10 @@ test("project compiler validates types include graph and script type references"
     () =>
       compileProjectScriptsFromXmlMap({
         "main.script.xml": `<!-- include: battle.script.xml -->
-<!-- include: actors.types.xml -->
+<!-- include: actors.defs.xml -->
 <script name="main"><text>m</text></script>`,
         "battle.script.xml": `<script name="battle" args="Combatant:actor"><text>b</text></script>`,
-        "actors.types.xml": `<types name="actors"><type name="Combatant"><field name="hp" type="number"/></type></types>`,
+        "actors.defs.xml": `<defs name="actors"><type name="Combatant"><field name="hp" type="number"/></type></defs>`,
       }),
     "TYPE_UNKNOWN"
   );
@@ -739,23 +739,23 @@ test("project compiler validates types include graph and script type references"
   const compiled = compileProjectScriptsFromXmlMap({
     "main.script.xml": `<!-- include: a.script.xml -->
 <!-- include: b.script.xml -->
-<!-- include: shared.types.xml -->
+<!-- include: shared.defs.xml -->
 <script name="main"><text>m</text></script>`,
-    "a.script.xml": `<!-- include: shared.types.xml -->
+    "a.script.xml": `<!-- include: shared.defs.xml -->
 <script name="a"><text>a</text></script>`,
-    "b.script.xml": `<!-- include: shared.types.xml -->
+    "b.script.xml": `<!-- include: shared.defs.xml -->
 <script name="b"><text>b</text></script>`,
-    "shared.types.xml": `<types name="shared"><type name="Score"><field name="n" type="number"/></type></types>`,
+    "shared.defs.xml": `<defs name="shared"><type name="Score"><field name="n" type="number"/></type></defs>`,
   });
   assert.deepEqual(Object.keys(compiled).sort(), ["a", "b", "main"]);
 
   const compiledWithScopedTypes = compileProjectScriptsFromXmlMap({
     "main.script.xml": `<!-- include: battle.script.xml -->
-<!-- include: actors.types.xml -->
+<!-- include: actors.defs.xml -->
 <script name="main"><text>m</text></script>`,
-    "battle.script.xml": `<!-- include: actors.types.xml -->
+    "battle.script.xml": `<!-- include: actors.defs.xml -->
 <script name="battle" args="Combatant:actor"><text>b</text></script>`,
-    "actors.types.xml": `<types name="actors"><type name="Combatant"><field name="hp" type="number"/></type></types>`,
+    "actors.defs.xml": `<defs name="actors"><type name="Combatant"><field name="hp" type="number"/></type></defs>`,
   });
   assert.deepEqual(Object.keys(compiledWithScopedTypes).sort(), ["battle", "main"]);
 
@@ -771,9 +771,218 @@ test("project compiler validates types include graph and script type references"
   expectCode(
     () =>
       compileProjectScriptsFromXmlMap({
-        "main.script.xml": `<types name="oops"></types>`,
+        "main.script.xml": `<defs name="oops"></defs>`,
       }),
     "XML_INVALID_ROOT"
+  );
+
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main.script.xml": `<!-- include: old.types.xml -->
+<script name="main"><text>x</text></script>`,
+        "old.types.xml": `<types name="legacy"></types>`,
+      }),
+    "XML_INVALID_ROOT"
+  );
+
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main.script.xml": `<script name="main" args="oops"><text>x</text></script>`,
+      }),
+    "SCRIPT_ARGS_PARSE_ERROR"
+  );
+
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main.script.xml": `<script name="main" args="number:a,number:a"><text>x</text></script>`,
+      }),
+    "SCRIPT_ARGS_DUPLICATE"
+  );
+
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main.script.xml": `<script name="main"><var name="" type="number" value="1"/><text>x</text></script>`,
+      }),
+    "XML_MISSING_ATTR"
+  );
+});
+
+test("defs function declarations parse, resolve, and validate conflicts", () => {
+  const compiled = compileProjectScriptsFromXmlMap({
+    "main.script.xml": `<!-- include: shared.defs.xml -->
+<script name="main" args="number:v">
+  <var name="sum" type="number" value="add(v, { value: 1 })"/>
+  <text>\${add(sum, { value: 2 })}</text>
+</script>`,
+    "shared.defs.xml": `<defs name="shared">
+  <type name="CustomType"><field name="value" type="number"/></type>
+  <function name="add" args="number:a,CustomType:b" return="number:r">
+    r = a + b.value;
+  </function>
+</defs>`,
+  });
+  const main = compiled.main;
+  assert.ok(main.visibleFunctions);
+  assert.equal(main.visibleFunctions?.add?.name, "add");
+  assert.equal(main.visibleFunctions?.add?.params.length, 2);
+  assert.equal(main.visibleFunctions?.add?.returnBinding.name, "r");
+
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main.script.xml": `<!-- include: bad.defs.xml -->
+<script name="main"><text>x</text></script>`,
+        "bad.defs.xml": `<defs name="bad"><function name="f" args="ref:number:a" return="number:r">r = a;</function></defs>`,
+      }),
+    "XML_FUNCTION_ARGS_REF_UNSUPPORTED"
+  );
+
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main.script.xml": `<!-- include: bad.defs.xml -->
+<script name="main"><text>x</text></script>`,
+        "bad.defs.xml": `<defs name="bad"><function name="f" args="number:a,number:a" return="number:r">r = a;</function></defs>`,
+      }),
+    "FUNCTION_ARGS_DUPLICATE"
+  );
+
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main.script.xml": `<!-- include: bad.defs.xml -->
+<script name="main"><text>x</text></script>`,
+        "bad.defs.xml": `<defs name="bad"><function name="f" args="oops" return="number:r">r = 1;</function></defs>`,
+      }),
+    "FUNCTION_ARGS_PARSE_ERROR"
+  );
+
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main.script.xml": `<!-- include: bad.defs.xml -->
+<script name="main"><text>x</text></script>`,
+        "bad.defs.xml": `<defs name="bad"><function name="f" return="ref:number:r">r = 1;</function></defs>`,
+      }),
+    "XML_FUNCTION_RETURN_REF_UNSUPPORTED"
+  );
+
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main.script.xml": `<!-- include: bad.defs.xml -->
+<script name="main"><text>x</text></script>`,
+        "bad.defs.xml": `<defs name="bad"><function name="f" return="bad">const x = 1;</function></defs>`,
+      }),
+    "FUNCTION_RETURN_PARSE_ERROR"
+  );
+
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main.script.xml": `<!-- include: bad.defs.xml -->
+<script name="main"><text>x</text></script>`,
+        "bad.defs.xml": `<defs name="bad"><function name="f" args="number:a" return="number:a">a = 1;</function></defs>`,
+      }),
+    "FUNCTION_RETURN_NAME_CONFLICT"
+  );
+
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main.script.xml": `<!-- include: bad.defs.xml -->
+<script name="main"><text>x</text></script>`,
+        "bad.defs.xml": `<defs name="bad"><function name="f" return="number:r"><text>x</text></function></defs>`,
+      }),
+    "XML_FUNCTION_CHILD_NODE_INVALID"
+  );
+
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main.script.xml": `<!-- include: bad.defs.xml -->
+<script name="main"><text>x</text></script>`,
+        "bad.defs.xml": `<defs name="bad"><function name="f" return="number:r">   </function></defs>`,
+      }),
+    "XML_EMPTY_NODE_CONTENT"
+  );
+
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main.script.xml": `<!-- include: bad.defs.xml -->
+<script name="main"><text>x</text></script>`,
+        "bad.defs.xml": `<defs name="bad"><function name="f" return="number:r" value="1">r = 1;</function></defs>`,
+      }),
+    "XML_ATTR_NOT_ALLOWED"
+  );
+
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main.script.xml": `<!-- include: bad-a.defs.xml -->
+<!-- include: bad-b.defs.xml -->
+<script name="main"><text>x</text></script>`,
+        "bad-a.defs.xml": `<defs name="a"><function name="f" return="number:r">r = 1;</function></defs>`,
+        "bad-b.defs.xml": `<defs name="b"><function name="f" return="number:r">r = 2;</function></defs>`,
+      }),
+    "FUNCTION_DECL_DUPLICATE_VISIBLE"
+  );
+
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main.script.xml": `<!-- include: bad.defs.xml -->
+<script name="main"><var name="f" type="number" value="1"/><text>x</text></script>`,
+        "bad.defs.xml": `<defs name="a"><function name="f" return="number:r">r = 1;</function></defs>`,
+      }),
+    "FUNCTION_NAME_CONFLICT_SCRIPT_SYMBOL"
+  );
+
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main.script.xml": `<!-- include: game.json -->
+<!-- include: bad.defs.xml -->
+<script name="main"><text>x</text></script>`,
+        "game.json": `{"n":1}`,
+        "bad.defs.xml": `<defs name="a"><function name="game" return="number:r">r = 1;</function></defs>`,
+      }),
+    "FUNCTION_NAME_CONFLICT_JSON_SYMBOL"
+  );
+
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main.script.xml": `<!-- include: bad.defs.xml -->
+<script name="main"><text>x</text></script>`,
+        "bad.defs.xml": `<defs name="a"><function name="random" return="number:r">r = 1;</function></defs>`,
+      }),
+    "FUNCTION_NAME_CONFLICT_BUILTIN"
+  );
+
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main.script.xml": `<!-- include: bad.defs.xml -->
+<script name="main"><text>x</text></script>`,
+        "bad.defs.xml": `<defs name="a"><function name="f" args="number:g" return="number:r">r = g;</function><function name="g" return="number:r">r = 1;</function></defs>`,
+      }),
+    "FUNCTION_LOCAL_NAME_CONFLICT"
+  );
+
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main.script.xml": `<!-- include: bad.defs.xml -->
+<script name="main"><text>x</text></script>`,
+        "bad.defs.xml": `<defs name="a"><function name="f" return="number:g">g = 1;</function><function name="g" return="number:r">r = 1;</function></defs>`,
+      }),
+    "FUNCTION_LOCAL_NAME_CONFLICT"
   );
 });
 

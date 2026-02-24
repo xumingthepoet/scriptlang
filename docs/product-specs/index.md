@@ -7,7 +7,9 @@
 - XML-first branching narrative scripts.
 - Implicit group-based execution model.
 - Type-checked variables declared via `<script args="...">` and executable `<var .../>`.
-- Custom types declared in `*.types.xml` files and resolved per-script include closure.
+- Shared definitions declared in `*.defs.xml` files and resolved per-script include closure:
+  - custom object types (`<type>`)
+  - reusable expression/code functions (`<function>`)
 - JSON global data declared in `*.json` files and resolved per-script include closure.
 - Header include graph resolution via `<!-- include: ... -->` (closure starts from `script name="main"`).
 - `<code>` node as primary mutation and logic mechanism.
@@ -23,15 +25,15 @@
 7. `__` is reserved for internal compiler/macro names and cannot be used by user-defined named entities.
 
 ## XML Surface (Implemented)
-- Allowed roots: `<script>` and `<types>`.
+- Allowed roots: `<script>` and `<defs>`.
 - Script ID is `name`; runtime lookup and `<call script="...">` use this ID.
-- Type collection root: `<types name="...">`.
-- Any user-defined name that starts with `__` is a compile error (`NAME_RESERVED_PREFIX`), including script names, script args, `<var name>`, `<types name>`, `<type name>`, `<field name>`, and JSON global symbol names.
-- Header include directives are supported in script/type XML roots:
+- Definitions root: `<defs name="...">` with `<type>` and `<function>` children.
+- Any user-defined name that starts with `__` is a compile error (`NAME_RESERVED_PREFIX`), including script names, script args, `<var name>`, `<defs name>`, `<type name>`, `<field name>`, `<function name>`, function arg/return names, and JSON global symbol names.
+- Header include directives are supported in script/defs XML roots:
   - `<!-- include: rel/path.ext -->`
   - include traversal starts at the file that declares `<script name="main">`
   - only files reachable from that closure are compiled
-  - each script can use only custom types and JSON globals reachable from that script file's own include closure (transitive)
+  - each script can use only definitions and JSON globals reachable from that script file's own include closure (transitive)
 - Reachable `.json` assets are compiled into global read-only symbols:
   - symbol name is file basename without `.json`
   - invalid symbol names and duplicate symbols are compile errors
@@ -51,6 +53,10 @@
   - `<option fall_over="true">` is hidden by default and only shown when no non-fall-over option is visible.
   - `<call script="..." args="[ref:]value,[ref:]value2"/>` (positional; maps to script arg declaration order)
   - `<return/>` and `<return script="..." args="[value,value2,...]"/>`
+- `<function>` declarations are non-executable and live in `<defs>`:
+  - callable from expression and `<code>` contexts
+  - no runtime node/frame jump is introduced
+  - function visibility follows per-script include closure
 - Explicitly removed nodes: `<vars>`, `<step>`, `<set>`, `<push>`, `<remove>`.
 
 ## Runtime Behavior (Implemented)
@@ -73,6 +79,9 @@
   - Runtime enforces declared types on script variables.
   - Supported language types are primitives (`number|string|boolean`), arrays, `Map<string, T>`, and custom object types visible to the current script include closure.
   - Custom object types are strict: missing/extra/wrong-typed fields are rejected.
+  - Def functions are callable in expressions and `<code>` with strict arity and type checks.
+  - Function local scope includes only function args + declared return variable; script locals are not visible in function body.
+  - Function bodies can access `random`, `Math`, host functions, visible JSON globals, and visible def functions.
   - Reachable included `.json` files are exposed as read-only globals by symbol name (`file.json -> file`) and are visible only in the including script's include closure.
   - Any write to JSON globals (top-level or nested) is a runtime error.
   - `createEngineFromXml` defaults to `main` when `entryScript` is omitted.

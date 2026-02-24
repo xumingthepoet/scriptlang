@@ -70,21 +70,21 @@ test("scripts-dir loading and ref resolution", () => {
   });
 });
 
-test("scripts-dir includes .types.xml files", () => {
+test("scripts-dir includes .defs.xml files", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "scriptlang-types-dir-"));
   fs.writeFileSync(
     path.join(dir, "main.script.xml"),
-    `<!-- include: game.types.xml -->
+    `<!-- include: game.defs.xml -->
 <script name="main"><text>ok</text></script>`
   );
   fs.writeFileSync(
-    path.join(dir, "game.types.xml"),
-    `<types name="game"><type name="Actor"><field name="hp" type="number"/></type></types>`
+    path.join(dir, "game.defs.xml"),
+    `<defs name="game"><type name="Actor"><field name="hp" type="number"/></type></defs>`
   );
 
   const loaded = loadSourceByScriptsDir(dir);
   assert.ok(loaded.scriptsXml["main.script.xml"]);
-  assert.ok(loaded.scriptsXml["game.types.xml"]);
+  assert.ok(loaded.scriptsXml["game.defs.xml"]);
 });
 
 test("scripts-dir includes .json files", () => {

@@ -6,16 +6,16 @@ This manual defines the concrete XML authoring syntax for ScriptLang V3.
 
 - File extensions:
   - `.script.xml` for executable scripts
-  - `.types.xml` for global custom type declarations
+  - `.defs.xml` for shared declarations (`<type>`, `<function>`)
   - `.json` for global read-only data assets
 - Root elements:
   - `<script name="...">`
-  - `<types name="...">`
+  - `<defs name="...">`
 
 Example:
 
 ```xml
-<!-- include: gamestate.types.xml -->
+<!-- include: gamestate.defs.xml -->
 <script name="main" args="number:hp">
   <text>HP is ${hp}</text>
 </script>
@@ -26,7 +26,7 @@ Example:
 ScriptLang supports include directives in file header comments:
 
 ```xml
-<!-- include: shared.types.xml -->
+<!-- include: shared.defs.xml -->
 <!-- include: combat.script.xml -->
 <!-- include: config.json -->
 <script name="main">...</script>
@@ -36,13 +36,13 @@ Rules:
 
 - Format is exactly `<!-- include: rel/path.ext -->`.
 - One include per line.
-- Allowed in both `.script.xml` and `.types.xml`.
+- Allowed in both `.script.xml` and `.defs.xml`.
 - Include paths are resolved relative to the current file path.
 - Include graph traversal starts from the `.script.xml` file whose root is `<script name="main">`.
 - Only files reachable from that main include closure are compiled.
 - Reachable file roots are:
   - `.script.xml` -> `<script>`
-  - `.types.xml` -> `<types>`
+  - `.defs.xml` -> `<defs>`
   - `.json` -> strict JSON payload (`JSON.parse`)
 - Custom type and JSON-global visibility is scoped per script file: a script can use only assets reachable from that script's own include closure (transitive).
 - Include cycles and missing include targets are compile errors.
@@ -61,6 +61,9 @@ Allowed direct children of `<script>` are executable nodes:
 8. `<call>`
 9. `<return>`
 
+`<function>` is declaration-only and is not allowed as a direct child of `<script>`.
+Functions are declared in `<defs>` files.
+
 Removed nodes (compile-time error):
 
 - `<vars>`
@@ -69,35 +72,40 @@ Removed nodes (compile-time error):
 - `<push>`
 - `<remove>`
 
-## 4. Types File Structure
+## 4. Definitions File Structure
 
-`<types>` attributes:
+`<defs>` attributes:
 
-- `name` (required): metadata label for this type collection.
+- `name` (required): metadata label for this definitions collection.
 
 Children:
 
 - `<type name="TypeName">`
   - `<field name="fieldName" type="TypeExpr"/>`
+- `<function name="FuncName" args="type:name,..." return="type:name">`
+  - inline code body only (no child nodes)
 
 Example:
 
 ```xml
-<types name="gamestate">
+<defs name="gamestate">
   <type name="Fighter">
     <field name="hp" type="number"/>
     <field name="moves" type="string[]"/>
   </type>
+  <function name="boost" args="number:base" return="number:out">
+    out = base + 1;
+  </function>
   <type name="BattleState">
     <field name="player" type="Fighter"/>
     <field name="enemy" type="Fighter"/>
   </type>
-</types>
+</defs>
 ```
 
 Reserved naming:
 
-- `<types name>`, `<type name>`, and `<field name>` values starting with `__` are reserved and rejected with `NAME_RESERVED_PREFIX`.
+- `<defs name>`, `<type name>`, `<field name>`, `<function name>`, and function arg/return variable names starting with `__` are reserved and rejected with `NAME_RESERVED_PREFIX`.
 
 ## 5. Script Identity and Parameters
 
@@ -160,9 +168,47 @@ Supported type expressions:
 - Primitive: `number`, `string`, `boolean`
 - Array: `T[]`
 - Map: `Map<string, T>`
-- Custom object type: `TypeName` (declared in `.types.xml` reachable from the current script's include closure)
+- Custom object type: `TypeName` (declared in `.defs.xml` reachable from the current script's include closure)
 
-## 7.1 JSON Global Symbols
+## 7.1 `<function>` Declarations
+
+Syntax:
+
+```xml
+<function name="add" args="number:a1,CustomType:a2" return="number:b2">
+  b2 = a1 + a2.value;
+</function>
+```
+
+Rules:
+
+- `<function>` is only valid as a child of `<defs>`.
+- `name` is required and must be unique across function names visible to the current script include closure.
+- `args` is optional and uses value-only typed params:
+  - `type:name`
+  - `ref:` is forbidden.
+- `return` is required and uses `type:name`.
+- function body must be non-empty inline code and cannot contain element children.
+- function calls are allowed in both:
+  - expression contexts (including `${...}`)
+  - `<code>` body JavaScript
+- function invocation does not create ScriptLang runtime nodes/frames.
+- call arity is exact (no missing and no extra args).
+- call arguments and return value are type-checked.
+- return variable is initialized with declared type default before body execution.
+- return variable writes are type-checked at assignment time.
+- function local scope is isolated from script vars:
+  - only function args and return var are writable locals
+  - script args and `<var>` declarations are not visible inside function body
+- function body can access:
+  - visible defs functions
+  - visible JSON globals
+  - `random(...)`
+  - `Math`
+  - host functions
+- recursion is allowed.
+
+## 7.2 JSON Global Symbols
 
 When a reachable included file ends with `.json`, ScriptLang injects it as a global read-only symbol.
 
@@ -380,29 +426,34 @@ Example:
 ## 16. Common Authoring Errors
 
 1. Using removed nodes (`vars/step/set/push/remove`) -> compile error.
-2. Missing required attributes (`name/type/when/script/choice text`) -> compile error.
+2. Missing required attributes (`name/type/when/script/choice text/function return`) -> compile error.
 3. Unknown/invalid include target -> compile error.
 4. Include cycle -> compile error.
-5. Duplicate type name or duplicate field name -> compile error.
-6. Unknown custom type reference, or a type not visible from current script include closure -> compile error.
-7. Recursive custom type reference -> compile error.
-8. Calling unknown script ID -> runtime error.
-9. Ref mode mismatch with script param declaration -> runtime error.
-10. Condition not boolean at runtime -> runtime error.
-11. Writing wrong type, `undefined`, or `null` into declared script variables -> runtime error.
-12. Using `null` as a declared type (`type="null"` or `args="null:x"`) -> compile error (`TYPE_PARSE_ERROR`).
-13. Using empty/whitespace-only `text` attribute on `<choice>` -> compile error (`XML_EMPTY_ATTR`).
-14. Invalid boolean literal on `once`/`fall_over` -> compile error (`XML_ATTR_BOOL_INVALID`).
-15. `fall_over="true"` used more than once in a choice -> compile error (`XML_OPTION_FALL_OVER_DUPLICATE`).
-16. `fall_over="true"` not on the last option -> compile error (`XML_OPTION_FALL_OVER_NOT_LAST`).
-17. `fall_over="true"` with `when` -> compile error (`XML_OPTION_FALL_OVER_WHEN_FORBIDDEN`).
-18. `<break/>` outside `<while>` -> compile error (`XML_BREAK_OUTSIDE_WHILE`).
-19. `<continue/>` outside `<while>` and non-option-direct position -> compile error (`XML_CONTINUE_OUTSIDE_WHILE_OR_OPTION`).
-20. Using `${...}` wrapper in `<loop times="...">` -> compile error (`XML_LOOP_TIMES_TEMPLATE_UNSUPPORTED`).
-21. Using `value` attribute on `<text>/<code>` -> compile error (`XML_ATTR_NOT_ALLOWED`).
-22. Leaving `<text>/<code>` inline content empty -> compile error (`XML_EMPTY_NODE_CONTENT`).
-23. Using `ref:` in `<return script="..." args="..."/>` -> compile error (`XML_RETURN_REF_UNSUPPORTED`).
-24. Including malformed JSON data -> compile error (`JSON_PARSE_ERROR`).
-25. JSON basename is not a valid identifier -> compile error (`JSON_SYMBOL_INVALID`).
-26. Duplicate JSON symbol basename across reachable files -> compile error (`JSON_SYMBOL_DUPLICATE`).
-27. Using `__` prefix in user-defined names (script/arg/var/types-collection/type/field/json symbol) -> compile error (`NAME_RESERVED_PREFIX`).
+5. Using legacy `<types>` root or `.types.xml` include target -> compile error.
+6. Duplicate type name or duplicate field name -> compile error.
+7. Unknown custom type reference, or a type not visible from current script include closure -> compile error.
+8. Invalid function declaration shape (bad args/return/child nodes/empty body) -> compile error.
+9. Duplicate visible function name or forbidden function name conflict -> compile error.
+10. Unknown function call symbol, function arity mismatch, or function arg/return type mismatch -> runtime error.
+11. Function body reading script-local vars is runtime error.
+12. Recursive custom type reference -> compile error.
+13. Calling unknown script ID -> runtime error.
+14. Ref mode mismatch with script param declaration -> runtime error.
+15. Condition not boolean at runtime -> runtime error.
+16. Writing wrong type, `undefined`, or `null` into declared script variables -> runtime error.
+17. Using `null` as a declared type (`type="null"` or `args="null:x"`) -> compile error (`TYPE_PARSE_ERROR`).
+18. Using empty/whitespace-only `text` attribute on `<choice>` -> compile error (`XML_EMPTY_ATTR`).
+19. Invalid boolean literal on `once`/`fall_over` -> compile error (`XML_ATTR_BOOL_INVALID`).
+20. `fall_over="true"` used more than once in a choice -> compile error (`XML_OPTION_FALL_OVER_DUPLICATE`).
+21. `fall_over="true"` not on the last option -> compile error (`XML_OPTION_FALL_OVER_NOT_LAST`).
+22. `fall_over="true"` with `when` -> compile error (`XML_OPTION_FALL_OVER_WHEN_FORBIDDEN`).
+23. `<break/>` outside `<while>` -> compile error (`XML_BREAK_OUTSIDE_WHILE`).
+24. `<continue/>` outside `<while>` and non-option-direct position -> compile error (`XML_CONTINUE_OUTSIDE_WHILE_OR_OPTION`).
+25. Using `${...}` wrapper in `<loop times="...">` -> compile error (`XML_LOOP_TIMES_TEMPLATE_UNSUPPORTED`).
+26. Using `value` attribute on `<text>/<code>` -> compile error (`XML_ATTR_NOT_ALLOWED`).
+27. Leaving `<text>/<code>` inline content empty -> compile error (`XML_EMPTY_NODE_CONTENT`).
+28. Using `ref:` in `<return script="..." args="..."/>` -> compile error (`XML_RETURN_REF_UNSUPPORTED`).
+29. Including malformed JSON data -> compile error (`JSON_PARSE_ERROR`).
+30. JSON basename is not a valid identifier -> compile error (`JSON_SYMBOL_INVALID`).
+31. Duplicate JSON symbol basename across reachable files -> compile error (`JSON_SYMBOL_DUPLICATE`).
+32. Using `__` prefix in user-defined names (script/arg/var/defs-collection/type/field/function/json symbol) -> compile error (`NAME_RESERVED_PREFIX`).

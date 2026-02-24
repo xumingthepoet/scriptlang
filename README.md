@@ -62,9 +62,10 @@ npm run player:tui -- --scripts-dir examples/scripts/10-once-static
 npm run player:tui -- --scripts-dir examples/scripts/11-choice-fallover-continue
 npm run player:tui -- --scripts-dir examples/scripts/12-while-break-continue
 npm run player:tui -- --scripts-dir examples/scripts/13-loop-times
+npm run player:tui -- --scripts-dir examples/scripts/14-defs-functions
 ```
 
-Play scripts from an external directory (entry is always `<script name="main">`; multi-file dependencies including `.script.xml` / `.types.xml` / `.json` data files must be included from `main` via header `include`):
+Play scripts from an external directory (entry is always `<script name="main">`; multi-file dependencies including `.script.xml` / `.defs.xml` / `.json` data files must be included from `main` via header `include`):
 
 ```bash
 npm run player:tui -- --scripts-dir /absolute/path/to/scripts
@@ -92,16 +93,16 @@ const engine = createEngineFromXml({
   entryScript: "main",
   compilerVersion: "dev",
   scriptsXml: {
-    "gamestate.types.xml": `
-<types name="gamestate">
+    "gamestate.defs.xml": `
+<defs name="gamestate">
   <type name="Actor">
     <field name="hp" type="number"/>
     <field name="name" type="string"/>
   </type>
-</types>
+</defs>
 `,
     "main.script.xml": `
-<!-- include: gamestate.types.xml -->
+<!-- include: gamestate.defs.xml -->
 <!-- include: game.json -->
 <script name="main">
   <var name="hero" type="Actor" value="{ hp: 10, name: 'Rin' }"/>

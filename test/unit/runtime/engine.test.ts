@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "vitest";
 
 import {
+  compileProjectScriptsFromXmlMap,
   ScriptLangEngine,
   ScriptLangError,
   compileScript,
@@ -1052,7 +1053,7 @@ test("var declaration without value uses type default", () => {
 
 test("custom object types default recursively and enforce strict fields", () => {
   const typesXml = `
-<types name="gamestate">
+<defs name="gamestate">
   <type name="Actor">
     <field name="hp" type="number"/>
     <field name="name" type="string"/>
@@ -1061,19 +1062,19 @@ test("custom object types default recursively and enforce strict fields", () => 
     <field name="player" type="Actor"/>
     <field name="enemy" type="Actor"/>
   </type>
-</types>
+</defs>
 `;
 
   const engine = createEngineFromXml({
     scriptsXml: {
       "main.script.xml": `
-<!-- include: gamestate.types.xml -->
+<!-- include: gamestate.defs.xml -->
 <script name="main">
   <var name="state" type="BattleState"/>
   <text>\${state.player.hp}:\${state.enemy.hp}</text>
 </script>
 `,
-      "gamestate.types.xml": typesXml,
+      "gamestate.defs.xml": typesXml,
     },
   });
   assert.deepEqual(engine.next(), { kind: "text", text: "0:0" });
@@ -1081,13 +1082,13 @@ test("custom object types default recursively and enforce strict fields", () => 
   const missingFieldEngine = createEngineFromXml({
     scriptsXml: {
       "main.script.xml": `
-<!-- include: gamestate.types.xml -->
+<!-- include: gamestate.defs.xml -->
 <script name="main">
   <var name="state" type="BattleState" value="{ player: { hp: 1, name: 'a' } }"/>
   <text>bad</text>
 </script>
 `,
-      "gamestate.types.xml": typesXml,
+      "gamestate.defs.xml": typesXml,
     },
   });
   expectCode(() => missingFieldEngine.next(), "ENGINE_TYPE_MISMATCH");
@@ -1095,13 +1096,13 @@ test("custom object types default recursively and enforce strict fields", () => 
   const extraFieldEngine = createEngineFromXml({
     scriptsXml: {
       "main.script.xml": `
-<!-- include: gamestate.types.xml -->
+<!-- include: gamestate.defs.xml -->
 <script name="main">
   <var name="state" type="BattleState" value="{ player: { hp: 1, name: 'a', extra: 1 }, enemy: { hp: 2, name: 'b' } }"/>
   <text>bad</text>
 </script>
 `,
-      "gamestate.types.xml": typesXml,
+      "gamestate.defs.xml": typesXml,
     },
   });
   expectCode(() => extraFieldEngine.next(), "ENGINE_TYPE_MISMATCH");
@@ -1111,19 +1112,19 @@ test("custom object fields support nested array and map typing", () => {
   const ok = createEngineFromXml({
     scriptsXml: {
       "main.script.xml": `
-<!-- include: complex.types.xml -->
+<!-- include: complex.defs.xml -->
 <script name="main">
   <var name="bag" type="Complex" value="{ items: [1,2], scores: new Map([['a', 1]]) }"/>
   <text>ok</text>
 </script>
 `,
-      "complex.types.xml": `
-<types name="complex">
+      "complex.defs.xml": `
+<defs name="complex">
   <type name="Complex">
     <field name="items" type="number[]"/>
     <field name="scores" type="Map&lt;string,number&gt;"/>
   </type>
-</types>
+</defs>
 `,
     },
   });
@@ -1132,19 +1133,19 @@ test("custom object fields support nested array and map typing", () => {
   const badNested = createEngineFromXml({
     scriptsXml: {
       "main.script.xml": `
-<!-- include: complex.types.xml -->
+<!-- include: complex.defs.xml -->
 <script name="main">
   <var name="bag" type="Complex" value="{ items: [1], scores: new Map([['a', 'bad']]) }"/>
   <text>x</text>
 </script>
 `,
-      "complex.types.xml": `
-<types name="complex">
+      "complex.defs.xml": `
+<defs name="complex">
   <type name="Complex">
     <field name="items" type="number[]"/>
     <field name="scores" type="Map&lt;string,number&gt;"/>
   </type>
-</types>
+</defs>
 `,
     },
   });
@@ -1153,23 +1154,23 @@ test("custom object fields support nested array and map typing", () => {
 
 test("object type rejects null/array and missing expected key with same key count", () => {
   const typesXml = `
-<types name="pair">
+<defs name="pair">
   <type name="Pair">
     <field name="a" type="number"/>
     <field name="b" type="number"/>
   </type>
-</types>
+</defs>
 `;
 
   const nullValue = createEngineFromXml({
     scriptsXml: {
       "main.script.xml": `
-<!-- include: pair.types.xml -->
+<!-- include: pair.defs.xml -->
 <script name="main">
   <var name="p" type="Pair" value="null"/>
 </script>
 `,
-      "pair.types.xml": typesXml,
+      "pair.defs.xml": typesXml,
     },
   });
   expectCode(() => nullValue.next(), "ENGINE_TYPE_MISMATCH");
@@ -1177,12 +1178,12 @@ test("object type rejects null/array and missing expected key with same key coun
   const arrayValue = createEngineFromXml({
     scriptsXml: {
       "main.script.xml": `
-<!-- include: pair.types.xml -->
+<!-- include: pair.defs.xml -->
 <script name="main">
   <var name="p" type="Pair" value="[1,2]"/>
 </script>
 `,
-      "pair.types.xml": typesXml,
+      "pair.defs.xml": typesXml,
     },
   });
   expectCode(() => arrayValue.next(), "ENGINE_TYPE_MISMATCH");
@@ -1190,12 +1191,12 @@ test("object type rejects null/array and missing expected key with same key coun
   const wrongKeySet = createEngineFromXml({
     scriptsXml: {
       "main.script.xml": `
-<!-- include: pair.types.xml -->
+<!-- include: pair.defs.xml -->
 <script name="main">
   <var name="p" type="Pair" value="{ a: 1, c: 2 }"/>
 </script>
 `,
-      "pair.types.xml": typesXml,
+      "pair.defs.xml": typesXml,
     },
   });
   expectCode(() => wrongKeySet.next(), "ENGINE_TYPE_MISMATCH");
@@ -1203,16 +1204,16 @@ test("object type rejects null/array and missing expected key with same key coun
 
 test("resume rejects snapshot object varTypes with nested unsupported primitive", () => {
   const typesXml = `
-<types name="holder">
+<defs name="holder">
   <type name="Holder">
     <field name="hp" type="number"/>
   </type>
-</types>
+</defs>
 `;
   const engine = createEngineFromXml({
     scriptsXml: {
       "main.script.xml": `
-<!-- include: holder.types.xml -->
+<!-- include: holder.defs.xml -->
 <script name="main">
   <var name="h" type="Holder"/>
   <choice text="Choose">
@@ -1220,7 +1221,7 @@ test("resume rejects snapshot object varTypes with nested unsupported primitive"
   </choice>
 </script>
 `,
-      "holder.types.xml": typesXml,
+      "holder.defs.xml": typesXml,
     },
   });
   const out = engine.next();
@@ -1235,7 +1236,7 @@ test("resume rejects snapshot object varTypes with nested unsupported primitive"
   const restored = createEngineFromXml({
     scriptsXml: {
       "main.script.xml": `
-<!-- include: holder.types.xml -->
+<!-- include: holder.defs.xml -->
 <script name="main">
   <var name="h" type="Holder"/>
   <choice text="Choose">
@@ -1243,7 +1244,7 @@ test("resume rejects snapshot object varTypes with nested unsupported primitive"
   </choice>
 </script>
 `,
-      "holder.types.xml": typesXml,
+      "holder.defs.xml": typesXml,
     },
   });
   expectCode(() => restored.resume(mutated), "SNAPSHOT_TYPE_UNSUPPORTED");
@@ -2156,4 +2157,140 @@ test("engine once-state and control-flow error branches", () => {
   ];
   expectCode(() => anyEngine.executeBreak(), "ENGINE_WHILE_CONTROL_TARGET_MISSING");
   expectCode(() => anyEngine.executeContinueWhile(), "ENGINE_WHILE_CONTROL_TARGET_MISSING");
+});
+
+test("defs functions run in code/expr and support recursion", () => {
+  const engine = createEngineFromXml({
+    scriptsXml: {
+      "shared.defs.xml": `
+<defs name="shared">
+  <type name="CustomType"><field name="value" type="number"/></type>
+  <function name="add" args="number:a,CustomType:b" return="number:r">
+    r = a + b.value;
+  </function>
+  <function name="fact" args="number:n" return="number:out">
+    if (n &lt;= 1) {
+      out = 1;
+    } else {
+      out = n * fact(n - 1);
+    }
+  </function>
+</defs>
+`,
+      "main.script.xml": `
+<!-- include: shared.defs.xml -->
+<!-- include: game.json -->
+<script name="main">
+  <var name="base" type="number" value="2"/>
+  <var name="obj" type="CustomType" value="{ value: 3 }"/>
+  <code>base = add(base, obj);</code>
+  <text>\${add(base, obj)}</text>
+  <text>\${fact(5)}</text>
+</script>
+`,
+      "game.json": `{"bonus":1}`,
+    },
+    hostFunctions: {
+      hostInc: (n: unknown) => Number(n) + 1,
+    },
+  });
+
+  assert.deepEqual(engine.next(), { kind: "text", text: "8" });
+  assert.deepEqual(engine.next(), { kind: "text", text: "120" });
+  assert.deepEqual(engine.next(), { kind: "end" });
+});
+
+test("defs function runtime validates arity, arg/return types, and script-var isolation", () => {
+  expectCode(
+    () =>
+      createEngineFromXml({
+        scriptsXml: {
+          "defs.defs.xml": `<defs name="defs"><function name="f" args="number:a" return="number:r">r = a;</function></defs>`,
+          "main.script.xml": `<!-- include: defs.defs.xml -->
+<script name="main"><code>f();</code></script>`,
+        },
+      }).next(),
+    "ENGINE_FUNCTION_ARITY"
+  );
+
+  expectCode(
+    () =>
+      createEngineFromXml({
+        scriptsXml: {
+          "defs.defs.xml": `<defs name="defs"><function name="f" args="number:a" return="number:r">r = a;</function></defs>`,
+          "main.script.xml": `<!-- include: defs.defs.xml -->
+<script name="main"><code>f("x");</code></script>`,
+        },
+      }).next(),
+    "ENGINE_TYPE_MISMATCH"
+  );
+
+  expectCode(
+    () =>
+      createEngineFromXml({
+        scriptsXml: {
+          "defs.defs.xml": `<defs name="defs"><function name="f" return="number:r">r = "x";</function></defs>`,
+          "main.script.xml": `<!-- include: defs.defs.xml -->
+<script name="main"><code>f();</code></script>`,
+        },
+      }).next(),
+    "ENGINE_TYPE_MISMATCH"
+  );
+
+  assert.throws(
+    () =>
+      createEngineFromXml({
+        scriptsXml: {
+          "defs.defs.xml": `<defs name="defs"><function name="f" args="number:x" return="number:r">r = x + hidden;</function></defs>`,
+          "main.script.xml": `<!-- include: defs.defs.xml -->
+<script name="main"><var name="hidden" type="number" value="1"/><code>f(2);</code></script>`,
+        },
+      }).next(),
+    /hidden is not defined/
+  );
+
+  const ok = createEngineFromXml({
+    scriptsXml: {
+      "defs.defs.xml": `<defs name="defs"><function name="f" return="number:r">/* no-op */</function></defs>`,
+      "main.script.xml": `<!-- include: defs.defs.xml -->
+<script name="main"><text>\${f()}</text></script>`,
+    },
+  });
+  assert.deepEqual(ok.next(), { kind: "text", text: "0" });
+});
+
+test("engine detects host-function name conflicts with defs functions", () => {
+  const scripts = compileProjectScriptsFromXmlMap({
+    "main.script.xml": `<!-- include: defs.defs.xml -->
+<script name="main"><text>x</text></script>`,
+    "defs.defs.xml": `<defs name="defs"><function name="f" return="number:r">r = 1;</function></defs>`,
+  });
+
+  expectCode(
+    () =>
+      new ScriptLangEngine({
+        scripts,
+        hostFunctions: {
+          f: () => 1,
+        },
+      }),
+    "ENGINE_HOST_FUNCTION_CONFLICT"
+  );
+});
+
+test("sandbox helper branch covers preexisting symbol when injecting defs functions", () => {
+  const engine = createEngineFromXml({
+    scriptsXml: {
+      "defs.defs.xml": `<defs name="defs"><function name="f" return="number:r">r = 1;</function></defs>`,
+      "main.script.xml": `<!-- include: defs.defs.xml -->
+<script name="main"><text>x</text></script>`,
+    },
+  });
+  const anyEngine = engine as any;
+  const sandbox = anyEngine.buildSandbox([{ f: 9 }], {
+    scriptName: "main",
+    includeFrameVars: false,
+    extraScopeVarTypes: [{}],
+  });
+  assert.equal((sandbox as { f: number }).f, 9);
 });

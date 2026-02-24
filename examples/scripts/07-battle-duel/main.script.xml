@@ -1,4 +1,4 @@
-<!-- include: actors.types.xml -->
+<!-- include: actors.defs.xml -->
 <!-- include: battle-loop.script.xml -->
 <!-- include: victory.script.xml -->
 <!-- include: defeat.script.xml -->

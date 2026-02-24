@@ -1,0 +1,9 @@
+<defs name="shared">
+  <type name="CustomType">
+    <field name="value" type="number"/>
+  </type>
+
+  <function name="add" args="number:a1,CustomType:a2" return="number:b2">
+    b2 = a1 + a2.value;
+  </function>
+</defs>
