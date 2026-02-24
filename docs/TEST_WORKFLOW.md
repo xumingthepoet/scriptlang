@@ -41,6 +41,7 @@ The repository test layout is split into two layers:
 - `test/smoke/**`: integration smoke tests.
   - Primary responsibility is validating runnable examples under `examples/scripts/`.
   - Smoke scenarios should assert end-to-end behavior (`start -> choices -> choose -> end`) via stable host interfaces.
+  - Choice-branch traversal tool and usage are documented in `/docs/choice-traversal-tool.md`.
 
 ## Failure Handling
 

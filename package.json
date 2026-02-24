@@ -14,6 +14,7 @@
     "player:dev": "tsx src/cli/player.ts",
     "player:tui": "node dist/src/cli/player.js tui",
     "player:agent": "node dist/src/cli/player.js agent",
+    "traverse:choices": "tsx scripts/choice-traversal.ts",
     "test:unit": "vitest run",
     "coverage:strict": "vitest run --coverage",
     "quality:gate": "npm run validate:docs && npm run lint && npm run typecheck && npm run coverage:strict",

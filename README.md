@@ -33,6 +33,7 @@ This repository is initialized for **agent-first harness engineering**:
 - `npm run player:dev -- <mode> ...`: run player from source via `tsx`.
 - `npm run player:tui -- --scripts-dir <path>`: run interactive Ink TUI player from build output.
 - `npm run player:agent -- <subcommand> ...`: run non-interactive agent mode from build output (`start` requires `--scripts-dir`).
+- `npm run traverse:choices -- --examples-root examples/scripts`: traverse visible choice branches and ensure all explored paths reach `END`.
 
 ## Test Layout
 - `test/unit/**`: unit tests mirrored to non-`.d.ts` files in `src/` with defensive edge-path coverage.
