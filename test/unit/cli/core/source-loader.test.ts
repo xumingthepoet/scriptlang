@@ -70,6 +70,12 @@ test("scripts-dir loading and ref resolution", () => {
   });
 });
 
+test("scripts-dir load supports explicit entry override", () => {
+  const externalDir = scriptsDir("15-entry-override-recursive");
+  const loaded = loadSourceByScriptsDir(externalDir, "alt");
+  assert.equal(loaded.entryScript, "alt");
+});
+
 test("scripts-dir includes .defs.xml files", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "scriptlang-types-dir-"));
   fs.writeFileSync(
@@ -99,6 +105,37 @@ test("scripts-dir includes .json files", () => {
   const loaded = loadSourceByScriptsDir(dir);
   assert.ok(loaded.scriptsXml["main.script.xml"]);
   assert.ok(loaded.scriptsXml["game.json"]);
+});
+
+test("scripts-dir scans nested directories recursively with posix keys", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "scriptlang-recursive-dir-"));
+  const nested = path.join(dir, "nested");
+  fs.mkdirSync(nested, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, "main.script.xml"),
+    `<!-- include: nested/inner.script.xml -->
+<script name="main"><text>ok</text></script>`
+  );
+  fs.writeFileSync(path.join(nested, "inner.script.xml"), `<script name="inner"><text>inner</text></script>`);
+  fs.writeFileSync(path.join(nested, "game.defs.xml"), `<defs name="g"></defs>`);
+  fs.writeFileSync(path.join(nested, "data.json"), `{"ok":true}`);
+
+  const loaded = loadSourceByScriptsDir(dir);
+  assert.ok(loaded.scriptsXml["main.script.xml"]);
+  assert.ok(loaded.scriptsXml["nested/inner.script.xml"]);
+  assert.ok(loaded.scriptsXml["nested/game.defs.xml"]);
+  assert.ok(loaded.scriptsXml["nested/data.json"]);
+});
+
+test("scripts-dir recursion ignores non-file directory entries", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "scriptlang-non-file-entry-"));
+  const target = path.join(dir, "target.txt");
+  fs.writeFileSync(path.join(dir, "main.script.xml"), `<script name="main"><text>x</text></script>`);
+  fs.writeFileSync(target, "not used");
+  fs.symlinkSync(target, path.join(dir, "link-to-target"));
+
+  const loaded = loadSourceByScriptsDir(dir);
+  assert.ok(loaded.scriptsXml["main.script.xml"]);
 });
 
 test("scripts-dir error paths", () => {

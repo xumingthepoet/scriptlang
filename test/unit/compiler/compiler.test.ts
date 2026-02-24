@@ -759,6 +759,33 @@ test("project compiler validates defs include graph and script type references",
   });
   assert.deepEqual(Object.keys(compiledWithScopedTypes).sort(), ["battle", "main"]);
 
+  const compiledWithoutMain = compileProjectScriptsFromXmlMap({
+    "alt.script.xml": `<script name="alt"><text>x</text></script>`,
+  });
+  assert.deepEqual(Object.keys(compiledWithoutMain).sort(), ["alt"]);
+
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main.script.xml": `<script name="main"><text>x</text></script>`,
+        "extra.script.xml": `<!-- include: missing.script.xml -->
+<script name="extra"><text>x</text></script>`,
+      }),
+    "XML_INCLUDE_MISSING"
+  );
+
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main.script.xml": `<script name="main"><text>x</text></script>`,
+        "a.script.xml": `<!-- include: b.script.xml -->
+<script name="a"><text>a</text></script>`,
+        "b.script.xml": `<!-- include: a.script.xml -->
+<script name="b"><text>b</text></script>`,
+      }),
+    "XML_INCLUDE_CYCLE"
+  );
+
   expectCode(
     () =>
       compileProjectScriptsFromXmlMap({
@@ -768,13 +795,10 @@ test("project compiler validates defs include graph and script type references",
     "API_DUPLICATE_SCRIPT_NAME"
   );
 
-  expectCode(
-    () =>
-      compileProjectScriptsFromXmlMap({
-        "main.script.xml": `<defs name="oops"></defs>`,
-      }),
-    "XML_INVALID_ROOT"
-  );
+  const defsOnly = compileProjectScriptsFromXmlMap({
+    "main.script.xml": `<defs name="oops"></defs>`,
+  });
+  assert.deepEqual(defsOnly, {});
 
   expectCode(
     () =>
@@ -1054,28 +1078,6 @@ test("project compiler include source defensive branches", () => {
     "XML_INCLUDE_MISSING"
   );
 
-  let fourthReads = 0;
-  const missingOnFourthRead = new Proxy(
-    {
-      "main.script.xml": `<script name="main"><text>x</text></script>`,
-    },
-    {
-      get(target, prop, receiver) {
-        if (prop === "main.script.xml") {
-          fourthReads += 1;
-          return fourthReads <= 3 ? target["main.script.xml"] : undefined;
-        }
-        return Reflect.get(target, prop, receiver);
-      },
-    }
-  );
-  expectCode(
-    () =>
-      compileProjectScriptsFromXmlMap(
-        missingOnFourthRead as unknown as Record<string, string>
-      ),
-    "XML_INCLUDE_MISSING"
-  );
 });
 
 test("project compiler loads JSON globals and validates symbol rules", () => {

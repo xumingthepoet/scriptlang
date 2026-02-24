@@ -38,8 +38,8 @@ Rules:
 - One include per line.
 - Allowed in both `.script.xml` and `.defs.xml`.
 - Include paths are resolved relative to the current file path.
-- Include graph traversal starts from the `.script.xml` file whose root is `<script name="main">`.
-- Only files reachable from that main include closure are compiled.
+- Every loaded project source file participates in compile/validation (`.script.xml`, `.defs.xml`, `.json`).
+- Include graph checks (missing targets and cycles) apply globally across loaded files.
 - Reachable file roots are:
   - `.script.xml` -> `<script>`
   - `.defs.xml` -> `<defs>`

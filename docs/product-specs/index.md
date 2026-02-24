@@ -11,7 +11,7 @@
   - custom object types (`<type>`)
   - reusable expression/code functions (`<function>`)
 - JSON global data declared in `*.json` files and resolved per-script include closure.
-- Header include graph resolution via `<!-- include: ... -->` (closure starts from `script name="main"`).
+- Header include graph resolution via `<!-- include: ... -->` with whole-project validation.
 - `<code>` node as primary mutation and logic mechanism.
 - Ink-style pull runtime API: `next()`, `choose()`, `waitingChoice`, `snapshot()`, `resume()`.
 
@@ -31,8 +31,8 @@
 - Any user-defined name that starts with `__` is a compile error (`NAME_RESERVED_PREFIX`), including script names, script args, `<var name>`, `<defs name>`, `<type name>`, `<field name>`, `<function name>`, function arg/return names, and JSON global symbol names.
 - Header include directives are supported in script/defs XML roots:
   - `<!-- include: rel/path.ext -->`
-  - include traversal starts at the file that declares `<script name="main">`
-  - only files reachable from that closure are compiled
+  - all loaded source files are compiled/validated (`.script.xml`, `.defs.xml`, `.json`)
+  - include missing/cycle validation applies to every loaded file, not only `main` closure
   - each script can use only definitions and JSON globals reachable from that script file's own include closure (transitive)
 - Reachable `.json` assets are compiled into global read-only symbols:
   - symbol name is file basename without `.json`
@@ -84,7 +84,8 @@
   - Function bodies can access `random`, `Math`, host functions, visible JSON globals, and visible def functions.
   - Reachable included `.json` files are exposed as read-only globals by symbol name (`file.json -> file`) and are visible only in the including script's include closure.
   - Any write to JSON globals (top-level or nested) is a runtime error.
-  - `createEngineFromXml` defaults to `main` when `entryScript` is omitted.
+  - `createEngineFromXml` uses explicit `entryScript` when provided; otherwise defaults to `main`.
+  - when `entryScript` is omitted, `main` must exist.
 - Builtins:
   - `random(n)` is available in script expressions and `<code>` blocks without `hostFunctions`.
   - `n` must be a positive integer.

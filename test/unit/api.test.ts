@@ -41,17 +41,17 @@ test("createEngineFromXml and resumeEngineFromXml", () => {
   assert.deepEqual(resumed.next(), { kind: "text", text: "HP 3" });
 });
 
-test("compileScriptsFromXmlMap returns compiled map keyed by script name", () => {
+test("compileScriptsFromXmlMap compiles all provided scripts", () => {
   const compiled = compileScriptsFromXmlMap({
     "main.script.xml": `<!-- include: a.script.xml -->
 <script name="main"><text>m</text></script>`,
     "a.script.xml": `<script name="a"><text>a</text></script>`,
     "b.script.xml": `<script name="b"><text>b</text></script>`,
   });
-  assert.equal(Object.keys(compiled).length, 2);
+  assert.equal(Object.keys(compiled).length, 3);
   assert.ok(compiled.main);
   assert.ok(compiled.a);
-  assert.equal(compiled.b, undefined);
+  assert.ok(compiled.b);
 });
 
 test("compileScriptsFromXmlMap rejects duplicate script name", () => {
@@ -268,7 +268,22 @@ test("project include and type errors are surfaced", () => {
   );
 });
 
-test("project compile only includes files reachable from main include closure", () => {
+test("project compile validates non-main scripts as well", () => {
+  assert.throws(
+    () =>
+      compileScriptsFromXmlMap({
+        "main.script.xml": `<script name="main"><text>m</text></script>`,
+        "unused.script.xml": `<script name="unused"><var name="hp" type="Missing"/></script>`,
+      }),
+    (e: unknown) => {
+      assert.ok(e instanceof Error);
+      assert.equal((e as { code?: string }).code, "TYPE_UNKNOWN");
+      return true;
+    }
+  );
+});
+
+test("project compile includes all scripts regardless of main include closure", () => {
   const compiled = compileScriptsFromXmlMap({
     "main.script.xml": `<!-- include: linked.script.xml -->
 <script name="main"><text>m</text></script>`,
@@ -277,7 +292,7 @@ test("project compile only includes files reachable from main include closure", 
   });
   assert.ok(compiled.main);
   assert.ok(compiled.linked);
-  assert.equal(compiled.unused, undefined);
+  assert.ok(compiled.unused);
 });
 
 test("createEngineFromXml requires main script to exist", () => {
@@ -291,6 +306,73 @@ test("createEngineFromXml requires main script to exist", () => {
     (e: unknown) => {
       assert.ok(e instanceof Error);
       assert.equal((e as { code?: string }).code, "API_ENTRY_MAIN_NOT_FOUND");
+      return true;
+    }
+  );
+});
+
+test("createEngineFromXml supports explicit non-main entry without main", () => {
+  const engine = createEngineFromXml({
+    entryScript: "alt",
+    scriptsXml: {
+      "alt.script.xml": `<script name="alt"><text>alt-ok</text></script>`,
+    },
+  });
+  assert.deepEqual(engine.next(), { kind: "text", text: "alt-ok" });
+});
+
+test("createEngineFromXml explicit missing entry returns API_ENTRY_SCRIPT_NOT_FOUND", () => {
+  assert.throws(
+    () =>
+      createEngineFromXml({
+        entryScript: "alt",
+        scriptsXml: {
+          "main.script.xml": `<script name="main"><text>x</text></script>`,
+        },
+      }),
+    (e: unknown) => {
+      assert.ok(e instanceof Error);
+      assert.equal((e as { code?: string }).code, "API_ENTRY_SCRIPT_NOT_FOUND");
+      return true;
+    }
+  );
+});
+
+test("createEngineFromXml forwards entryArgs and validates entry arg paths", () => {
+  const scriptsXml = {
+    "alt.script.xml": `<script name="alt" args="number:hp,string:name"><text>\${name}:\${hp}</text></script>`,
+  };
+  const engine = createEngineFromXml({
+    scriptsXml,
+    entryScript: "alt",
+    entryArgs: { hp: 7, name: "Rin" },
+  });
+  assert.deepEqual(engine.next(), { kind: "text", text: "Rin:7" });
+
+  assert.throws(
+    () =>
+      createEngineFromXml({
+        scriptsXml,
+        entryScript: "alt",
+        entryArgs: { hp: "7", name: "Rin" },
+      }),
+    (e: unknown) => {
+      assert.ok(e instanceof Error);
+      assert.equal((e as { code?: string }).code, "ENGINE_TYPE_MISMATCH");
+      return true;
+    }
+  );
+
+  assert.throws(
+    () =>
+      createEngineFromXml({
+        scriptsXml,
+        entryScript: "alt",
+        entryArgs: { hp: 7, name: "Rin", extra: 1 },
+      }),
+    (e: unknown) => {
+      assert.ok(e instanceof Error);
+      assert.equal((e as { code?: string }).code, "ENGINE_CALL_ARG_UNKNOWN");
       return true;
     }
   );

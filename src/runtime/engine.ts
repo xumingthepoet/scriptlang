@@ -238,7 +238,7 @@ export class ScriptLangEngine {
     }
   }
 
-  start(entryScriptName: string): void {
+  start(entryScriptName: string, entryArgs: Record<string, unknown> = {}): void {
     this.reset();
     const entry = this.scripts[entryScriptName];
     if (!entry) {
@@ -247,7 +247,7 @@ export class ScriptLangEngine {
         `Entry script "${entryScriptName}" is not registered.`
       );
     }
-    const { scope: rootScope, varTypes } = this.createScriptRootScope(entryScriptName, {});
+    const { scope: rootScope, varTypes } = this.createScriptRootScope(entryScriptName, entryArgs);
     this.pushRootFrame(entry.rootGroupId, rootScope, null, varTypes);
   }
 

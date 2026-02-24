@@ -4,14 +4,21 @@ import { test } from "vitest";
 
 import { DEFAULT_STATE_FILE, parseTuiArgs, runTuiCommand } from "../../../../src/cli/commands/tui.js";
 
-test("parseTuiArgs parses scripts-dir and optional state-file", () => {
+test("parseTuiArgs parses scripts-dir, optional entry-script, and optional state-file", () => {
   const parsed = parseTuiArgs(["--scripts-dir", "/tmp/demo"]);
   assert.equal(parsed.scriptsDir, "/tmp/demo");
+  assert.equal(parsed.entryScript, "main");
   assert.equal(parsed.stateFile, DEFAULT_STATE_FILE);
 
   const withState = parseTuiArgs(["--scripts-dir", "/tmp/demo", "--state-file", "/tmp/s.bin"]);
   assert.equal(withState.scriptsDir, "/tmp/demo");
+  assert.equal(withState.entryScript, "main");
   assert.equal(withState.stateFile, "/tmp/s.bin");
+
+  const withEntry = parseTuiArgs(["--scripts-dir", "/tmp/demo", "--entry-script", "alt"]);
+  assert.equal(withEntry.scriptsDir, "/tmp/demo");
+  assert.equal(withEntry.entryScript, "alt");
+  assert.equal(withEntry.stateFile, DEFAULT_STATE_FILE);
 });
 
 test("parseTuiArgs validates required and unknown args", () => {
@@ -19,6 +26,7 @@ test("parseTuiArgs validates required and unknown args", () => {
   assert.throws(() => parseTuiArgs(["--scripts-dir"]));
   assert.throws(() => parseTuiArgs(["--scripts-dir", "/tmp/demo", "--unknown", "x"]));
   assert.throws(() => parseTuiArgs(["--scripts-dir", "/tmp/demo", "--state-file"]));
+  assert.throws(() => parseTuiArgs(["--scripts-dir", "/tmp/demo", "--entry-script"]));
 });
 
 test("runTuiCommand returns non-zero on argument errors", async () => {

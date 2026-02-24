@@ -1,5 +1,4 @@
 <!-- include: shared.defs.xml -->
-<!-- include: mmmm.script.xml -->
 <script name="main">
   <var name="base" type="number" value="2"/>
   <var name="obj" type="CustomType" value="{ value: 5 }"/>

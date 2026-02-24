@@ -52,13 +52,20 @@ const emitError = (writeLine: WriteLine, error: unknown): number => {
   const message = error instanceof Error ? error.message : "Unknown CLI error.";
   if (
     code === "ENGINE_SCRIPT_NOT_FOUND" &&
-    typeof message === "string" &&
-    message.includes('Entry script "main"')
+    typeof message === "string"
   ) {
-    code = "CLI_ENTRY_MAIN_NOT_FOUND";
+    code = message.includes('Entry script "main"')
+      ? "CLI_ENTRY_MAIN_NOT_FOUND"
+      : "CLI_ENTRY_SCRIPT_NOT_FOUND";
   }
   if (code === "API_ENTRY_MAIN_NOT_FOUND") {
     code = "CLI_ENTRY_MAIN_NOT_FOUND";
+  }
+  if (code === "API_ENTRY_SCRIPT_NOT_FOUND") {
+    code =
+      typeof message === "string" && message.includes('Entry script "main"')
+        ? "CLI_ENTRY_MAIN_NOT_FOUND"
+        : "CLI_ENTRY_SCRIPT_NOT_FOUND";
   }
 
   writeLine("RESULT:ERROR");
@@ -69,13 +76,14 @@ const emitError = (writeLine: WriteLine, error: unknown): number => {
 
 const resolveStartScenario = (flags: Record<string, string>) => {
   const scriptsDir = flags["scripts-dir"] ?? "";
+  const entryScript = flags["entry-script"] ?? "main";
   if (!scriptsDir) {
     throw makeCliError(
       "CLI_SOURCE_REQUIRED",
       "Missing source selector. Use --scripts-dir <path>."
     );
   }
-  return loadSourceByScriptsDir(scriptsDir);
+  return loadSourceByScriptsDir(scriptsDir, entryScript);
 };
 
 const emitBoundary = (

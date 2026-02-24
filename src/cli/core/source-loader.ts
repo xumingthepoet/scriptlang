@@ -17,6 +17,8 @@ const isJsonDataFile = (file: string): boolean => file.endsWith(".json");
 const isScenarioXmlFile = (file: string): boolean =>
   isScriptXmlFile(file) || isDefsXmlFile(file) || isJsonDataFile(file);
 
+const toPosixPath = (filePath: string): string => filePath.split(path.sep).join("/");
+
 const makeCliError = (code: string, message: string): Error & { code: string } => {
   const error = new Error(message) as Error & { code: string };
   error.code = code;
@@ -55,17 +57,36 @@ export const resolveScriptsDir = (scriptsDir: string): string => {
 };
 
 export const readScriptsXmlFromDir = (scriptsDir: string): Record<string, string> => {
-  const files = fs
-    .readdirSync(scriptsDir)
-    .filter((file) => isScenarioXmlFile(file))
-    .sort();
+  const collectFiles = (relativeDir = ""): string[] => {
+    const fullDir = relativeDir ? path.join(scriptsDir, relativeDir) : scriptsDir;
+    const entries = fs.readdirSync(fullDir, { withFileTypes: true });
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    const collected: string[] = [];
+    for (let i = 0; i < entries.length; i += 1) {
+      const entry = entries[i];
+      const relativePath = relativeDir ? path.join(relativeDir, entry.name) : entry.name;
+      if (entry.isDirectory()) {
+        collected.push(...collectFiles(relativePath));
+        continue;
+      }
+      if (!entry.isFile()) {
+        continue;
+      }
+      if (isScenarioXmlFile(entry.name)) {
+        collected.push(toPosixPath(relativePath));
+      }
+    }
+    return collected;
+  };
+
+  const files = collectFiles().sort();
   if (!files.some((file) => isScriptXmlFile(file))) {
     throw makeCliError("CLI_SCRIPTS_DIR_EMPTY", `No .script.xml files found in: ${scriptsDir}`);
   }
   const scriptsXml: Record<string, string> = {};
   for (let i = 0; i < files.length; i += 1) {
     const file = files[i];
-    const fullPath = path.join(scriptsDir, file);
+    const fullPath = path.join(scriptsDir, ...file.split("/"));
     scriptsXml[file] = fs.readFileSync(fullPath, "utf8");
   }
   return scriptsXml;
@@ -91,12 +112,12 @@ const parseScriptsDirScenarioId = (scenarioId: string): string => {
   return scriptsDir;
 };
 
-export const loadSourceByScriptsDir = (scriptsDir: string): LoadedScenario => {
+export const loadSourceByScriptsDir = (scriptsDir: string, entryScript = "main"): LoadedScenario => {
   const resolvedDir = resolveScriptsDir(scriptsDir);
   return {
     id: makeScriptsDirScenarioId(resolvedDir),
     title: `Scripts ${path.basename(resolvedDir)}`,
-    entryScript: "main",
+    entryScript,
     scriptsXml: readScriptsXmlFromDir(resolvedDir),
   };
 };

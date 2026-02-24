@@ -49,12 +49,14 @@ const wrapLineToWidth = (value: string, width: number): string[] => {
 
 export interface TuiOptions {
   scriptsDir: string;
+  entryScript: string;
   stateFile: string;
 }
 
 export const parseTuiArgs = (argv: string[]): TuiOptions => {
   const options: TuiOptions = {
     scriptsDir: "",
+    entryScript: "main",
     stateFile: DEFAULT_STATE_FILE,
   };
 
@@ -70,6 +72,11 @@ export const parseTuiArgs = (argv: string[]): TuiOptions => {
       i += 1;
       continue;
     }
+    if (token === "--entry-script") {
+      options.entryScript = argv[i + 1] ?? "";
+      i += 1;
+      continue;
+    }
     throw new Error(`Unknown argument for tui mode: ${token}`);
   }
 
@@ -78,6 +85,9 @@ export const parseTuiArgs = (argv: string[]): TuiOptions => {
   }
   if (!options.stateFile) {
     throw new Error("--state-file cannot be empty.");
+  }
+  if (!options.entryScript) {
+    throw new Error("--entry-script cannot be empty.");
   }
 
   return options;
@@ -369,7 +379,7 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
 export const runTuiCommand = async (argv: string[]): Promise<number> => {
   try {
     const options = parseTuiArgs(argv);
-    const scenario = loadSourceByScriptsDir(options.scriptsDir);
+    const scenario = loadSourceByScriptsDir(options.scriptsDir, options.entryScript);
     const app = render(<PlayerApp scenario={scenario} stateFile={options.stateFile} />);
     await app.waitUntilExit();
     return 0;

@@ -82,6 +82,36 @@ test("next/choose and snapshot/resume roundtrip", () => {
   assert.deepEqual(restored.next(), { kind: "end" });
 });
 
+test("engine start supports entry args and validates type/unknown paths", () => {
+  const alt = compileScript(
+    `
+<script name="alt" args="number:hp,string:name">
+  <text>\${name}:\${hp}</text>
+</script>
+`,
+    "alt.script.xml"
+  );
+
+  const okEngine = new ScriptLangEngine({
+    scripts: { alt },
+    compilerVersion: "dev",
+  });
+  okEngine.start("alt", { hp: 9, name: "N" });
+  assert.deepEqual(okEngine.next(), { kind: "text", text: "N:9" });
+
+  const typeEngine = new ScriptLangEngine({
+    scripts: { alt },
+    compilerVersion: "dev",
+  });
+  expectCode(() => typeEngine.start("alt", { hp: "9", name: "N" }), "ENGINE_TYPE_MISMATCH");
+
+  const unknownEngine = new ScriptLangEngine({
+    scripts: { alt },
+    compilerVersion: "dev",
+  });
+  expectCode(() => unknownEngine.start("alt", { hp: 9, name: "N", extra: true }), "ENGINE_CALL_ARG_UNKNOWN");
+});
+
 test("choice options remain visible on re-entry and after resume", () => {
   const main = compileScript(
     `

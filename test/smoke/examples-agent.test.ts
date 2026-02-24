@@ -34,5 +34,6 @@ test("choice traversal tool validates all examples across visible choice branche
   assert.ok(output.includes("[PASS] 01-text-code"), output);
   assert.ok(output.includes("[PASS] 13-loop-times"), output);
   assert.ok(output.includes("[PASS] 14-defs-functions"), output);
+  assert.ok(output.includes("[PASS] 15-entry-override-recursive"), output);
   assert.ok(output.includes("[SUMMARY]"), output);
 });

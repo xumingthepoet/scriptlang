@@ -15,7 +15,9 @@ Both modes run the same ScriptLang engine semantics.
 
 - Source is always provided via `--scripts-dir <path>`.
 - `--scripts-dir` can point to any script project directory, including directories under `examples/scripts/`.
-- Entry script is fixed to `<script name="main">`.
+- `--scripts-dir` is scanned recursively for supported files (`.script.xml`, `.defs.xml`, `.json`).
+- Entry script defaults to `<script name="main">`.
+- `--entry-script <name>` may override the default entry for `tui` and `agent start`.
 - A source directory may include:
   - one or more `.script.xml` files
   - optional `.defs.xml` files for global declarations (`<type>`, `<function>`)
@@ -26,7 +28,7 @@ Both modes run the same ScriptLang engine semantics.
 Command:
 
 ```bash
-scriptlang-player tui --scripts-dir <path> [--state-file <path>]
+scriptlang-player tui --scripts-dir <path> [--entry-script <name>] [--state-file <path>]
 ```
 
 Behavior:
@@ -79,7 +81,7 @@ State handling:
 Commands:
 
 ```bash
-scriptlang-player agent start --scripts-dir <path> --state-out <path>
+scriptlang-player agent start --scripts-dir <path> [--entry-script <name>] --state-out <path>
 scriptlang-player agent choose --state-in <path> --choice <index> --state-out <path>
 ```
 
@@ -99,8 +101,9 @@ Rules:
 
 - `start` runs from source entry until boundary (`choices` or `end`).
 - `start` requires `--scripts-dir <path>` and `--state-out <path>`.
-- when multiple script files exist, `main` must include required script/defs files via header `include` directives.
-- included `.json` assets in the same source directory are loaded and available to script runtime through include closure rules.
+- `start` optionally accepts `--entry-script <name>`; when omitted, entry defaults to `main`.
+- loaded source files are recursive from `--scripts-dir` and all supported files are compiled/validated.
+- include closure still controls per-script visibility of defs/json at compile/runtime.
 - `choose` resumes from `--state-in`, applies selection, then runs to next boundary.
 - `state` is persisted only when output boundary is `CHOICES`.
 - if boundary is `END`, output must be `STATE_OUT:NONE`.
@@ -109,7 +112,9 @@ Rules:
 
 - Bad arguments return `RESULT:ERROR`.
 - Unknown/unsupported subcommand returns `RESULT:ERROR`.
-- Invalid scripts directory or missing `main` entry script returns `RESULT:ERROR`.
+- Invalid scripts directory returns `RESULT:ERROR`.
+- Missing default `main` entry (when `--entry-script` is omitted) returns `RESULT:ERROR`.
+- Explicit `--entry-script` not found returns `RESULT:ERROR`.
 - Invalid choice index returns `RESULT:ERROR`.
 - Corrupt/missing state file returns `RESULT:ERROR`.
 - State `scenarioId` that is not `scripts-dir:<absolute-path>` returns `RESULT:ERROR`.

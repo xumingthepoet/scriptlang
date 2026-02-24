@@ -31,8 +31,8 @@ This repository is initialized for **agent-first harness engineering**:
 - `npm run build`: compile TypeScript output into `dist/`.
 - `npm test`: strict gate (`validate:docs` + `lint` + `typecheck` + `coverage:strict`) then unit tests.
 - `npm run player:dev -- <mode> ...`: run player from source via `tsx`.
-- `npm run player:tui -- --scripts-dir <path>`: run interactive Ink TUI player from build output.
-- `npm run player:agent -- <subcommand> ...`: run non-interactive agent mode from build output (`start` requires `--scripts-dir`).
+- `npm run player:tui -- --scripts-dir <path> [--entry-script <name>]`: run interactive Ink TUI player from build output.
+- `npm run player:agent -- <subcommand> ...`: run non-interactive agent mode from build output (`start` requires `--scripts-dir`, optional `--entry-script`).
 - `npm run traverse:choices -- --examples-root examples/scripts`: traverse visible choice branches and ensure all explored paths reach `END`.
 
 ## Test Layout
@@ -63,18 +63,21 @@ npm run player:tui -- --scripts-dir examples/scripts/11-choice-fallover-continue
 npm run player:tui -- --scripts-dir examples/scripts/12-while-break-continue
 npm run player:tui -- --scripts-dir examples/scripts/13-loop-times
 npm run player:tui -- --scripts-dir examples/scripts/14-defs-functions
+npm run player:tui -- --scripts-dir examples/scripts/15-entry-override-recursive --entry-script alt
 ```
 
-Play scripts from an external directory (entry is always `<script name="main">`; multi-file dependencies including `.script.xml` / `.defs.xml` / `.json` data files must be included from `main` via header `include`):
+Play scripts from an external directory (default entry is `<script name="main">`; override with `--entry-script <name>` when needed. `--scripts-dir` is scanned recursively for `.script.xml` / `.defs.xml` / `.json` files):
 
 ```bash
 npm run player:tui -- --scripts-dir /absolute/path/to/scripts
+npm run player:tui -- --scripts-dir /absolute/path/to/scripts --entry-script alt
 ```
 
 Run to boundary and persist state for agent orchestration:
 
 ```bash
 npm run player:agent -- start --scripts-dir examples/scripts/06-snapshot-flow --state-out /tmp/sl-state.bin
+npm run player:agent -- start --scripts-dir examples/scripts/15-entry-override-recursive --entry-script alt --state-out /tmp/sl-alt-state.bin
 npm run player:agent -- choose --state-in /tmp/sl-state.bin --choice 0 --state-out /tmp/sl-next.bin
 ```
 

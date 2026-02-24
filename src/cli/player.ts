@@ -8,8 +8,8 @@ import { runTuiCommand } from "./commands/tui.js";
 
 const usage = [
   "scriptlang-player",
-  "  tui --scripts-dir <path> [--state-file <path>]",
-  "  agent start --scripts-dir <path> --state-out <path>",
+  "  tui --scripts-dir <path> [--entry-script <name>] [--state-file <path>]",
+  "  agent start --scripts-dir <path> [--entry-script <name>] --state-out <path>",
   "  agent choose --state-in <path> --choice <index> --state-out <path>",
 ].join("\n");
 

@@ -9,6 +9,7 @@ import { ScriptLangEngine, type HostFunctionMap } from "./runtime/index.js";
 export interface CreateEngineFromXmlOptions {
   scriptsXml: Record<string, string>;
   entryScript?: string;
+  entryArgs?: Record<string, unknown>;
   hostFunctions?: HostFunctionMap;
   randomSeed?: number;
   compilerVersion?: string;
@@ -30,14 +31,20 @@ const resolveEntryScript = (
   scripts: ReturnType<typeof compileScriptsFromXmlMap>,
   explicitEntryScript?: string
 ): string => {
+  if (explicitEntryScript) {
+    if (!scripts[explicitEntryScript]) {
+      throw new ScriptLangError(
+        "API_ENTRY_SCRIPT_NOT_FOUND",
+        `Entry script "${explicitEntryScript}" is not registered.`
+      );
+    }
+    return explicitEntryScript;
+  }
   if (!scripts.main) {
     throw new ScriptLangError(
       "API_ENTRY_MAIN_NOT_FOUND",
       "Expected exactly one script with name=\"main\" as default entry."
     );
-  }
-  if (explicitEntryScript) {
-    return explicitEntryScript;
   }
   return "main";
 };
@@ -63,7 +70,7 @@ export const createEngineFromXml = (options: CreateEngineFromXmlOptions): Script
     randomSeed: options.randomSeed,
     compilerVersion: options.compilerVersion,
   });
-  engine.start(compiled.entryScript);
+  engine.start(compiled.entryScript, options.entryArgs);
   return engine;
 };
 

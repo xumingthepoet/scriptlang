@@ -80,6 +80,24 @@ test("agent start can finish without state file", () => {
   assert.equal(fs.existsSync(stateOut), false);
 });
 
+test("agent start supports explicit entry-script override", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "scriptlang-agent-entry-override-"));
+  const stateOut = path.join(dir, "state.bin");
+  const result = runWithCapture([
+    "start",
+    "--scripts-dir",
+    scriptsDir("15-entry-override-recursive"),
+    "--entry-script",
+    "alt",
+    "--state-out",
+    stateOut,
+  ]);
+  assert.equal(result.code, 0);
+  assert.ok(result.lines.includes("EVENT:END"));
+  assert.ok(result.lines.some((line) => line.includes("Alt entry #2 @recursive")));
+  assert.equal(result.lines[result.lines.length - 1], "STATE_OUT:NONE");
+});
+
 test("agent choices include prompt line when choice prompt exists", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "scriptlang-agent-prompt-"));
   const tempScriptsDir = path.join(dir, "scripts");
@@ -220,6 +238,20 @@ test("agent error protocol paths", () => {
   assert.equal(missingMain.code, 1);
   assert.ok(missingMain.lines.some((line) => line.startsWith("ERROR_CODE:CLI_ENTRY_MAIN_NOT_FOUND")));
 
+  const missingEntryOverride = runWithCapture([
+    "start",
+    "--scripts-dir",
+    scriptsDir("06-snapshot-flow"),
+    "--entry-script",
+    "unknown",
+    "--state-out",
+    path.join(noMainDir, "state-entry.bin"),
+  ]);
+  assert.equal(missingEntryOverride.code, 1);
+  assert.ok(
+    missingEntryOverride.lines.some((line) => line.startsWith("ERROR_CODE:CLI_ENTRY_SCRIPT_NOT_FOUND"))
+  );
+
   const badChoiceParse = runWithCapture([
     "choose",
     "--state-in",
@@ -322,4 +354,56 @@ test("agent error protocol paths", () => {
   );
   assert.equal(mappedCode, 1);
   assert.ok(mappedLines.some((line) => line.startsWith("ERROR_CODE:CLI_ENTRY_MAIN_NOT_FOUND")));
+
+  const mappedApiMainLines: string[] = [];
+  let mappedApiMainWriteCount = 0;
+  const apiMainError = Object.assign(new Error('Entry script "main" is not registered.'), {
+    code: "API_ENTRY_MAIN_NOT_FOUND",
+  });
+  const mappedApiMainCode = runAgentCommand(
+    [
+      "start",
+      "--scripts-dir",
+      scriptsDir("06-snapshot-flow"),
+      "--state-out",
+      path.join(dir, "writer-api-main.bin"),
+    ],
+    (line) => {
+      mappedApiMainWriteCount += 1;
+      if (mappedApiMainWriteCount === 1) {
+        throw apiMainError;
+      }
+      mappedApiMainLines.push(line);
+    }
+  );
+  assert.equal(mappedApiMainCode, 1);
+  assert.ok(
+    mappedApiMainLines.some((line) => line.startsWith("ERROR_CODE:CLI_ENTRY_MAIN_NOT_FOUND"))
+  );
+
+  const mappedExplicitLines: string[] = [];
+  let mappedExplicitWriteCount = 0;
+  const engineExplicitError = Object.assign(new Error('Entry script "alt" is not registered.'), {
+    code: "ENGINE_SCRIPT_NOT_FOUND",
+  });
+  const mappedExplicitCode = runAgentCommand(
+    [
+      "start",
+      "--scripts-dir",
+      scriptsDir("06-snapshot-flow"),
+      "--state-out",
+      path.join(dir, "writer3.bin"),
+    ],
+    (line) => {
+      mappedExplicitWriteCount += 1;
+      if (mappedExplicitWriteCount === 1) {
+        throw engineExplicitError;
+      }
+      mappedExplicitLines.push(line);
+    }
+  );
+  assert.equal(mappedExplicitCode, 1);
+  assert.ok(
+    mappedExplicitLines.some((line) => line.startsWith("ERROR_CODE:CLI_ENTRY_SCRIPT_NOT_FOUND"))
+  );
 });

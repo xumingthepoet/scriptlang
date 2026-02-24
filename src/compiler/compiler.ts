@@ -974,91 +974,54 @@ const collectIncludeTargets = (filePath: string, xmlByPath: Record<string, strin
   return targets;
 };
 
-const collectReachablePaths = (xmlByPath: Record<string, string>): string[] => {
-  const scriptFiles = Object.keys(xmlByPath)
-    .filter((filePath) => filePath.endsWith(".script.xml"))
-    .sort();
-  if (scriptFiles.length === 0) {
-    return [];
-  }
+const collectProjectPaths = (xmlByPath: Record<string, string>): string[] => {
+  return Object.keys(xmlByPath).sort();
+};
 
-  const mainRoots: string[] = [];
-  for (let i = 0; i < scriptFiles.length; i += 1) {
-    const filePath = scriptFiles[i];
-    const source = xmlByPath[filePath];
-    if (source === undefined) {
-      throw new ScriptLangError("XML_INCLUDE_MISSING", `Included file not found: ${filePath}.`);
-    }
-    const root = parseXmlDocument(source).root;
-    if (root.name !== "script") {
-      throw new ScriptLangError(
-        "XML_INVALID_ROOT",
-        `Expected <script> as root but got <${root.name}>.`,
-        root.location
-      );
-    }
-    const scriptName = getAttr(root, "name", true) as string;
-    if (scriptName === "main") {
-      mainRoots.push(filePath);
-    }
+const buildIncludeGraphForProjectPaths = (
+  projectPaths: string[],
+  xmlByPath: Record<string, string>
+): Record<string, string[]> => {
+  const includeGraph: Record<string, string[]> = {};
+  for (let i = 0; i < projectPaths.length; i += 1) {
+    const filePath = projectPaths[i];
+    includeGraph[filePath] = collectIncludeTargets(filePath, xmlByPath);
   }
+  return includeGraph;
+};
 
-  if (mainRoots.length === 0) {
-    return [];
-  }
-  if (mainRoots.length > 1) {
-    throw new ScriptLangError(
-      "API_DUPLICATE_SCRIPT_NAME",
-      'Duplicate script name "main" found across XML inputs.'
-    );
-  }
-
+const assertIncludeGraphAcyclic = (
+  projectPaths: string[],
+  includeGraph: Record<string, string[]>
+): void => {
   const visited = new Set<string>();
+  const active = new Set<string>();
   const stack: string[] = [];
 
   const visit = (filePath: string): void => {
     if (visited.has(filePath)) {
       return;
     }
-    const cycleStart = stack.indexOf(filePath);
-    if (cycleStart >= 0) {
+    if (active.has(filePath)) {
+      const cycleStart = stack.indexOf(filePath);
       const cycle = [...stack.slice(cycleStart), filePath].join(" -> ");
       throw new ScriptLangError("XML_INCLUDE_CYCLE", `Include cycle detected: ${cycle}.`);
     }
 
-    const source = xmlByPath[filePath];
-    if (source === undefined) {
-      throw new ScriptLangError("XML_INCLUDE_MISSING", `Included file not found: ${filePath}.`);
-    }
-
+    active.add(filePath);
     stack.push(filePath);
-    const includeTargets = collectIncludeTargets(filePath, xmlByPath);
-    for (let i = 0; i < includeTargets.length; i += 1) {
-      const includeTarget = includeTargets[i];
-      visit(includeTarget);
+    const includes = includeGraph[filePath];
+    for (let i = 0; i < includes.length; i += 1) {
+      visit(includes[i]);
     }
     stack.pop();
+    active.delete(filePath);
     visited.add(filePath);
   };
 
-  visit(mainRoots[0]);
-
-  return Array.from(visited).sort();
-};
-
-const buildIncludeGraphForReachablePaths = (
-  reachablePaths: string[],
-  xmlByPath: Record<string, string>
-): Record<string, string[]> => {
-  const reachableSet = new Set(reachablePaths);
-  const includeGraph: Record<string, string[]> = {};
-  for (let i = 0; i < reachablePaths.length; i += 1) {
-    const filePath = reachablePaths[i];
-    includeGraph[filePath] = collectIncludeTargets(filePath, xmlByPath).filter((target) =>
-      reachableSet.has(target)
-    );
+  for (let i = 0; i < projectPaths.length; i += 1) {
+    visit(projectPaths[i]);
   }
-  return includeGraph;
 };
 
 const collectScriptVisiblePaths = (
@@ -1300,10 +1263,13 @@ export const compileScript = (
 export const compileProjectBundleFromXmlMap = (
   xmlByPath: Record<string, string>
 ): CompileProjectBundleFromXmlMapResult => {
-  const reachablePaths = collectReachablePaths(xmlByPath);
-  if (reachablePaths.length === 0) {
+  const projectPaths = collectProjectPaths(xmlByPath);
+  if (projectPaths.length === 0) {
     return { scripts: {}, globalJson: {} };
   }
+
+  const includeGraph = buildIncludeGraphForProjectPaths(projectPaths, xmlByPath);
+  assertIncludeGraphAcyclic(projectPaths, includeGraph);
 
   const parsedRoots: Record<string, XmlElementNode> = {};
   const typeDecls: ParsedTypeDecl[] = [];
@@ -1312,8 +1278,8 @@ export const compileProjectBundleFromXmlMap = (
   const globalJson: Record<string, unknown> = {};
   const jsonPathBySymbol: Record<string, string> = {};
 
-  for (let i = 0; i < reachablePaths.length; i += 1) {
-    const filePath = reachablePaths[i];
+  for (let i = 0; i < projectPaths.length; i += 1) {
+    const filePath = projectPaths[i];
     const source = xmlByPath[filePath];
     if (source === undefined) {
       throw new ScriptLangError("XML_INCLUDE_MISSING", `Included file not found: ${filePath}.`);
@@ -1353,7 +1319,6 @@ export const compileProjectBundleFromXmlMap = (
   }
 
   const resolvedTypes = resolveTypeDeclarations(typeDecls);
-  const includeGraph = buildIncludeGraphForReachablePaths(reachablePaths, xmlByPath);
   const typeNamesByPath: Record<string, string[]> = {};
   for (let i = 0; i < typeDecls.length; i += 1) {
     const decl = typeDecls[i];
@@ -1372,8 +1337,8 @@ export const compileProjectBundleFromXmlMap = (
   }
 
   const compiled: Record<string, ScriptIR> = {};
-  for (let i = 0; i < reachablePaths.length; i += 1) {
-    const filePath = reachablePaths[i];
+  for (let i = 0; i < projectPaths.length; i += 1) {
+    const filePath = projectPaths[i];
     if (isJsonAssetPath(filePath)) {
       continue;
     }
@@ -1401,7 +1366,11 @@ export const compileProjectBundleFromXmlMap = (
     );
     const scriptSymbols = collectScriptDeclaredSymbolNames(parsedRoots[filePath]);
     assertFunctionNameConflicts(filePath, visibleFunctions, scriptSymbols, visibleJsonSet);
-    const ir = compileScript(xmlByPath[filePath], filePath, {
+    const scriptSource = xmlByPath[filePath];
+    if (scriptSource === undefined) {
+      throw new ScriptLangError("XML_INCLUDE_MISSING", `Included file not found: ${filePath}.`);
+    }
+    const ir = compileScript(scriptSource, filePath, {
       resolveNamedType: resolveNamedTypeForScript,
       visibleJsonGlobals,
       visibleFunctions,
