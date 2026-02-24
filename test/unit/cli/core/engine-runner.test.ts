@@ -9,7 +9,9 @@ import {
   PLAYER_COMPILER_VERSION,
   chooseAndContinue,
   resumeScenario,
+  runToBoundary,
   startScenario,
+  submitInputAndContinue,
 } from "../../../../src/cli/core/engine-runner.js";
 import { loadSourceByScriptsDir } from "../../../../src/cli/core/source-loader.js";
 
@@ -42,16 +44,32 @@ test("engine runner carries choice prompt text", () => {
   const started = startScenario(scenario, PLAYER_COMPILER_VERSION);
   assert.equal(started.boundary.event, "CHOICES");
   assert.equal(started.boundary.choicePromptText, "Pick");
+  assert.equal(started.boundary.inputPromptText, null);
 });
 
-test("engine runner normalizes legacy snapshot without prompt text to null", () => {
-  const scenario = loadSourceByScriptsDir(scriptsDir("03-choice-once"));
-  const started = startScenario(scenario, PLAYER_COMPILER_VERSION);
-  const snapshot = started.engine.snapshot();
-  const legacySnapshot = structuredClone(snapshot);
-  delete legacySnapshot.pendingChoicePromptText;
+test("engine runner normalizes missing choice prompt text to null", () => {
+  const fakeEngine = {
+    next: () => ({ kind: "choices", items: [{ index: 0, id: "x", text: "x" }] }),
+  } as unknown as Parameters<typeof runToBoundary>[0];
+  const boundary = runToBoundary(fakeEngine);
+  assert.equal(boundary.event, "CHOICES");
+  assert.equal(boundary.choicePromptText, null);
+});
 
-  const resumed = resumeScenario(scenario, legacySnapshot, PLAYER_COMPILER_VERSION);
-  assert.equal(resumed.boundary.event, "CHOICES");
-  assert.equal(resumed.boundary.choicePromptText, null);
+test("engine runner carries input prompt/default text", () => {
+  const scenario = loadSourceByScriptsDir(scriptsDir("16-input-name"));
+  const started = startScenario(scenario, PLAYER_COMPILER_VERSION);
+  assert.equal(started.boundary.event, "INPUT");
+  assert.equal(started.boundary.inputPromptText, "Name your hero");
+  assert.equal(started.boundary.inputDefaultText, "Traveler");
+
+  const resumed = resumeScenario(scenario, started.engine.snapshot(), PLAYER_COMPILER_VERSION);
+  assert.equal(resumed.boundary.event, "INPUT");
+  assert.equal(resumed.boundary.inputPromptText, "Name your hero");
+  assert.equal(resumed.boundary.inputDefaultText, "Traveler");
+
+  const afterHeroInput = submitInputAndContinue(resumed.engine, "Rin");
+  assert.equal(afterHeroInput.event, "INPUT");
+  assert.equal(afterHeroInput.inputPromptText, "Name your guild");
+  assert.equal(afterHeroInput.inputDefaultText, "Nameless Guild Mk2");
 });

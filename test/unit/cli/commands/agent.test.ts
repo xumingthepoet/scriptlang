@@ -193,6 +193,55 @@ test("agent choose resumes scripts-dir state", () => {
   assert.equal(chosen.lines[chosen.lines.length - 1], "STATE_OUT:NONE");
 });
 
+test("agent input command handles input boundaries and end transitions", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "scriptlang-agent-input-"));
+  const firstState = path.join(dir, "first.bin");
+  const secondState = path.join(dir, "second.bin");
+  const thirdState = path.join(dir, "third.bin");
+
+  const start = runWithCapture([
+    "start",
+    "--scripts-dir",
+    scriptsDir("16-input-name"),
+    "--state-out",
+    firstState,
+  ]);
+  assert.equal(start.code, 0);
+  assert.ok(start.lines.includes("EVENT:INPUT"));
+  assert.ok(start.lines.includes(`PROMPT_JSON:${JSON.stringify("Name your hero")}`));
+  assert.ok(start.lines.includes(`INPUT_DEFAULT_JSON:${JSON.stringify("Traveler")}`));
+  assert.equal(start.lines[start.lines.length - 1], `STATE_OUT:${firstState}`);
+
+  const firstInput = runWithCapture([
+    "input",
+    "--state-in",
+    firstState,
+    "--text",
+    "",
+    "--state-out",
+    secondState,
+  ]);
+  assert.equal(firstInput.code, 0);
+  assert.ok(firstInput.lines.includes("EVENT:INPUT"));
+  assert.ok(firstInput.lines.includes(`PROMPT_JSON:${JSON.stringify("Name your guild")}`));
+  assert.ok(firstInput.lines.includes(`INPUT_DEFAULT_JSON:${JSON.stringify("Nameless Guild Mk2")}`));
+  assert.equal(firstInput.lines[firstInput.lines.length - 1], `STATE_OUT:${secondState}`);
+
+  const secondInput = runWithCapture([
+    "input",
+    "--state-in",
+    secondState,
+    "--text",
+    "GuildX",
+    "--state-out",
+    thirdState,
+  ]);
+  assert.equal(secondInput.code, 0);
+  assert.ok(secondInput.lines.includes("EVENT:END"));
+  assert.equal(secondInput.lines[secondInput.lines.length - 1], "STATE_OUT:NONE");
+  assert.equal(fs.existsSync(thirdState), false);
+});
+
 test("agent error protocol paths", () => {
   const missingSubcommand = runWithCapture([]);
   assert.equal(missingSubcommand.code, 1);

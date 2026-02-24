@@ -6,11 +6,12 @@ import type {
   ChoiceNode,
   ContinuationFrame,
   EngineOutput,
+  PendingBoundaryV2,
   ScriptIR,
   ScriptNode,
   ScriptType,
-  SnapshotFrameV1,
-  SnapshotV1,
+  SnapshotFrameV2,
+  SnapshotV2,
 } from "../core/types.js";
 
 export type HostFunctionMap = Record<string, (...args: unknown[]) => unknown>;
@@ -34,11 +35,23 @@ interface GroupLookup {
 }
 
 interface PendingChoice {
+  kind: "choice";
   frameId: number;
   nodeId: string;
   options: ChoiceItem[];
   promptText: string | null;
 }
+
+interface PendingInput {
+  kind: "input";
+  frameId: number;
+  nodeId: string;
+  targetVar: string;
+  promptText: string;
+  defaultText: string;
+}
+
+type PendingBoundary = PendingChoice | PendingInput;
 
 interface SandboxBuildOptions {
   scriptName?: string | null;
@@ -192,7 +205,7 @@ export class ScriptLangEngine {
   private readonly rawByReadonlyProxy = new WeakMap<object, object>();
 
   private frames: RuntimeFrame[] = [];
-  private pendingChoice: PendingChoice | null = null;
+  private pendingBoundary: PendingBoundary | null = null;
   public waitingChoice = false;
   private frameCounter = 1;
   private ended = false;
@@ -252,8 +265,15 @@ export class ScriptLangEngine {
   }
 
   next(): EngineOutput {
-    if (this.pendingChoice) {
-      return this.toChoiceOutput(this.pendingChoice.options, this.pendingChoice.promptText);
+    if (this.pendingBoundary) {
+      if (this.pendingBoundary.kind === "choice") {
+        return this.toChoiceOutput(this.pendingBoundary.options, this.pendingBoundary.promptText);
+      }
+      return {
+        kind: "input",
+        promptText: this.pendingBoundary.promptText,
+        defaultText: this.pendingBoundary.defaultText,
+      };
     }
     if (this.ended) {
       return { kind: "end" };
@@ -333,9 +353,38 @@ export class ScriptLangEngine {
             continue;
           }
           const promptText = this.renderText(node.promptText);
-          this.pendingChoice = { frameId: top.frameId, nodeId: node.id, options, promptText };
+          this.pendingBoundary = {
+            kind: "choice",
+            frameId: top.frameId,
+            nodeId: node.id,
+            options,
+            promptText,
+          };
           this.waitingChoice = true;
           return this.toChoiceOutput(options, promptText);
+        }
+        if (node.kind === "input") {
+          const rawCurrentValue = this.readPath(node.targetVar);
+          if (typeof rawCurrentValue !== "string") {
+            throw new ScriptLangError(
+              "ENGINE_INPUT_VAR_TYPE",
+              `Input target var "${node.targetVar}" must be string at runtime.`
+            );
+          }
+          this.pendingBoundary = {
+            kind: "input",
+            frameId: top.frameId,
+            nodeId: node.id,
+            targetVar: node.targetVar,
+            promptText: node.promptText,
+            defaultText: rawCurrentValue,
+          };
+          this.waitingChoice = false;
+          return {
+            kind: "input",
+            promptText: node.promptText,
+            defaultText: rawCurrentValue,
+          };
         }
         if (node.kind === "call") {
           this.executeCall(node);
@@ -366,10 +415,13 @@ export class ScriptLangEngine {
   }
 
   choose(index: number): void {
-    if (!this.pendingChoice) {
+    if (!this.pendingBoundary) {
       throw new ScriptLangError("ENGINE_NO_PENDING_CHOICE", "No pending choice is available.");
     }
-    const frame = this.findFrame(this.pendingChoice.frameId);
+    if (this.pendingBoundary.kind !== "choice") {
+      throw new ScriptLangError("ENGINE_PENDING_INPUT", "Input is pending. Use submitInput(text).");
+    }
+    const frame = this.findFrame(this.pendingBoundary.frameId);
     if (!frame) {
       throw new ScriptLangError("ENGINE_CHOICE_FRAME_MISSING", "Pending choice frame is missing.");
     }
@@ -379,11 +431,11 @@ export class ScriptLangEngine {
       throw new ScriptLangError("ENGINE_CHOICE_NODE_MISSING", "Pending choice node is no longer valid.");
     }
 
-    if (index < 0 || index >= this.pendingChoice.options.length) {
+    if (index < 0 || index >= this.pendingBoundary.options.length) {
       throw new ScriptLangError("ENGINE_CHOICE_INDEX", `Choice index "${index}" is out of range.`);
     }
 
-    const item = this.pendingChoice.options[index];
+    const item = this.pendingBoundary.options[index];
     const option = node.options.find((x) => x.id === item.id);
     if (!option) {
       throw new ScriptLangError("ENGINE_CHOICE_NOT_FOUND", `Choice "${item.id}" not found.`);
@@ -395,19 +447,42 @@ export class ScriptLangEngine {
     }
     frame.nodeIndex += 1;
     this.pushGroupFrame(option.groupId, "resumeAfterChild");
-    this.pendingChoice = null;
+    this.pendingBoundary = null;
     this.waitingChoice = false;
   }
 
-  snapshot(): SnapshotV1 {
-    if (!this.pendingChoice) {
+  submitInput(text: string): void {
+    if (!this.pendingBoundary) {
+      throw new ScriptLangError("ENGINE_NO_PENDING_INPUT", "No pending input is available.");
+    }
+    if (this.pendingBoundary.kind !== "input") {
+      throw new ScriptLangError("ENGINE_PENDING_CHOICE", "Choice is pending. Use choose(index).");
+    }
+    const frame = this.findFrame(this.pendingBoundary.frameId);
+    if (!frame) {
+      throw new ScriptLangError("ENGINE_INPUT_FRAME_MISSING", "Pending input frame is missing.");
+    }
+    const group = this.groupLookup[frame.groupId].group;
+    const node = group.nodes[frame.nodeIndex];
+    if (!node || node.kind !== "input") {
+      throw new ScriptLangError("ENGINE_INPUT_NODE_MISSING", "Pending input node is no longer valid.");
+    }
+    const normalized = text.trim().length === 0 ? this.pendingBoundary.defaultText : text;
+    this.writePath(this.pendingBoundary.targetVar, normalized);
+    frame.nodeIndex += 1;
+    this.pendingBoundary = null;
+    this.waitingChoice = false;
+  }
+
+  snapshot(): SnapshotV2 {
+    if (!this.pendingBoundary) {
       throw new ScriptLangError(
         "SNAPSHOT_NOT_ALLOWED",
-        "snapshot() is only allowed while waiting for a choice."
+        "snapshot() is only allowed while waiting for a choice or input."
       );
     }
 
-    const runtimeFrames: SnapshotFrameV1[] = this.frames.map((frame) => ({
+    const runtimeFrames: SnapshotFrameV2[] = this.frames.map((frame) => ({
       frameId: frame.frameId,
       groupId: frame.groupId,
       nodeIndex: frame.nodeIndex,
@@ -418,8 +493,23 @@ export class ScriptLangEngine {
       returnContinuation: frame.returnContinuation ? deepClone(frame.returnContinuation) : null,
     }));
     const topFrame = this.requireSnapshotTopFrame();
+    const pendingBoundary: PendingBoundaryV2 =
+      this.pendingBoundary.kind === "choice"
+        ? {
+            kind: "choice",
+            nodeId: this.pendingBoundary.nodeId,
+            items: this.pendingBoundary.options.map((item) => ({ ...item })),
+            promptText: this.pendingBoundary.promptText,
+          }
+        : {
+            kind: "input",
+            nodeId: this.pendingBoundary.nodeId,
+            targetVar: this.pendingBoundary.targetVar,
+            promptText: this.pendingBoundary.promptText,
+            defaultText: this.pendingBoundary.defaultText,
+          };
     return {
-      schemaVersion: "snapshot.v1",
+      schemaVersion: "snapshot.v2",
       compilerVersion: this.compilerVersion,
       cursor: {
         groupPath: this.frames.map((f) => f.groupId),
@@ -434,16 +524,13 @@ export class ScriptLangEngine {
         .map((f) => deepClone(f.returnContinuation as ContinuationFrame)),
       runtimeFrames,
       rngState: this.rngState,
-      waitingChoice: true,
-      pendingChoiceNodeId: this.pendingChoice.nodeId,
-      pendingChoiceItems: this.pendingChoice.options.map((item) => ({ ...item })),
-      pendingChoicePromptText: this.pendingChoice.promptText,
+      pendingBoundary,
       onceStateByScript: this.serializeOnceState(),
     };
   }
 
-  resume(snapshot: SnapshotV1): void {
-    if (snapshot.schemaVersion !== "snapshot.v1") {
+  resume(snapshot: SnapshotV2): void {
+    if (snapshot.schemaVersion !== "snapshot.v2") {
       throw new ScriptLangError(
         "SNAPSHOT_SCHEMA",
         `Unsupported snapshot schema "${snapshot.schemaVersion}".`
@@ -455,20 +542,13 @@ export class ScriptLangEngine {
         `Snapshot compiler version "${snapshot.compilerVersion}" does not match engine "${this.compilerVersion}".`
       );
     }
-    if (!snapshot.waitingChoice) {
-      throw new ScriptLangError(
-        "SNAPSHOT_WAITING_CHOICE",
-        "Only waiting-choice snapshots are supported in V1."
-      );
-    }
     if (!isUint32Integer(snapshot.rngState)) {
       throw new ScriptLangError(
         "SNAPSHOT_RNG_STATE",
         "Snapshot rngState must be a uint32 integer."
       );
     }
-    this.assertSnapshotPendingChoiceItems(snapshot.pendingChoiceItems);
-    this.assertSnapshotPendingChoicePromptText(snapshot.pendingChoicePromptText);
+    this.assertSnapshotPendingBoundary(snapshot.pendingBoundary);
     this.assertSnapshotOnceState(snapshot.onceStateByScript);
 
     this.reset();
@@ -477,20 +557,34 @@ export class ScriptLangEngine {
     this.frames = snapshot.runtimeFrames.map((frame) => this.restoreFrame(frame));
     this.frameCounter = this.frames.reduce((max, frame) => (frame.frameId > max ? frame.frameId : max), 0) + 1;
     const top = this.requireSnapshotTopFrame();
-    const node = this.requirePendingChoiceNode(top, snapshot.pendingChoiceNodeId);
-    const options = snapshot.pendingChoiceItems.map((item) => ({ ...item }));
-    this.pendingChoice = {
+    const pendingBoundary = snapshot.pendingBoundary;
+    if (pendingBoundary.kind === "choice") {
+      const node = this.requirePendingBoundaryNode(top, pendingBoundary.nodeId, "choice");
+      this.pendingBoundary = {
+        kind: "choice",
+        frameId: top.frameId,
+        nodeId: node.id,
+        options: pendingBoundary.items.map((item) => ({ ...item })),
+        promptText: pendingBoundary.promptText ?? null,
+      };
+      this.waitingChoice = true;
+      return;
+    }
+    const node = this.requirePendingBoundaryNode(top, pendingBoundary.nodeId, "input");
+    this.pendingBoundary = {
+      kind: "input",
       frameId: top.frameId,
       nodeId: node.id,
-      options,
-      promptText: snapshot.pendingChoicePromptText ?? null,
+      targetVar: pendingBoundary.targetVar,
+      promptText: pendingBoundary.promptText,
+      defaultText: pendingBoundary.defaultText,
     };
-    this.waitingChoice = true;
+    this.waitingChoice = false;
   }
 
   private reset(): void {
     this.frames = [];
-    this.pendingChoice = null;
+    this.pendingBoundary = null;
     this.waitingChoice = false;
     this.ended = false;
     this.frameCounter = 1;
@@ -590,7 +684,7 @@ export class ScriptLangEngine {
     });
   }
 
-  private restoreFrame(frame: SnapshotFrameV1): RuntimeFrame {
+  private restoreFrame(frame: SnapshotFrameV2): RuntimeFrame {
     const lookup = this.groupLookup[frame.groupId];
     if (!lookup) {
       throw new ScriptLangError("SNAPSHOT_GROUP_MISSING", `Group "${frame.groupId}" is unknown.`);
@@ -896,11 +990,18 @@ export class ScriptLangEngine {
     return top;
   }
 
-  private requirePendingChoiceNode(top: RuntimeFrame, pendingChoiceNodeId: string | null): ChoiceNode {
+  private requirePendingBoundaryNode(
+    top: RuntimeFrame,
+    pendingNodeId: string,
+    expectedKind: "choice" | "input"
+  ): Extract<ScriptNode, { kind: "choice" | "input" }> {
     const group = this.groupLookup[top.groupId].group;
     const node = group.nodes[top.nodeIndex];
-    if (!node || node.kind !== "choice" || node.id !== pendingChoiceNodeId) {
-      throw new ScriptLangError("SNAPSHOT_PENDING_CHOICE", "Pending choice node cannot be reconstructed.");
+    if (!node || node.kind !== expectedKind || node.id !== pendingNodeId) {
+      throw new ScriptLangError(
+        "SNAPSHOT_PENDING_BOUNDARY",
+        `Pending ${expectedKind} node cannot be reconstructed.`
+      );
     }
     return node;
   }
@@ -954,37 +1055,60 @@ export class ScriptLangEngine {
     return value % bound;
   }
 
-  private assertSnapshotPendingChoiceItems(value: unknown): asserts value is ChoiceItem[] {
-    if (!Array.isArray(value)) {
+  private assertSnapshotPendingBoundary(value: unknown): asserts value is SnapshotV2["pendingBoundary"] {
+    if (!value || typeof value !== "object") {
       throw new ScriptLangError(
-        "SNAPSHOT_PENDING_CHOICE_ITEMS",
-        "Snapshot pendingChoiceItems must be an array."
+        "SNAPSHOT_PENDING_BOUNDARY",
+        "Snapshot pendingBoundary must be an object."
       );
     }
-    for (let i = 0; i < value.length; i += 1) {
-      const item = value[i];
+    const candidate = value as Record<string, unknown>;
+    const kind = candidate.kind;
+    if (kind === "choice") {
+      const items = candidate.items;
       if (
-        !item ||
-        typeof item !== "object" ||
-        !Number.isInteger((item as { index?: unknown }).index) ||
-        typeof (item as { id?: unknown }).id !== "string" ||
-        typeof (item as { text?: unknown }).text !== "string"
+        typeof candidate.nodeId !== "string" ||
+        !Array.isArray(items) ||
+        !(candidate.promptText === null || typeof candidate.promptText === "string")
       ) {
         throw new ScriptLangError(
-          "SNAPSHOT_PENDING_CHOICE_ITEMS",
-          "Snapshot pendingChoiceItems contains invalid choice item payload."
+          "SNAPSHOT_PENDING_BOUNDARY",
+          "Snapshot pending choice payload is invalid."
         );
       }
+      for (let i = 0; i < items.length; i += 1) {
+        const item = items[i] as Record<string, unknown>;
+        if (
+          !item ||
+          !Number.isInteger(item.index as number) ||
+          typeof item.id !== "string" ||
+          typeof item.text !== "string"
+        ) {
+          throw new ScriptLangError(
+            "SNAPSHOT_PENDING_BOUNDARY",
+            "Snapshot pending choice items payload is invalid."
+          );
+        }
+      }
+      return;
     }
-  }
-
-  private assertSnapshotPendingChoicePromptText(value: unknown): asserts value is string | null | undefined {
-    if (value === undefined || value === null || typeof value === "string") {
+    if (kind === "input") {
+      if (
+        typeof candidate.nodeId !== "string" ||
+        typeof candidate.targetVar !== "string" ||
+        typeof candidate.promptText !== "string" ||
+        typeof candidate.defaultText !== "string"
+      ) {
+        throw new ScriptLangError(
+          "SNAPSHOT_PENDING_BOUNDARY",
+          "Snapshot pending input payload is invalid."
+        );
+      }
       return;
     }
     throw new ScriptLangError(
-      "SNAPSHOT_PENDING_CHOICE_PROMPT_TEXT",
-      "Snapshot pendingChoicePromptText must be string, null, or undefined."
+      "SNAPSHOT_PENDING_BOUNDARY",
+      "Snapshot pendingBoundary kind must be choice or input."
     );
   }
 

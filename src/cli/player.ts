@@ -11,6 +11,7 @@ const usage = [
   "  tui --scripts-dir <path> [--entry-script <name>] [--state-file <path>]",
   "  agent start --scripts-dir <path> [--entry-script <name>] --state-out <path>",
   "  agent choose --state-in <path> --choice <index> --state-out <path>",
+  "  agent input --state-in <path> --text <value> --state-out <path>",
 ].join("\n");
 
 export const runPlayerCli = async (argv: string[]): Promise<number> => {

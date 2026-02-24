@@ -6,6 +6,7 @@ import {
   chooseAndContinue,
   resumeScenario,
   startScenario,
+  submitInputAndContinue,
   type BoundaryResult,
 } from "../core/engine-runner.js";
 import {
@@ -108,6 +109,9 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
   const [typingChars, setTypingChars] = useState(0);
   const [choices, setChoices] = useState(started.boundary.choices);
   const [choicePromptText, setChoicePromptText] = useState(started.boundary.choicePromptText);
+  const [inputPromptText, setInputPromptText] = useState(started.boundary.inputPromptText);
+  const [inputDefaultText, setInputDefaultText] = useState(started.boundary.inputDefaultText);
+  const [inputBuffer, setInputBuffer] = useState("");
   const [selectedChoiceIndex, setSelectedChoiceIndex] = useState(0);
   const [choiceScrollOffset, setChoiceScrollOffset] = useState(0);
   const [ended, setEnded] = useState(started.boundary.event === "END");
@@ -159,10 +163,24 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
     };
   }, [pendingLines, typingLine, typingChars]);
 
-  const setBoundaryChoices = (boundary: BoundaryResult): void => {
+  const setBoundaryState = (boundary: BoundaryResult): void => {
     if (boundary.event === "CHOICES") {
       setChoices(boundary.choices);
       setChoicePromptText(boundary.choicePromptText);
+      setInputPromptText(null);
+      setInputDefaultText(null);
+      setInputBuffer("");
+      setEnded(false);
+      setSelectedChoiceIndex(0);
+      setChoiceScrollOffset(0);
+      return;
+    }
+    if (boundary.event === "INPUT") {
+      setChoices([]);
+      setChoicePromptText(null);
+      setInputPromptText(boundary.inputPromptText);
+      setInputDefaultText(boundary.inputDefaultText);
+      setInputBuffer("");
       setEnded(false);
       setSelectedChoiceIndex(0);
       setChoiceScrollOffset(0);
@@ -170,6 +188,9 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
     }
     setChoices([]);
     setChoicePromptText(null);
+    setInputPromptText(null);
+    setInputDefaultText(null);
+    setInputBuffer("");
     setEnded(true);
     setSelectedChoiceIndex(0);
     setChoiceScrollOffset(0);
@@ -179,7 +200,7 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
     if (boundary.texts.length > 0) {
       setPendingLines((prev) => [...prev, ...boundary.texts]);
     }
-    setBoundaryChoices(boundary);
+    setBoundaryState(boundary);
   };
 
   const replaceBoundary = (boundary: BoundaryResult): void => {
@@ -187,7 +208,7 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
     setPendingLines(boundary.texts);
     setTypingLine(null);
     setTypingChars(0);
-    setBoundaryChoices(boundary);
+    setBoundaryState(boundary);
   };
 
   const restart = (): void => {
@@ -198,6 +219,10 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
   };
 
   const moveChoiceCursor = (delta: -1 | 1): void => {
+    if (inputPromptText !== null) {
+      setStatus("input mode");
+      return;
+    }
     if (choices.length === 0) {
       setStatus("no pending choice");
       return;
@@ -226,6 +251,16 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
     const boundary = chooseAndContinue(engineRef.current, selectedChoiceIndex);
     appendBoundary(boundary);
     setStatus(`chose ${selectedChoiceIndex}`);
+  };
+
+  const submitCurrentInput = (): void => {
+    if (inputPromptText === null) {
+      setStatus("no pending input");
+      return;
+    }
+    const boundary = submitInputAndContinue(engineRef.current, inputBuffer);
+    appendBoundary(boundary);
+    setStatus("submitted input");
   };
 
   useInput((input, key) => {
@@ -264,8 +299,22 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
           setStatus("text streaming...");
           return;
         }
+        if (inputPromptText !== null) {
+          submitCurrentInput();
+          return;
+        }
         chooseCurrent();
         return;
+      }
+      if (inputPromptText !== null) {
+        if (key.backspace || key.delete) {
+          setInputBuffer((prev) => prev.slice(0, -1));
+          return;
+        }
+        if (input.length > 0 && !key.ctrl && !key.meta) {
+          setInputBuffer((prev) => prev + input);
+          return;
+        }
       }
       if (input === "s") {
         const snapshot = engineRef.current.snapshot();
@@ -314,9 +363,20 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
     wrappedTextRows.length <= availableTextRows
       ? wrappedTextRows
       : wrappedTextRows.slice(-availableTextRows);
-  const choiceDisplayEnabled = !typingInProgress && choices.length > 0;
+  const inputModeEnabled = !typingInProgress && inputPromptText !== null;
+  const choiceDisplayEnabled = !typingInProgress && !inputModeEnabled && choices.length > 0;
   const choiceRowsSource = choiceDisplayEnabled ? choices : [];
   const visibleChoiceRows = Array.from({ length: CHOICE_VIEWPORT_ROWS }, (_value, rowIndex) => {
+    if (inputModeEnabled) {
+      if (rowIndex === 0) {
+        return {
+          key: "input-line",
+          text: truncateToWidth(inputBuffer, choiceTextWidth),
+          selected: true,
+        };
+      }
+      return { key: `choice-empty-${rowIndex}`, text: " ", selected: false };
+    }
     const absoluteIndex = choiceScrollOffset + rowIndex;
     const choice = choiceRowsSource[absoluteIndex];
     if (!choice) {
@@ -335,19 +395,24 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
       : Math.min(choiceScrollOffset + CHOICE_VIEWPORT_ROWS, choiceRowsSource.length);
   const dividerLine = "─".repeat(contentWidth);
   const choiceWindowText =
-    choiceRowsSource.length > CHOICE_VIEWPORT_ROWS
+    inputModeEnabled
+      ? truncateToWidth(`default: ${inputDefaultText ?? ""}`, contentWidth)
+      : choiceRowsSource.length > CHOICE_VIEWPORT_ROWS
       ? truncateToWidth(`window ${windowStart}-${windowEnd} / ${choiceRowsSource.length}`, contentWidth)
       : " ";
   const headerText = truncateToWidth(`${scenario.id} | ${scenario.title}`, contentWidth);
   const stateText = truncateToWidth(`state: ${stateFile}`, contentWidth);
   const statusText = truncateToWidth(`status: ${status}`, contentWidth);
   const keyText = truncateToWidth(
-    "keys: up/down move | enter choose | s save | l load | r restart | h help | q quit",
+    "keys: up/down move | type+backspace input | enter submit/choose | s save | l load | r restart | h help | q quit",
     contentWidth
   );
-  const choiceHeaderText = truncateToWidth(choicePromptText ?? "choices (up/down + enter):", contentWidth);
+  const choiceHeaderText = truncateToWidth(
+    inputPromptText ?? choicePromptText ?? "choices (up/down + enter):",
+    contentWidth
+  );
   const helpText = truncateToWidth(
-    "snapshot is valid only when waiting at choices. if save fails, continue until a choice appears.",
+    "snapshot is valid only when waiting at choices/input. if save fails, continue until interaction appears.",
     contentWidth
   );
 

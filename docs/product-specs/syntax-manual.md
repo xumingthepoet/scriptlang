@@ -58,8 +58,9 @@ Allowed direct children of `<script>` are executable nodes:
 5. `<while>`
 6. `<loop>`
 7. `<choice>` / `<option>`
-8. `<call>`
-9. `<return>`
+8. `<input>`
+9. `<call>`
+10. `<return>`
 
 `<function>` is declaration-only and is not allowed as a direct child of `<script>`.
 Functions are declared in `<defs>` files.
@@ -384,6 +385,25 @@ Rules:
 - For a target param declared `ref:...`, caller must pass `ref:value`.
 - For a target param not declared `ref:...`, caller must not pass `ref:`.
 - `ref` values copy back when callee returns.
+
+## 13.1 `<input>`
+
+Syntax:
+
+```xml
+<input var="name" text="Name your hero"/>
+```
+
+Rules:
+
+- `var` is required and must reference an in-scope `string` variable at this point in execution order.
+- `text` is required and is host-facing prompt text.
+- `text` does not support `${...}` template interpolation.
+- `default` attribute is not supported.
+- `<input>` cannot contain child nodes or inline content.
+- runtime waits for host input; submitted text handling:
+  - if `submitted.trim().length === 0`, variable is set to its current value
+  - otherwise variable is set to submitted raw text
 
 ## 14. `<return>`
 

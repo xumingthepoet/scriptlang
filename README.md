@@ -9,7 +9,7 @@ This repository is initialized for **agent-first harness engineering**:
 - quality is measured by repeatable checks.
 
 ## Project Status
-- Current phase: active development with V2 XML syntax and V1 snapshot schema (`snapshot.v1`).
+- Current phase: active development with V3 XML syntax and V2 snapshot schema (`snapshot.v2`).
 - Compatibility posture: no backward-compat requirement by default during development; remove legacy syntax/behavior unless a task explicitly requires compatibility.
 - Ongoing implementation tasks are tracked in `/docs/exec-plans/active/`.
 - Internal reserved prefix: user-authored names starting with `__` are compile-time errors.
@@ -64,6 +64,7 @@ npm run player:tui -- --scripts-dir examples/scripts/12-while-break-continue
 npm run player:tui -- --scripts-dir examples/scripts/13-loop-times
 npm run player:tui -- --scripts-dir examples/scripts/14-defs-functions
 npm run player:tui -- --scripts-dir examples/scripts/15-entry-override-recursive --entry-script alt
+npm run player:tui -- --scripts-dir examples/scripts/16-input-name
 ```
 
 Play scripts from an external directory (default entry is `<script name="main">`; override with `--entry-script <name>` when needed. `--scripts-dir` is scanned recursively for `.script.xml` / `.defs.xml` / `.json` files):
@@ -79,6 +80,7 @@ Run to boundary and persist state for agent orchestration:
 npm run player:agent -- start --scripts-dir examples/scripts/06-snapshot-flow --state-out /tmp/sl-state.bin
 npm run player:agent -- start --scripts-dir examples/scripts/15-entry-override-recursive --entry-script alt --state-out /tmp/sl-alt-state.bin
 npm run player:agent -- choose --state-in /tmp/sl-state.bin --choice 0 --state-out /tmp/sl-next.bin
+npm run player:agent -- input --state-in /tmp/sl-next.bin --text "Rin" --state-out /tmp/sl-next-2.bin
 ```
 
 Agent mode can also start from an external scripts directory:

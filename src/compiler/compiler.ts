@@ -12,6 +12,7 @@ import type {
   FunctionDecl,
   FunctionParam,
   FunctionReturn,
+  InputNode,
   IfNode,
   ImplicitGroup,
   ReturnNode,
@@ -516,9 +517,11 @@ const compileGroup = (
   container: XmlElementNode,
   builder: GroupBuilder,
   resolveNamedType?: NamedTypeResolver,
+  visibleVarTypes: Record<string, ScriptType> = {},
   whileDepth = 0,
   allowOptionDirectContinue = false
 ): void => {
+  const localVarTypes: Record<string, ScriptType> = { ...visibleVarTypes };
   const nodes: ScriptNode[] = [];
   builder.groups[groupId] = {
     groupId,
@@ -547,12 +550,14 @@ const compileGroup = (
     let compiled: ScriptNode;
 
     if (child.name === "var") {
+      const declaration = parseVarDeclaration(child, resolveNamedType);
       const varNode: VarNode = {
         id: builder.nextNodeId("var"),
         kind: "var",
-        declaration: parseVarDeclaration(child, resolveNamedType),
+        declaration,
         location: child.location,
       };
+      localVarTypes[declaration.name] = declaration.type;
       compiled = varNode;
     } else if (child.name === "text") {
       const textNode: TextNode = {
@@ -585,11 +590,21 @@ const compileGroup = (
         thenContainer,
         builder,
         resolveNamedType,
+        localVarTypes,
         whileDepth,
         false
       );
       if (elseNode) {
-        compileGroup(elseGroupId, groupId, elseNode, builder, resolveNamedType, whileDepth, false);
+        compileGroup(
+          elseGroupId,
+          groupId,
+          elseNode,
+          builder,
+          resolveNamedType,
+          localVarTypes,
+          whileDepth,
+          false
+        );
       } else {
         builder.groups[elseGroupId] = {
           groupId: elseGroupId,
@@ -609,7 +624,16 @@ const compileGroup = (
       compiled = ifNode;
     } else if (child.name === "while") {
       const bodyGroupId = builder.nextGroupId();
-      compileGroup(bodyGroupId, groupId, child, builder, resolveNamedType, whileDepth + 1, false);
+      compileGroup(
+        bodyGroupId,
+        groupId,
+        child,
+        builder,
+        resolveNamedType,
+        localVarTypes,
+        whileDepth + 1,
+        false
+      );
       const whileNode: WhileNode = {
         id: builder.nextNodeId("while"),
         kind: "while",
@@ -645,7 +669,16 @@ const compileGroup = (
           fallOverOptionPositions.push({ index: optionIndex, location: option.location });
         }
         const optionGroupId = builder.nextGroupId();
-        compileGroup(optionGroupId, groupId, option, builder, resolveNamedType, whileDepth, true);
+        compileGroup(
+          optionGroupId,
+          groupId,
+          option,
+          builder,
+          resolveNamedType,
+          localVarTypes,
+          whileDepth,
+          true
+        );
         options.push({
           id: builder.nextChoiceId(),
           text: getAttr(option, "text", true) as string,
@@ -678,6 +711,62 @@ const compileGroup = (
         location: child.location,
       };
       compiled = choiceNode;
+    } else if (child.name === "input") {
+      if (Object.hasOwn(child.attributes, "default")) {
+        throw new ScriptLangError(
+          "XML_ATTR_NOT_ALLOWED",
+          'Attribute "default" is not allowed on <input>.',
+          child.location
+        );
+      }
+      const elementChild = asElements(child.children)[0];
+      if (elementChild) {
+        throw new ScriptLangError(
+          "XML_INPUT_CHILD_INVALID",
+          "<input> cannot contain child nodes.",
+          elementChild.location
+        );
+      }
+      const inline = inlineTextContent(child);
+      if (inline.length > 0) {
+        throw new ScriptLangError(
+          "XML_INPUT_CHILD_INVALID",
+          "<input> cannot contain inline text content.",
+          child.location
+        );
+      }
+      const targetVar = getRequiredNonEmptyAttr(child, "var");
+      const promptText = getRequiredNonEmptyAttr(child, "text");
+      if (promptText.includes("${")) {
+        throw new ScriptLangError(
+          "XML_INPUT_TEMPLATE_UNSUPPORTED",
+          '<input text="..."> does not support ${...} templates.',
+          child.location
+        );
+      }
+      const targetType = localVarTypes[targetVar];
+      if (!targetType) {
+        throw new ScriptLangError(
+          "XML_INPUT_VAR_UNKNOWN",
+          `Input target var "${targetVar}" is not visible in current scope.`,
+          child.location
+        );
+      }
+      if (targetType.kind !== "primitive" || targetType.name !== "string") {
+        throw new ScriptLangError(
+          "XML_INPUT_VAR_TYPE",
+          `Input target var "${targetVar}" must be declared as string.`,
+          child.location
+        );
+      }
+      const inputNode: InputNode = {
+        id: builder.nextNodeId("input"),
+        kind: "input",
+        targetVar,
+        promptText,
+        location: child.location,
+      };
+      compiled = inputNode;
     } else if (child.name === "break") {
       if (whileDepth <= 0) {
         throw new ScriptLangError(
@@ -1247,7 +1336,19 @@ export const compileScript = (
   });
   const builder = new GroupBuilder(scriptPath);
   const rootGroupId = builder.nextGroupId();
-  compileGroup(rootGroupId, null, expandedRoot, builder, options.resolveNamedType, 0, false);
+  const rootVarTypes: Record<string, ScriptType> = Object.fromEntries(
+    params.map((param) => [param.name, param.type])
+  );
+  compileGroup(
+    rootGroupId,
+    null,
+    expandedRoot,
+    builder,
+    options.resolveNamedType,
+    rootVarTypes,
+    0,
+    false
+  );
 
   return {
     scriptPath,

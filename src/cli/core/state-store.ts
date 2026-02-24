@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import v8 from "node:v8";
 
-import type { SnapshotV1 } from "../../core/types.js";
+import type { SnapshotV2 } from "../../core/types.js";
 
 export const PLAYER_STATE_SCHEMA = "player-state.v1";
 
@@ -10,7 +10,7 @@ export interface PlayerStateV1 {
   schemaVersion: typeof PLAYER_STATE_SCHEMA;
   scenarioId: string;
   compilerVersion: string;
-  snapshot: SnapshotV1;
+  snapshot: SnapshotV2;
 }
 
 const makeCliError = (code: string, message: string): Error & { code: string } => {
@@ -22,7 +22,7 @@ const makeCliError = (code: string, message: string): Error & { code: string } =
 export const createPlayerState = (
   scenarioId: string,
   compilerVersion: string,
-  snapshot: SnapshotV1
+  snapshot: SnapshotV2
 ): PlayerStateV1 => ({
   schemaVersion: PLAYER_STATE_SCHEMA,
   scenarioId,
@@ -37,38 +37,52 @@ export const savePlayerState = (statePath: string, state: PlayerStateV1): void =
   fs.writeFileSync(statePath, payload);
 };
 
-const isSnapshotV1 = (value: unknown): value is SnapshotV1 => {
+const isSnapshotV2 = (value: unknown): value is SnapshotV2 => {
   if (!value || typeof value !== "object") {
     return false;
   }
-  const candidate = value as Partial<SnapshotV1>;
-  const pendingChoiceItems = candidate.pendingChoiceItems;
-  const pendingChoicePromptText = candidate.pendingChoicePromptText;
-  const pendingChoiceItemsValid =
-    Array.isArray(pendingChoiceItems) &&
-    pendingChoiceItems.every(
-      (item) =>
-        !!item &&
-        typeof item === "object" &&
-        typeof (item as { index?: unknown }).index === "number" &&
-        Number.isInteger((item as { index: number }).index) &&
-        typeof (item as { id?: unknown }).id === "string" &&
-        typeof (item as { text?: unknown }).text === "string"
-    );
-  const pendingChoicePromptTextValid =
-    pendingChoicePromptText === undefined ||
-    pendingChoicePromptText === null ||
-    typeof pendingChoicePromptText === "string";
+  const candidate = value as Partial<SnapshotV2>;
+  const pendingBoundary = candidate.pendingBoundary as
+    | {
+        kind?: unknown;
+        nodeId?: unknown;
+        items?: unknown;
+        promptText?: unknown;
+        targetVar?: unknown;
+        defaultText?: unknown;
+      }
+    | undefined;
+  let pendingBoundaryValid = false;
+  if (pendingBoundary && pendingBoundary.kind === "choice") {
+    const items = pendingBoundary.items;
+    pendingBoundaryValid =
+      typeof pendingBoundary.nodeId === "string" &&
+      Array.isArray(items) &&
+      (pendingBoundary.promptText === null || typeof pendingBoundary.promptText === "string") &&
+      items.every(
+        (item) =>
+          !!item &&
+          typeof item === "object" &&
+          typeof (item as { index?: unknown }).index === "number" &&
+          Number.isInteger((item as { index: number }).index) &&
+          typeof (item as { id?: unknown }).id === "string" &&
+          typeof (item as { text?: unknown }).text === "string"
+      );
+  } else if (pendingBoundary && pendingBoundary.kind === "input") {
+    pendingBoundaryValid =
+      typeof pendingBoundary.nodeId === "string" &&
+      typeof pendingBoundary.targetVar === "string" &&
+      typeof pendingBoundary.promptText === "string" &&
+      typeof pendingBoundary.defaultText === "string";
+  }
   return (
-    candidate.schemaVersion === "snapshot.v1" &&
+    candidate.schemaVersion === "snapshot.v2" &&
     typeof candidate.compilerVersion === "string" &&
-    typeof candidate.waitingChoice === "boolean" &&
     typeof candidate.rngState === "number" &&
     Number.isInteger(candidate.rngState) &&
     candidate.rngState >= 0 &&
     candidate.rngState <= 0xffffffff &&
-    pendingChoiceItemsValid &&
-    pendingChoicePromptTextValid
+    pendingBoundaryValid
   );
 };
 
@@ -93,7 +107,7 @@ export const loadPlayerState = (statePath: string): PlayerStateV1 => {
   if (typeof parsed.compilerVersion !== "string" || parsed.compilerVersion.length === 0) {
     throw makeCliError("CLI_STATE_INVALID", "State is missing compilerVersion.");
   }
-  if (!isSnapshotV1(parsed.snapshot)) {
+  if (!isSnapshotV2(parsed.snapshot)) {
     throw makeCliError("CLI_STATE_INVALID", "State snapshot payload is invalid.");
   }
   return parsed as PlayerStateV1;

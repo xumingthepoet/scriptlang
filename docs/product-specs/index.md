@@ -3,7 +3,7 @@
 - [ScriptLang Syntax Manual](./syntax-manual.md)
 - [ScriptLang Player CLI Spec](./player-cli.md)
 
-## Current Scope (Runtime V1 + Syntax V3)
+## Current Scope (Runtime V2 + Syntax V3)
 - XML-first branching narrative scripts.
 - Implicit group-based execution model.
 - Type-checked variables declared via `<script args="...">` and executable `<var .../>`.
@@ -13,11 +13,11 @@
 - JSON global data declared in `*.json` files and resolved per-script include closure.
 - Header include graph resolution via `<!-- include: ... -->` with whole-project validation.
 - `<code>` node as primary mutation and logic mechanism.
-- Ink-style pull runtime API: `next()`, `choose()`, `waitingChoice`, `snapshot()`, `resume()`.
+- Ink-style pull runtime API: `next()`, `choose()`, `submitInput()`, `waitingChoice`, `snapshot()`, `resume()`.
 
 ## Current Canonical Behavior
 1. Every script compiles to a root implicit group.
-2. `if/while/loop/choice/call` execute via implicit child groups.
+2. `if/while/loop/choice/input/call` execute via implicit child groups.
 3. Snapshot persistence is based on current node/group path + ancestor scopes.
 4. Language-level `random(n)` builtin exists and is deterministic when seeded.
 5. Host function access is explicit and whitelisted.
@@ -47,7 +47,9 @@
   - `<while when="...">...</while>` with `<break/>` and `<continue/>` in while body
   - `<loop times="...">...</loop>` for count-based loops (times is expression syntax, not `${...}` template wrapping)
   - `<choice text="..."><option ...>...</option></choice>`
+  - `<input var="..." text="..."/>`
   - `<choice>` requires non-empty `text` as host-facing choice prompt text.
+  - `<input>` requires non-empty `var` and `text`, forbids `default`, and does not support `${...}` in `text`.
   - `<option>` supports `text` (required), `when` (optional), `once` (optional), and `fall_over` (optional).
   - `<option>` direct child `<continue/>` returns to current choice and prompts re-selection.
   - `<option fall_over="true">` is hidden by default and only shown when no non-fall-over option is visible.
@@ -61,14 +63,17 @@
 
 ## Runtime Behavior (Implemented)
 - Ink-like API:
-  - `next()` returns `text`, `choices`, or `end`.
+  - `next()` returns `text`, `choices`, `input`, or `end`.
   - `choose(index)` consumes current pending choice.
+  - `submitInput(text)` consumes current pending input.
+  - for `<input>`, empty/whitespace submit falls back to the target var current value captured at input boundary.
   - `waitingChoice` indicates whether a choice is pending.
   - `choices` output includes rendered `promptText` from `<choice text="...">`.
 - Snapshot:
-  - Only allowed when `waitingChoice === true`.
+  - Allowed only when waiting for interactive boundary (`choice` or `input`).
   - Resume requires same compiler version string.
-  - Snapshot payload includes runtime RNG state, rendered pending choice items, rendered pending choice prompt text, and once-state for deterministic resume.
+  - Snapshot schema is `snapshot.v2`.
+  - Snapshot payload includes runtime RNG state, pending interactive boundary payload (`choice`/`input`), and once-state for deterministic resume.
 - Type behavior:
   - Script parameters come from `<script args="...">`.
   - `<call ... args="...">` arguments are positional and map by target script arg order.

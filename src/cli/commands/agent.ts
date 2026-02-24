@@ -4,6 +4,7 @@ import {
   chooseAndContinue,
   resumeScenario,
   startScenario,
+  submitInputAndContinue,
 } from "../core/engine-runner.js";
 import { loadSourceByRef, loadSourceByScriptsDir } from "../core/source-loader.js";
 import { createPlayerState, loadPlayerState, savePlayerState } from "../core/state-store.js";
@@ -25,7 +26,7 @@ const parseFlags = (args: string[]): Record<string, string> => {
     }
     const name = token.slice(2);
     const value = args[i + 1];
-    if (!value || value.startsWith("--")) {
+    if (value === undefined || value.startsWith("--")) {
       throw makeCliError("CLI_ARG_MISSING", `Missing value for --${name}`);
     }
     flags[name] = value;
@@ -36,7 +37,7 @@ const parseFlags = (args: string[]): Record<string, string> => {
 
 const getRequiredFlag = (flags: Record<string, string>, name: string): string => {
   const value = flags[name];
-  if (!value) {
+  if (value === undefined) {
     throw makeCliError("CLI_ARG_REQUIRED", `Missing required argument --${name}`);
   }
   return value;
@@ -88,10 +89,12 @@ const resolveStartScenario = (flags: Record<string, string>) => {
 
 const emitBoundary = (
   writeLine: WriteLine,
-  event: "CHOICES" | "END",
+  event: "CHOICES" | "INPUT" | "END",
   texts: string[],
   choices: Array<{ index: number; text: string }>,
   choicePromptText: string | null,
+  inputPromptText: string | null,
+  inputDefaultText: string | null,
   stateOut: string | null
 ): number => {
   writeLine("RESULT:OK");
@@ -102,9 +105,15 @@ const emitBoundary = (
   if (event === "CHOICES" && choicePromptText !== null) {
     writeLine(`PROMPT_JSON:${JSON.stringify(choicePromptText)}`);
   }
+  if (event === "INPUT" && inputPromptText !== null) {
+    writeLine(`PROMPT_JSON:${JSON.stringify(inputPromptText)}`);
+  }
   for (let i = 0; i < choices.length; i += 1) {
     const choice = choices[i];
     writeLine(`CHOICE:${choice.index}|${JSON.stringify(choice.text)}`);
+  }
+  if (event === "INPUT" && inputDefaultText !== null) {
+    writeLine(`INPUT_DEFAULT_JSON:${JSON.stringify(inputDefaultText)}`);
   }
   writeLine(`STATE_OUT:${stateOut ?? "NONE"}`);
   return 0;
@@ -117,7 +126,7 @@ const runStart = (args: string[], writeLine: WriteLine): number => {
   const scenario = resolveStartScenario(flags);
   const { engine, boundary } = startScenario(scenario, PLAYER_COMPILER_VERSION);
 
-  if (boundary.event === "CHOICES") {
+  if (boundary.event === "CHOICES" || boundary.event === "INPUT") {
     const state = createPlayerState(scenario.id, PLAYER_COMPILER_VERSION, engine.snapshot());
     savePlayerState(stateOut, state);
     return emitBoundary(
@@ -126,6 +135,8 @@ const runStart = (args: string[], writeLine: WriteLine): number => {
       boundary.texts,
       boundary.choices,
       boundary.choicePromptText,
+      boundary.inputPromptText,
+      boundary.inputDefaultText,
       stateOut
     );
   }
@@ -136,6 +147,8 @@ const runStart = (args: string[], writeLine: WriteLine): number => {
     boundary.texts,
     boundary.choices,
     boundary.choicePromptText,
+    boundary.inputPromptText,
+    boundary.inputDefaultText,
     null
   );
 };
@@ -155,7 +168,7 @@ const runChoose = (args: string[], writeLine: WriteLine): number => {
   const resumed = resumeScenario(scenario, state.snapshot, state.compilerVersion);
   const boundary = chooseAndContinue(resumed.engine, choice);
 
-  if (boundary.event === "CHOICES") {
+  if (boundary.event === "CHOICES" || boundary.event === "INPUT") {
     const next = createPlayerState(scenario.id, state.compilerVersion, resumed.engine.snapshot());
     savePlayerState(stateOut, next);
     return emitBoundary(
@@ -164,6 +177,8 @@ const runChoose = (args: string[], writeLine: WriteLine): number => {
       boundary.texts,
       boundary.choices,
       boundary.choicePromptText,
+      boundary.inputPromptText,
+      boundary.inputDefaultText,
       stateOut
     );
   }
@@ -174,6 +189,46 @@ const runChoose = (args: string[], writeLine: WriteLine): number => {
     boundary.texts,
     boundary.choices,
     boundary.choicePromptText,
+    boundary.inputPromptText,
+    boundary.inputDefaultText,
+    null
+  );
+};
+
+const runInput = (args: string[], writeLine: WriteLine): number => {
+  const flags = parseFlags(args);
+  const stateIn = getRequiredFlag(flags, "state-in");
+  const stateOut = getRequiredFlag(flags, "state-out");
+  const text = getRequiredFlag(flags, "text");
+
+  const state = loadPlayerState(stateIn);
+  const scenario = loadSourceByRef(state.scenarioId);
+  const resumed = resumeScenario(scenario, state.snapshot, state.compilerVersion);
+  const boundary = submitInputAndContinue(resumed.engine, text);
+
+  if (boundary.event === "CHOICES" || boundary.event === "INPUT") {
+    const next = createPlayerState(scenario.id, state.compilerVersion, resumed.engine.snapshot());
+    savePlayerState(stateOut, next);
+    return emitBoundary(
+      writeLine,
+      boundary.event,
+      boundary.texts,
+      boundary.choices,
+      boundary.choicePromptText,
+      boundary.inputPromptText,
+      boundary.inputDefaultText,
+      stateOut
+    );
+  }
+
+  return emitBoundary(
+    writeLine,
+    boundary.event,
+    boundary.texts,
+    boundary.choices,
+    boundary.choicePromptText,
+    boundary.inputPromptText,
+    boundary.inputDefaultText,
     null
   );
 };
@@ -195,7 +250,13 @@ export const runAgentCommand = (
     if (subcommand === "choose") {
       return runChoose(rest, writeLine);
     }
-    throw makeCliError("CLI_AGENT_USAGE", `Unknown agent subcommand: ${subcommand}. Use start/choose.`);
+    if (subcommand === "input") {
+      return runInput(rest, writeLine);
+    }
+    throw makeCliError(
+      "CLI_AGENT_USAGE",
+      `Unknown agent subcommand: ${subcommand}. Use start/choose/input.`
+    );
   } catch (error) {
     return emitError(writeLine, error);
   }

@@ -199,6 +199,84 @@ test("choice prompt text is host-facing and not emitted as text output", () => {
   assert.deepEqual(engine.next(), { kind: "end" });
 });
 
+test("input runtime branches cover pending/input validation paths", () => {
+  const inputScript = compileScript(
+    `
+<script name="main">
+  <var name="name" type="string" value="'A'"/>
+  <input var="name" text="name"/>
+  <text>\${name}</text>
+</script>
+`,
+    "main.script.xml"
+  );
+  const inputEngine = new ScriptLangEngine({
+    scripts: { main: inputScript },
+    compilerVersion: "dev",
+  });
+  inputEngine.start("main");
+
+  expectCode(() => inputEngine.submitInput("x"), "ENGINE_NO_PENDING_INPUT");
+
+  const inputOut = inputEngine.next();
+  assert.equal(inputOut.kind, "input");
+  expectCode(() => inputEngine.choose(0), "ENGINE_PENDING_INPUT");
+
+  const anyInputEngine = inputEngine as any;
+  const savedBoundary = anyInputEngine.pendingBoundary;
+  const savedNodeIndex = anyInputEngine.frames[0].nodeIndex;
+
+  anyInputEngine.pendingBoundary = { ...savedBoundary, frameId: 99999 };
+  expectCode(() => inputEngine.submitInput("x"), "ENGINE_INPUT_FRAME_MISSING");
+  anyInputEngine.pendingBoundary = savedBoundary;
+
+  anyInputEngine.frames[0].nodeIndex = 999;
+  expectCode(() => inputEngine.submitInput("x"), "ENGINE_INPUT_NODE_MISSING");
+  anyInputEngine.frames[0].nodeIndex = savedNodeIndex;
+
+  inputEngine.submitInput("   ");
+  assert.deepEqual(inputEngine.next(), { kind: "text", text: "A" });
+  assert.deepEqual(inputEngine.next(), { kind: "end" });
+
+  const choiceScript = compileScript(
+    `<script name="main"><choice text="Pick"><option text="A"><text>x</text></option></choice></script>`,
+    "choice.script.xml"
+  );
+  const choiceEngine = new ScriptLangEngine({
+    scripts: { main: choiceScript },
+    compilerVersion: "dev",
+  });
+  choiceEngine.start("main");
+  const choiceOut = choiceEngine.next();
+  assert.equal(choiceOut.kind, "choices");
+  expectCode(() => choiceEngine.submitInput("x"), "ENGINE_PENDING_CHOICE");
+
+  const typeScript = compileScript(
+    `
+<script name="main">
+  <var name="name" type="string" value="'A'"/>
+  <choice text="go">
+    <option text="ok"><text>x</text></option>
+  </choice>
+  <input var="name" text="name"/>
+</script>
+`,
+    "type.script.xml"
+  );
+  const typeEngine = new ScriptLangEngine({
+    scripts: { main: typeScript },
+    compilerVersion: "dev",
+  });
+  typeEngine.start("main");
+  const typeChoice = typeEngine.next();
+  assert.equal(typeChoice.kind, "choices");
+  typeEngine.choose(0);
+  assert.deepEqual(typeEngine.next(), { kind: "text", text: "x" });
+  const anyTypeEngine = typeEngine as any;
+  anyTypeEngine.frames[0].scope.name = 1;
+  expectCode(() => typeEngine.next(), "ENGINE_INPUT_VAR_TYPE");
+});
+
 test("text once is emitted only once and survives restart", () => {
   const main = compileScript(
     `
@@ -757,7 +835,7 @@ test("snapshot resume reuses pending choice items and prompt text for random-ren
   assert.equal(resumedChoices.promptText, expectedPrompt);
 });
 
-test("resume rejects snapshots missing random state or pending choice items", () => {
+test("resume rejects snapshots missing random state or invalid pending choice payloads", () => {
   const main = compileScript(
     `
 <script name="main">
@@ -785,41 +863,53 @@ test("resume rejects snapshots missing random state or pending choice items", ()
   });
   expectCode(() => restoredMissingRng.resume(missingRng as unknown as typeof snapshot), "SNAPSHOT_RNG_STATE");
 
-  const missingItems = structuredClone(snapshot) as unknown as Record<string, unknown>;
-  delete missingItems.pendingChoiceItems;
+  const missingItems = structuredClone(snapshot) as unknown as {
+    pendingBoundary?: { kind?: string; items?: unknown };
+  };
+  if (missingItems.pendingBoundary?.kind === "choice") {
+    delete missingItems.pendingBoundary.items;
+  }
   const restoredMissingItems = new ScriptLangEngine({
     scripts: { main },
     compilerVersion: "dev",
   });
   expectCode(
     () => restoredMissingItems.resume(missingItems as unknown as typeof snapshot),
-    "SNAPSHOT_PENDING_CHOICE_ITEMS"
+    "SNAPSHOT_PENDING_BOUNDARY"
   );
 
-  const badItemShape = structuredClone(snapshot) as unknown as Record<string, unknown>;
-  badItemShape.pendingChoiceItems = [{ index: 0, id: 1, text: "ok" }];
+  const badItemShape = structuredClone(snapshot) as unknown as {
+    pendingBoundary?: { kind?: string; items?: unknown };
+  };
+  if (badItemShape.pendingBoundary?.kind === "choice") {
+    badItemShape.pendingBoundary.items = [{ index: 0, id: 1, text: "ok" }];
+  }
   const restoredBadItemShape = new ScriptLangEngine({
     scripts: { main },
     compilerVersion: "dev",
   });
   expectCode(
     () => restoredBadItemShape.resume(badItemShape as unknown as typeof snapshot),
-    "SNAPSHOT_PENDING_CHOICE_ITEMS"
+    "SNAPSHOT_PENDING_BOUNDARY"
   );
 
-  const badPromptType = structuredClone(snapshot) as unknown as Record<string, unknown>;
-  badPromptType.pendingChoicePromptText = 1;
+  const badPromptType = structuredClone(snapshot) as unknown as {
+    pendingBoundary?: { kind?: string; promptText?: unknown };
+  };
+  if (badPromptType.pendingBoundary?.kind === "choice") {
+    badPromptType.pendingBoundary.promptText = 1;
+  }
   const restoredBadPromptType = new ScriptLangEngine({
     scripts: { main },
     compilerVersion: "dev",
   });
   expectCode(
     () => restoredBadPromptType.resume(badPromptType as unknown as typeof snapshot),
-    "SNAPSHOT_PENDING_CHOICE_PROMPT_TEXT"
+    "SNAPSHOT_PENDING_BOUNDARY"
   );
 });
 
-test("resume accepts snapshots without pending choice prompt text", () => {
+test("resume accepts snapshots with null pending choice prompt text", () => {
   const scriptsXml = {
     "main.script.xml": `
 <script name="main">
@@ -834,8 +924,12 @@ test("resume accepts snapshots without pending choice prompt text", () => {
   assert.equal(choices.kind, "choices");
   assert.equal(choices.promptText, "pick");
   const snapshot = engine.snapshot();
-  const snapshotWithoutPrompt = structuredClone(snapshot) as unknown as Record<string, unknown>;
-  delete snapshotWithoutPrompt.pendingChoicePromptText;
+  const snapshotWithoutPrompt = structuredClone(snapshot) as unknown as {
+    pendingBoundary?: { kind?: string; promptText?: unknown };
+  };
+  if (snapshotWithoutPrompt.pendingBoundary?.kind === "choice") {
+    snapshotWithoutPrompt.pendingBoundary.promptText = null;
+  }
 
   const resumed = resumeEngineFromXml({
     scriptsXml,
@@ -1310,7 +1404,7 @@ test("engine choice error branches", () => {
   expectCode(() => engine.choose(9), "ENGINE_CHOICE_INDEX");
 
   const anyEngine = engine as any;
-  anyEngine.pendingChoice.options[0].id = "not-exists";
+  anyEngine.pendingBoundary.options[0].id = "not-exists";
   expectCode(() => engine.choose(0), "ENGINE_CHOICE_NOT_FOUND");
 });
 
@@ -1324,10 +1418,10 @@ test("choice frame and node missing branches", () => {
   engine.next();
   const anyEngine = engine as any;
 
-  const savedPending = anyEngine.pendingChoice;
-  anyEngine.pendingChoice = { ...savedPending, frameId: 99999 };
+  const savedPending = anyEngine.pendingBoundary;
+  anyEngine.pendingBoundary = { ...savedPending, frameId: 99999 };
   expectCode(() => engine.choose(0), "ENGINE_CHOICE_FRAME_MISSING");
-  anyEngine.pendingChoice = savedPending;
+  anyEngine.pendingBoundary = savedPending;
 
   anyEngine.frames[0].nodeIndex = 999;
   expectCode(() => engine.choose(0), "ENGINE_CHOICE_NODE_MISSING");
@@ -1361,8 +1455,8 @@ test("engine snapshot resume error branches", () => {
     "SNAPSHOT_SCHEMA"
   );
   expectCode(
-    () => engine.resume({ ...snap, waitingChoice: false }),
-    "SNAPSHOT_WAITING_CHOICE"
+    () => engine.resume({ ...snap, pendingBoundary: null as never }),
+    "SNAPSHOT_PENDING_BOUNDARY"
   );
   expectCode(
     () => engine.resume({ ...snap, runtimeFrames: [{ ...snap.runtimeFrames[0], groupId: "ghost" }] }),
@@ -1373,8 +1467,34 @@ test("engine snapshot resume error branches", () => {
     "SNAPSHOT_EMPTY"
   );
   expectCode(
-    () => engine.resume({ ...snap, pendingChoiceNodeId: "wrong" }),
-    "SNAPSHOT_PENDING_CHOICE"
+    () =>
+      engine.resume({
+        ...snap,
+        pendingBoundary: { ...snap.pendingBoundary, nodeId: "wrong" },
+      }),
+    "SNAPSHOT_PENDING_BOUNDARY"
+  );
+  expectCode(
+    () =>
+      engine.resume({
+        ...snap,
+        pendingBoundary: {
+          kind: "input",
+          nodeId: "input-1",
+          targetVar: "name",
+          promptText: 1,
+          defaultText: "Traveler",
+        } as never,
+      }),
+    "SNAPSHOT_PENDING_BOUNDARY"
+  );
+  expectCode(
+    () =>
+      engine.resume({
+        ...snap,
+        pendingBoundary: { kind: "unknown", nodeId: "x" } as never,
+      }),
+    "SNAPSHOT_PENDING_BOUNDARY"
   );
 });
 
@@ -1665,12 +1785,12 @@ test("engine start/reset, empty-step completion, and direct return target path",
       varTypes: {},
     },
   ];
-  anyEngine.pendingChoice = { frameId: 99, nodeId: "x", options: [] };
+  anyEngine.pendingBoundary = { kind: "choice", frameId: 99, nodeId: "x", options: [], promptText: null };
   anyEngine.ended = true;
   anyEngine.frameCounter = 123;
 
   engine.start("main.script.xml");
-  assert.equal(anyEngine.pendingChoice, null);
+  assert.equal(anyEngine.pendingBoundary, null);
   assert.equal(anyEngine.ended, false);
   assert.equal(anyEngine.frames.length, 1);
   assert.equal(anyEngine.frameCounter, 2);

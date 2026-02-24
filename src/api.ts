@@ -3,7 +3,7 @@ import {
   compileProjectScriptsFromXmlMap,
 } from "./compiler/index.js";
 import { ScriptLangError } from "./core/errors.js";
-import type { SnapshotV1 } from "./core/types.js";
+import type { SnapshotV2 } from "./core/types.js";
 import { ScriptLangEngine, type HostFunctionMap } from "./runtime/index.js";
 
 export interface CreateEngineFromXmlOptions {
@@ -76,7 +76,7 @@ export const createEngineFromXml = (options: CreateEngineFromXmlOptions): Script
 
 export interface ResumeEngineFromXmlOptions {
   scriptsXml: Record<string, string>;
-  snapshot: SnapshotV1;
+  snapshot: SnapshotV2;
   hostFunctions?: HostFunctionMap;
   compilerVersion?: string;
 }

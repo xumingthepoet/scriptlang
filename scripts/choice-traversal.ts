@@ -6,9 +6,10 @@ import {
   chooseAndContinue,
   resumeScenario,
   startScenario,
+  submitInputAndContinue,
 } from "../src/cli/core/engine-runner.js";
 import { loadSourceByScriptsDir } from "../src/cli/core/source-loader.js";
-import type { ChoiceItem, SnapshotV1 } from "../src/core/types.js";
+import type { ChoiceItem, SnapshotV2 } from "../src/core/types.js";
 
 interface ChoiceTraversalOptions {
   maxChoiceSteps: number;
@@ -210,14 +211,36 @@ const traverseScenario = (
   let transitions = 0;
   let maxDepth = 0;
 
-  const walk = (snapshot: SnapshotV1, depth: number, trace: TraceStep[]): void => {
+  const walk = (snapshot: SnapshotV2, depth: number, trace: TraceStep[]): void => {
     assertWithinRuntime(target, startedAt, options, trace);
 
     const resumed = resumeScenario(scenario, snapshot, PLAYER_COMPILER_VERSION);
+    if (resumed.boundary.event === "INPUT") {
+      const branch = resumeScenario(scenario, snapshot, PLAYER_COMPILER_VERSION);
+      if (branch.boundary.event !== "INPUT") {
+        throw new TraversalError(
+          "TRAVERSE_BRANCH_INVALID",
+          "Expected INPUT boundary before applying branch input.",
+          target.label,
+          trace
+        );
+      }
+      const boundary = submitInputAndContinue(branch.engine, "");
+      assertWithinRuntime(target, startedAt, options, trace);
+      if (boundary.event === "END") {
+        completedPaths += 1;
+        assertWithinPathLimit(target, completedPaths, options, trace);
+        return;
+      }
+      const nextSnapshot = branch.engine.snapshot();
+      walk(nextSnapshot, depth, trace);
+      return;
+    }
+
     if (resumed.boundary.event !== "CHOICES") {
       throw new TraversalError(
         "TRAVERSE_BOUNDARY_INVALID",
-        "Expected CHOICES boundary while traversing snapshot state.",
+        "Expected CHOICES or INPUT boundary while traversing snapshot state.",
         target.label,
         trace
       );

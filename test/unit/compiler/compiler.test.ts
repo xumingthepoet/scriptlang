@@ -297,6 +297,78 @@ test("choice prompt text rejects empty attribute", () => {
   );
 });
 
+test("input node parses and validates var/text constraints", () => {
+  const ir = compileScript(
+    `<script name="main"><var name="name" type="string" value="'A'"/><input var="name" text="Name hero"/></script>`,
+    "input-ok.script.xml"
+  );
+  const node = ir.groups[ir.rootGroupId].nodes[1];
+  assert.equal(node.kind, "input");
+  assert.equal(node.targetVar, "name");
+  assert.equal(node.promptText, "Name hero");
+
+  expectCode(
+    () => compileScript(`<script name="main"><input text="x"/></script>`, "input-missing-var.script.xml"),
+    "XML_MISSING_ATTR"
+  );
+  expectCode(
+    () => compileScript(`<script name="main"><var name="name" type="string"/><input var="name"/></script>`, "input-missing-text.script.xml"),
+    "XML_MISSING_ATTR"
+  );
+  expectCode(
+    () => compileScript(`<script name="main"><var name="name" type="string"/><input var="name" text="  "/></script>`, "input-empty-text.script.xml"),
+    "XML_EMPTY_ATTR"
+  );
+  expectCode(
+    () =>
+      compileScript(
+        `<script name="main"><input var="missing" text="x"/></script>`,
+        "input-missing-scope.script.xml"
+      ),
+    "XML_INPUT_VAR_UNKNOWN"
+  );
+  expectCode(
+    () =>
+      compileScript(
+        `<script name="main"><var name="hp" type="number" value="1"/><input var="hp" text="x"/></script>`,
+        "input-var-type.script.xml"
+      ),
+    "XML_INPUT_VAR_TYPE"
+  );
+  expectCode(
+    () =>
+      compileScript(
+        `<script name="main"><var name="name" type="string"/><input var="name" text="name \${x}"/></script>`,
+        "input-template.script.xml"
+      ),
+    "XML_INPUT_TEMPLATE_UNSUPPORTED"
+  );
+  expectCode(
+    () =>
+      compileScript(
+        `<script name="main"><var name="name" type="string"/><input var="name" text="x" default="y"/></script>`,
+        "input-default-attr.script.xml"
+      ),
+    "XML_ATTR_NOT_ALLOWED"
+  );
+  expectCode(
+    () =>
+      compileScript(
+        `<script name="main"><var name="name" type="string"/><input var="name" text="x"><text>bad</text></input></script>`,
+        "input-child-node.script.xml"
+      ),
+    "XML_INPUT_CHILD_INVALID"
+  );
+  expectCode(
+    () =>
+      compileScript(
+        `<script name="main"><var name="name" type="string"/><input var="name" text="x">bad</input></script>`,
+        "input-inline-text.script.xml"
+      ),
+    "XML_INPUT_CHILD_INVALID"
+  );
+});
+
 test("text once attribute is parsed", () => {
   const ir = compileScript(`<script name="main"><text once="true">intro</text></script>`, "text-once.script.xml");
   const node = ir.groups[ir.rootGroupId].nodes[0];

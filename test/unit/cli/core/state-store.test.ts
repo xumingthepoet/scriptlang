@@ -16,6 +16,17 @@ import {
 } from "../../../../src/cli/core/state-store.js";
 
 const scriptsDir = (id: string): string => path.resolve("examples", "scripts", id);
+const makeValidSnapshot = () => ({
+  schemaVersion: "snapshot.v2" as const,
+  compilerVersion: PLAYER_COMPILER_VERSION,
+  rngState: 1,
+  pendingBoundary: {
+    kind: "choice" as const,
+    nodeId: "node-1",
+    items: [],
+    promptText: null,
+  },
+});
 
 test("state store save and load roundtrip", () => {
   const scenario = loadSourceByScriptsDir(scriptsDir("06-snapshot-flow"));
@@ -30,7 +41,7 @@ test("state store save and load roundtrip", () => {
   const loaded = loadPlayerState(statePath);
   assert.equal(loaded.schemaVersion, PLAYER_STATE_SCHEMA);
   assert.equal(loaded.scenarioId, scenario.id);
-  assert.equal(loaded.snapshot.schemaVersion, "snapshot.v1");
+  assert.equal(loaded.snapshot.schemaVersion, "snapshot.v2");
 });
 
 test("state store validation errors", () => {
@@ -50,7 +61,7 @@ test("state store validation errors", () => {
       schemaVersion: "old",
       scenarioId,
       compilerVersion: PLAYER_COMPILER_VERSION,
-      snapshot: { schemaVersion: "snapshot.v1", compilerVersion: PLAYER_COMPILER_VERSION, waitingChoice: true },
+      snapshot: makeValidSnapshot(),
     })
   );
   assert.throws(() => loadPlayerState(wrongSchemaPath), (error: unknown) => {
@@ -65,7 +76,7 @@ test("state store validation errors", () => {
       schemaVersion: PLAYER_STATE_SCHEMA,
       scenarioId: "",
       compilerVersion: PLAYER_COMPILER_VERSION,
-      snapshot: { schemaVersion: "snapshot.v1", compilerVersion: PLAYER_COMPILER_VERSION, waitingChoice: true },
+      snapshot: makeValidSnapshot(),
     })
   );
   assert.throws(() => loadPlayerState(badScenarioPath), (error: unknown) => {
@@ -80,7 +91,7 @@ test("state store validation errors", () => {
       schemaVersion: PLAYER_STATE_SCHEMA,
       scenarioId,
       compilerVersion: "",
-      snapshot: { schemaVersion: "snapshot.v1", compilerVersion: PLAYER_COMPILER_VERSION, waitingChoice: true },
+      snapshot: makeValidSnapshot(),
     })
   );
   assert.throws(() => loadPlayerState(badCompilerPath), (error: unknown) => {
@@ -133,10 +144,14 @@ test("state store validation errors", () => {
       scenarioId,
       compilerVersion: PLAYER_COMPILER_VERSION,
       snapshot: {
-        schemaVersion: "snapshot.v1",
+        schemaVersion: "snapshot.v2",
         compilerVersion: PLAYER_COMPILER_VERSION,
-        waitingChoice: true,
-        pendingChoiceItems: [],
+        pendingBoundary: {
+          kind: "choice",
+          nodeId: "node-1",
+          items: [],
+          promptText: null,
+        },
       },
     })
   );
@@ -153,10 +168,14 @@ test("state store validation errors", () => {
       scenarioId,
       compilerVersion: PLAYER_COMPILER_VERSION,
       snapshot: {
-        schemaVersion: "snapshot.v1",
+        schemaVersion: "snapshot.v2",
         compilerVersion: PLAYER_COMPILER_VERSION,
-        waitingChoice: true,
         rngState: 1,
+        pendingBoundary: {
+          kind: "choice",
+          nodeId: "node-1",
+          promptText: null,
+        },
       },
     })
   );
@@ -173,12 +192,15 @@ test("state store validation errors", () => {
       scenarioId,
       compilerVersion: PLAYER_COMPILER_VERSION,
       snapshot: {
-        schemaVersion: "snapshot.v1",
+        schemaVersion: "snapshot.v2",
         compilerVersion: PLAYER_COMPILER_VERSION,
-        waitingChoice: true,
         rngState: 1,
-        pendingChoiceItems: [],
-        pendingChoicePromptText: 1,
+        pendingBoundary: {
+          kind: "choice",
+          nodeId: "node-1",
+          items: [],
+          promptText: 1,
+        },
       },
     })
   );
@@ -195,11 +217,15 @@ test("state store validation errors", () => {
       scenarioId,
       compilerVersion: PLAYER_COMPILER_VERSION,
       snapshot: {
-        schemaVersion: "snapshot.v1",
+        schemaVersion: "snapshot.v2",
         compilerVersion: PLAYER_COMPILER_VERSION,
-        waitingChoice: true,
         rngState: 1,
-        pendingChoiceItems: [{ index: 0, id: 1, text: "x" }],
+        pendingBoundary: {
+          kind: "choice",
+          nodeId: "node-1",
+          items: [{ index: 0, id: 1, text: "x" }],
+          promptText: null,
+        },
       },
     })
   );
@@ -207,4 +233,28 @@ test("state store validation errors", () => {
     assert.equal((error as { code?: string }).code, "CLI_STATE_INVALID");
     return true;
   });
+
+  const inputPendingPath = path.join(dir, "input-pending.bin");
+  fs.writeFileSync(
+    inputPendingPath,
+    v8.serialize({
+      schemaVersion: PLAYER_STATE_SCHEMA,
+      scenarioId,
+      compilerVersion: PLAYER_COMPILER_VERSION,
+      snapshot: {
+        schemaVersion: "snapshot.v2",
+        compilerVersion: PLAYER_COMPILER_VERSION,
+        rngState: 1,
+        pendingBoundary: {
+          kind: "input",
+          nodeId: "node-2",
+          targetVar: "name",
+          promptText: "Name",
+          defaultText: "Traveler",
+        },
+      },
+    })
+  );
+  const loadedInputPending = loadPlayerState(inputPendingPath);
+  assert.equal(loadedInputPending.snapshot.pendingBoundary.kind, "input");
 });

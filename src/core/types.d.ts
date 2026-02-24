@@ -101,6 +101,12 @@ export interface ChoiceNode extends BaseNode {
   options: ChoiceOption[];
 }
 
+export interface InputNode extends BaseNode {
+  kind: "input";
+  targetVar: string;
+  promptText: string;
+}
+
 export interface BreakNode extends BaseNode {
   kind: "break";
 }
@@ -134,6 +140,7 @@ export type ScriptNode =
   | IfNode
   | WhileNode
   | ChoiceNode
+  | InputNode
   | BreakNode
   | ContinueNode
   | CallNode
@@ -167,7 +174,7 @@ export interface ContinuationFrame {
   refBindings: Record<string, string>;
 }
 
-export interface SnapshotFrameV1 {
+export interface SnapshotFrameV2 {
   frameId: number;
   groupId: string;
   nodeIndex: number;
@@ -181,8 +188,25 @@ export interface SnapshotFrameV1 {
   returnContinuation: ContinuationFrame | null;
 }
 
-export interface SnapshotV1 {
-  schemaVersion: "snapshot.v1";
+export interface PendingChoiceBoundaryV2 {
+  kind: "choice";
+  nodeId: string;
+  items: ChoiceItem[];
+  promptText: string | null;
+}
+
+export interface PendingInputBoundaryV2 {
+  kind: "input";
+  nodeId: string;
+  targetVar: string;
+  promptText: string;
+  defaultText: string;
+}
+
+export type PendingBoundaryV2 = PendingChoiceBoundaryV2 | PendingInputBoundaryV2;
+
+export interface SnapshotV2 {
+  schemaVersion: "snapshot.v2";
   compilerVersion: string;
   cursor: {
     groupPath: string[];
@@ -190,12 +214,9 @@ export interface SnapshotV1 {
   };
   scopeChain: RuntimeScopeFrame[];
   continuations: ContinuationFrame[];
-  runtimeFrames: SnapshotFrameV1[];
+  runtimeFrames: SnapshotFrameV2[];
   rngState: number;
-  waitingChoice: boolean;
-  pendingChoiceNodeId: string | null;
-  pendingChoiceItems: ChoiceItem[];
-  pendingChoicePromptText?: string | null;
+  pendingBoundary: PendingBoundaryV2;
   onceStateByScript?: Record<string, string[]>;
 }
 
@@ -208,4 +229,5 @@ export interface ChoiceItem {
 export type EngineOutput =
   | { kind: "text"; text: string }
   | { kind: "choices"; items: ChoiceItem[]; promptText?: string }
+  | { kind: "input"; promptText: string; defaultText: string }
   | { kind: "end" };
