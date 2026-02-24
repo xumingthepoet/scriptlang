@@ -37,6 +37,7 @@ interface PendingChoice {
   frameId: number;
   nodeId: string;
   options: ChoiceItem[];
+  promptText: string | null;
 }
 
 const deepClone = <T>(value: T): T => structuredClone(value);
@@ -232,7 +233,7 @@ export class ScriptLangEngine {
 
   next(): EngineOutput {
     if (this.pendingChoice) {
-      return { kind: "choices", items: this.pendingChoice.options };
+      return this.toChoiceOutput(this.pendingChoice.options, this.pendingChoice.promptText);
     }
     if (this.ended) {
       return { kind: "end" };
@@ -296,9 +297,10 @@ export class ScriptLangEngine {
             top.nodeIndex += 1;
             continue;
           }
-          this.pendingChoice = { frameId: top.frameId, nodeId: node.id, options };
+          const promptText = node.promptText ? this.renderText(node.promptText) : null;
+          this.pendingChoice = { frameId: top.frameId, nodeId: node.id, options, promptText };
           this.waitingChoice = true;
-          return { kind: "choices", items: options };
+          return this.toChoiceOutput(options, promptText);
         }
         if (node.kind === "call") {
           this.executeCall(node);
@@ -384,6 +386,7 @@ export class ScriptLangEngine {
       waitingChoice: true,
       pendingChoiceNodeId: this.pendingChoice.nodeId,
       pendingChoiceItems: this.pendingChoice.options.map((item) => ({ ...item })),
+      pendingChoicePromptText: this.pendingChoice.promptText,
     };
   }
 
@@ -413,6 +416,7 @@ export class ScriptLangEngine {
       );
     }
     this.assertSnapshotPendingChoiceItems(snapshot.pendingChoiceItems);
+    this.assertSnapshotPendingChoicePromptText(snapshot.pendingChoicePromptText);
 
     this.reset();
     this.rngState = snapshot.rngState;
@@ -425,6 +429,7 @@ export class ScriptLangEngine {
       frameId: top.frameId,
       nodeId: node.id,
       options,
+      promptText: snapshot.pendingChoicePromptText ?? null,
     };
     this.waitingChoice = true;
   }
@@ -899,6 +904,23 @@ export class ScriptLangEngine {
         );
       }
     }
+  }
+
+  private assertSnapshotPendingChoicePromptText(value: unknown): asserts value is string | null | undefined {
+    if (value === undefined || value === null || typeof value === "string") {
+      return;
+    }
+    throw new ScriptLangError(
+      "SNAPSHOT_PENDING_CHOICE_PROMPT_TEXT",
+      "Snapshot pendingChoicePromptText must be string, null, or undefined."
+    );
+  }
+
+  private toChoiceOutput(options: ChoiceItem[], promptText: string | null): EngineOutput {
+    if (promptText === null) {
+      return { kind: "choices", items: options };
+    }
+    return { kind: "choices", items: options, promptText };
   }
 
   private renderText(template: string): string {

@@ -126,6 +126,29 @@ test("choice options remain visible on re-entry and after resume", () => {
   assert.deepEqual(restored.next(), { kind: "end" });
 });
 
+test("choice prompt text is host-facing and not emitted as text output", () => {
+  const engine = createEngineFromXml({
+    scriptsXml: {
+      "main.script.xml": `
+<script name="main">
+  <text>before</text>
+  <choice text="pick now">
+    <option text="A"><text>after</text></option>
+  </choice>
+</script>
+`,
+    },
+  });
+  assert.deepEqual(engine.next(), { kind: "text", text: "before" });
+  const choices = engine.next();
+  assert.equal(choices.kind, "choices");
+  assert.equal(choices.promptText, "pick now");
+
+  engine.choose(0);
+  assert.deepEqual(engine.next(), { kind: "text", text: "after" });
+  assert.deepEqual(engine.next(), { kind: "end" });
+});
+
 test("call with ref writes back to caller var", () => {
   const main = compileScript(
     `
@@ -380,11 +403,11 @@ test("engine rejects invalid random seed and reserved host function name", () =>
   );
 });
 
-test("snapshot resume reuses pending choice items for random-rendered text", () => {
+test("snapshot resume reuses pending choice items and prompt text for random-rendered choices", () => {
   const scriptsXml = {
     "main.script.xml": `
 <script name="main">
-  <choice>
+  <choice text="prompt-\${random()}">
     <option text="roll-\${random()}">
       <text>ok</text>
     </option>
@@ -397,6 +420,7 @@ test("snapshot resume reuses pending choice items for random-rendered text", () 
   const first = engine.next();
   assert.equal(first.kind, "choices");
   const expectedText = first.items[0].text;
+  const expectedPrompt = first.promptText;
   const snapshot = engine.snapshot();
 
   const resumed = resumeEngineFromXml({
@@ -407,6 +431,7 @@ test("snapshot resume reuses pending choice items for random-rendered text", () 
   const resumedChoices = resumed.next();
   assert.equal(resumedChoices.kind, "choices");
   assert.equal(resumedChoices.items[0].text, expectedText);
+  assert.equal(resumedChoices.promptText, expectedPrompt);
 });
 
 test("resume rejects snapshots missing random state or pending choice items", () => {
@@ -458,6 +483,45 @@ test("resume rejects snapshots missing random state or pending choice items", ()
     () => restoredBadItemShape.resume(badItemShape as unknown as typeof snapshot),
     "SNAPSHOT_PENDING_CHOICE_ITEMS"
   );
+
+  const badPromptType = structuredClone(snapshot) as unknown as Record<string, unknown>;
+  badPromptType.pendingChoicePromptText = 1;
+  const restoredBadPromptType = new ScriptLangEngine({
+    scripts: { main },
+    compilerVersion: "dev",
+  });
+  expectCode(
+    () => restoredBadPromptType.resume(badPromptType as unknown as typeof snapshot),
+    "SNAPSHOT_PENDING_CHOICE_PROMPT_TEXT"
+  );
+});
+
+test("resume accepts snapshots without pending choice prompt text", () => {
+  const scriptsXml = {
+    "main.script.xml": `
+<script name="main">
+  <choice text="pick">
+    <option text="ok"><text>x</text></option>
+  </choice>
+</script>
+`,
+  };
+  const engine = createEngineFromXml({ scriptsXml, compilerVersion: "dev" });
+  const choices = engine.next();
+  assert.equal(choices.kind, "choices");
+  assert.equal(choices.promptText, "pick");
+  const snapshot = engine.snapshot();
+  const snapshotWithoutPrompt = structuredClone(snapshot) as unknown as Record<string, unknown>;
+  delete snapshotWithoutPrompt.pendingChoicePromptText;
+
+  const resumed = resumeEngineFromXml({
+    scriptsXml,
+    snapshot: snapshotWithoutPrompt as unknown as typeof snapshot,
+    compilerVersion: "dev",
+  });
+  const resumedChoices = resumed.next();
+  assert.equal(resumedChoices.kind, "choices");
+  assert.equal(resumedChoices.promptText, undefined);
 });
 
 test("script variable named random shadows builtin random symbol", () => {

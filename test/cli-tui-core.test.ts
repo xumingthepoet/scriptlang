@@ -211,6 +211,18 @@ test("engine runner start choose and resume flows", () => {
   assert.deepEqual(ended.texts, ["after 15"]);
 });
 
+test("engine runner carries choice prompt text", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "scriptlang-choice-prompt-runner-"));
+  fs.writeFileSync(
+    path.join(dir, "main.script.xml"),
+    `<script name="main"><choice text="Pick"><option text="Go"><text>done</text></option></choice></script>`
+  );
+  const scenario = loadScenarioByScriptsDir(dir);
+  const started = startScenario(scenario, PLAYER_COMPILER_VERSION);
+  assert.equal(started.boundary.event, "CHOICES");
+  assert.equal(started.boundary.choicePromptText, "Pick");
+});
+
 test("state store save and load roundtrip", () => {
   const scenario = loadScenarioById("06-snapshot-flow");
   const started = startScenario(scenario, PLAYER_COMPILER_VERSION);
@@ -332,6 +344,28 @@ test("state store validation errors", () => {
     })
   );
   assert.throws(() => loadPlayerState(missingPendingItemsPath), (error: unknown) => {
+    assert.equal((error as { code?: string }).code, "CLI_STATE_INVALID");
+    return true;
+  });
+
+  const badPromptTypePath = path.join(dir, "bad-prompt-type.bin");
+  fs.writeFileSync(
+    badPromptTypePath,
+    v8.serialize({
+      schemaVersion: PLAYER_STATE_SCHEMA,
+      scenarioId: "06-snapshot-flow",
+      compilerVersion: PLAYER_COMPILER_VERSION,
+      snapshot: {
+        schemaVersion: "snapshot.v1",
+        compilerVersion: PLAYER_COMPILER_VERSION,
+        waitingChoice: true,
+        rngState: 1,
+        pendingChoiceItems: [],
+        pendingChoicePromptText: 123,
+      },
+    })
+  );
+  assert.throws(() => loadPlayerState(badPromptTypePath), (error: unknown) => {
     assert.equal((error as { code?: string }).code, "CLI_STATE_INVALID");
     return true;
   });

@@ -95,12 +95,16 @@ const emitBoundary = (
   event: "CHOICES" | "END",
   texts: string[],
   choices: Array<{ index: number; text: string }>,
+  choicePromptText: string | null,
   stateOut: string | null
 ): number => {
   writeLine("RESULT:OK");
   writeLine(`EVENT:${event}`);
   for (let i = 0; i < texts.length; i += 1) {
     writeLine(`TEXT_JSON:${JSON.stringify(texts[i])}`);
+  }
+  if (event === "CHOICES" && choicePromptText !== null) {
+    writeLine(`PROMPT_JSON:${JSON.stringify(choicePromptText)}`);
   }
   for (let i = 0; i < choices.length; i += 1) {
     const choice = choices[i];
@@ -132,10 +136,24 @@ const runStart = (args: string[], writeLine: WriteLine): number => {
   if (boundary.event === "CHOICES") {
     const state = createPlayerState(scenario.id, PLAYER_COMPILER_VERSION, engine.snapshot());
     savePlayerState(stateOut, state);
-    return emitBoundary(writeLine, boundary.event, boundary.texts, boundary.choices, stateOut);
+    return emitBoundary(
+      writeLine,
+      boundary.event,
+      boundary.texts,
+      boundary.choices,
+      boundary.choicePromptText,
+      stateOut
+    );
   }
 
-  return emitBoundary(writeLine, boundary.event, boundary.texts, boundary.choices, null);
+  return emitBoundary(
+    writeLine,
+    boundary.event,
+    boundary.texts,
+    boundary.choices,
+    boundary.choicePromptText,
+    null
+  );
 };
 
 const runChoose = (args: string[], writeLine: WriteLine): number => {
@@ -156,10 +174,24 @@ const runChoose = (args: string[], writeLine: WriteLine): number => {
   if (boundary.event === "CHOICES") {
     const next = createPlayerState(scenario.id, state.compilerVersion, resumed.engine.snapshot());
     savePlayerState(stateOut, next);
-    return emitBoundary(writeLine, boundary.event, boundary.texts, boundary.choices, stateOut);
+    return emitBoundary(
+      writeLine,
+      boundary.event,
+      boundary.texts,
+      boundary.choices,
+      boundary.choicePromptText,
+      stateOut
+    );
   }
 
-  return emitBoundary(writeLine, boundary.event, boundary.texts, boundary.choices, null);
+  return emitBoundary(
+    writeLine,
+    boundary.event,
+    boundary.texts,
+    boundary.choices,
+    boundary.choicePromptText,
+    null
+  );
 };
 
 export const runAgentCommand = (

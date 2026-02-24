@@ -251,6 +251,37 @@ test("compile text node supports inline text content", () => {
   assert.equal(node.value, "inline value");
 });
 
+test("choice supports optional prompt text attribute", () => {
+  const ir = compileScript(
+    `
+<script name="main">
+  <choice text="pick \${1 + 1}">
+    <option text="ok"><text>done</text></option>
+  </choice>
+</script>
+`,
+    "choice-prompt.script.xml"
+  );
+  const node = ir.groups[ir.rootGroupId].nodes[0];
+  assert.equal(node.kind, "choice");
+  assert.equal(node.promptText, "pick ${1 + 1}");
+});
+
+test("choice prompt text rejects empty attribute", () => {
+  assert.throws(
+    () =>
+      compileScript(
+        `<script name="main"><choice text="   "><option text="ok"><text>x</text></option></choice></script>`,
+        "choice-prompt-empty.script.xml"
+      ),
+    (e: unknown) => {
+      assert.ok(e instanceof ScriptLangError);
+      assert.equal(e.code, "XML_EMPTY_ATTR");
+      return true;
+    }
+  );
+});
+
 test("text/code reject value attribute and empty inline content", () => {
   const textWithValueAttr = `<script name="x"><text ${"value"}="x"/></script>`;
   const codeWithValueAttr = `<script name="x"><code ${"value"}="x"/></script>`;

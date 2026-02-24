@@ -108,6 +108,7 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
   const [typingLine, setTypingLine] = useState<string | null>(null);
   const [typingChars, setTypingChars] = useState(0);
   const [choices, setChoices] = useState(started.boundary.choices);
+  const [choicePromptText, setChoicePromptText] = useState(started.boundary.choicePromptText);
   const [selectedChoiceIndex, setSelectedChoiceIndex] = useState(0);
   const [choiceScrollOffset, setChoiceScrollOffset] = useState(0);
   const [ended, setEnded] = useState(started.boundary.event === "END");
@@ -162,12 +163,14 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
   const setBoundaryChoices = (boundary: BoundaryResult): void => {
     if (boundary.event === "CHOICES") {
       setChoices(boundary.choices);
+      setChoicePromptText(boundary.choicePromptText);
       setEnded(false);
       setSelectedChoiceIndex(0);
       setChoiceScrollOffset(0);
       return;
     }
     setChoices([]);
+    setChoicePromptText(null);
     setEnded(true);
     setSelectedChoiceIndex(0);
     setChoiceScrollOffset(0);
@@ -343,6 +346,7 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
     "keys: up/down move | enter choose | s save | l load | r restart | h help | q quit",
     contentWidth
   );
+  const choiceHeaderText = truncateToWidth(choicePromptText ?? "choices (up/down + enter):", contentWidth);
   const helpText = truncateToWidth(
     "snapshot is valid only when waiting at choices. if save fails, continue until a choice appears.",
     contentWidth
@@ -357,7 +361,7 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
         <Text key={`line-${index}`}>{line}</Text>
       ))}
       <Text color="gray">{dividerLine}</Text>
-      <Text color="cyan">{truncateToWidth("choices (up/down + enter):", contentWidth)}</Text>
+      <Text color="cyan">{choiceHeaderText}</Text>
       <Box flexDirection="column">
         {visibleChoiceRows.map((row) => (
           <Text key={row.key} color={row.selected ? "green" : undefined}>

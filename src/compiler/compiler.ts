@@ -72,6 +72,21 @@ function getAttr(node: XmlElementNode, name: string, required = false): string |
   return value ?? null;
 }
 
+const getOptionalNonEmptyAttr = (node: XmlElementNode, name: string): string | null => {
+  if (!Object.hasOwn(node.attributes, name)) {
+    return null;
+  }
+  const raw = node.attributes[name];
+  if (raw === undefined || raw.trim().length === 0) {
+    throw new ScriptLangError(
+      "XML_EMPTY_ATTR",
+      `Attribute "${name}" on <${node.name}> cannot be empty.`,
+      node.location
+    );
+  }
+  return raw;
+};
+
 const asElements = (nodes: XmlNode[]): XmlElementNode[] => {
   return nodes.filter((n): n is XmlElementNode => n.kind === "element");
 };
@@ -415,6 +430,7 @@ const compileGroup = (
       const choiceNode: ChoiceNode = {
         id: builder.nextNodeId("choice"),
         kind: "choice",
+        promptText: getOptionalNonEmptyAttr(child, "text"),
         options,
         location: child.location,
       };

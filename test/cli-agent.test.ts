@@ -33,6 +33,7 @@ test("agent start emits choices and writes state", () => {
   assert.equal(result.lines[0], "RESULT:OK");
   assert.ok(result.lines.includes("EVENT:CHOICES"));
   assert.ok(result.lines.some((line) => line.startsWith("TEXT_JSON:")));
+  assert.equal(result.lines.some((line) => line.startsWith("PROMPT_JSON:")), false);
   assert.ok(result.lines.some((line) => line.startsWith("CHOICE:0|")));
   assert.equal(result.lines[result.lines.length - 1], `STATE_OUT:${stateOut}`);
   assert.equal(fs.existsSync(stateOut), true);
@@ -60,6 +61,29 @@ test("agent start can finish without state file", () => {
   assert.ok(result.lines.includes("EVENT:END"));
   assert.equal(result.lines[result.lines.length - 1], "STATE_OUT:NONE");
   assert.equal(fs.existsSync(stateOut), false);
+});
+
+test("agent choices include prompt line when choice prompt exists", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "scriptlang-agent-prompt-"));
+  const scriptsDir = path.join(dir, "scripts");
+  const stateOut = path.join(dir, "state.bin");
+  fs.mkdirSync(scriptsDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(scriptsDir, "main.script.xml"),
+    `<script name="main"><choice text="Pick one"><option text="Go"><text>x</text></option></choice></script>`
+  );
+
+  const result = runWithCapture([
+    "start",
+    "--scripts-dir",
+    scriptsDir,
+    "--state-out",
+    stateOut,
+  ]);
+  assert.equal(result.code, 0);
+  assert.ok(result.lines.includes("EVENT:CHOICES"));
+  assert.ok(result.lines.includes(`PROMPT_JSON:${JSON.stringify("Pick one")}`));
+  assert.equal(result.lines[result.lines.length - 1], `STATE_OUT:${stateOut}`);
 });
 
 test("agent start supports external scripts-dir source", () => {

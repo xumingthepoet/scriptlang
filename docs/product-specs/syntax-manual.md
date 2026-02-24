@@ -244,7 +244,7 @@ Rules:
 Syntax:
 
 ```xml
-<choice>
+<choice text="Choose your action (${random()})">
   <option text="Attack" when="hp > 0">
     <code>hp = hp - 1;</code>
   </option>
@@ -253,6 +253,13 @@ Syntax:
   </option>
 </choice>
 ```
+
+`<choice>` attributes:
+
+- `text` (optional)
+  - non-empty when present (empty/whitespace-only is a compile error: `XML_EMPTY_ATTR`)
+  - supports `${expr}` runtime interpolation (same rendering behavior as option text)
+  - is host-facing choice prompt text; it is not emitted as `<text>` output
 
 `<option>` attributes:
 
@@ -328,6 +335,7 @@ Example:
 10. Condition not boolean at runtime -> runtime error.
 11. Writing wrong type, `undefined`, or `null` into declared script variables -> runtime error.
 12. Using `null` as a declared type (`type="null"` or `args="null:x"`) -> compile error (`TYPE_PARSE_ERROR`).
+13. Using empty/whitespace-only `text` attribute on `<choice>` -> compile error (`XML_EMPTY_ATTR`).
 13. Using `value` attribute on `<text>/<code>` -> compile error (`XML_ATTR_NOT_ALLOWED`).
 14. Leaving `<text>/<code>` inline content empty -> compile error (`XML_EMPTY_NODE_CONTENT`).
 15. Using `ref:` in `<return script="..." args="..."/>` -> compile error (`XML_RETURN_REF_UNSUPPORTED`).

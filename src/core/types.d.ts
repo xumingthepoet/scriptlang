@@ -74,6 +74,7 @@ export interface ChoiceOption {
 
 export interface ChoiceNode extends BaseNode {
   kind: "choice";
+  promptText: string | null;
   options: ChoiceOption[];
 }
 
@@ -159,6 +160,7 @@ export interface SnapshotV1 {
   waitingChoice: boolean;
   pendingChoiceNodeId: string | null;
   pendingChoiceItems: ChoiceItem[];
+  pendingChoicePromptText?: string | null;
 }
 
 export interface ChoiceItem {
@@ -169,5 +171,5 @@ export interface ChoiceItem {
 
 export type EngineOutput =
   | { kind: "text"; text: string }
-  | { kind: "choices"; items: ChoiceItem[] }
+  | { kind: "choices"; items: ChoiceItem[]; promptText?: string }
   | { kind: "end" };

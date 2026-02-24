@@ -9,6 +9,7 @@ export interface BoundaryResult {
   event: "CHOICES" | "END";
   texts: string[];
   choices: ChoiceItem[];
+  choicePromptText: string | null;
 }
 
 export interface StartedScenario {
@@ -29,12 +30,14 @@ export const runToBoundary = (engine: ScriptLangEngine): BoundaryResult => {
         event: "CHOICES",
         texts,
         choices: output.items,
+        choicePromptText: output.promptText ?? null,
       };
     }
     return {
       event: "END",
       texts,
       choices: [],
+      choicePromptText: null,
     };
   }
 };

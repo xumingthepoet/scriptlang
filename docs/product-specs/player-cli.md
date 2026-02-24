@@ -50,6 +50,10 @@ Behavior:
   - current scenario title
   - accumulated text output shown in a bounded terminal-height viewport (latest lines)
   - choices in a fixed-height viewport when waiting choice
+  - choice prompt line between text viewport and choices:
+    - uses rendered `<choice text="...">` when present
+    - falls back to default `choices (up/down + enter):` when absent
+    - does not append to the accumulated text history viewport
   - status/help footer
   - text output with typewriter animation at 60 chars/second
   - a visual divider line between text area and choice area
@@ -99,9 +103,10 @@ Output protocol (stdout, line-based):
 1. `RESULT:OK|ERROR`
 2. `EVENT:TEXT|CHOICES|END`
 3. `TEXT_JSON:<json-string>` (zero or more lines)
-4. `CHOICE:<index>|<json-string>` (zero or more lines)
-5. `STATE_OUT:<path|NONE>`
-6. On error:
+4. `PROMPT_JSON:<json-string>` (zero or one line; only for `EVENT:CHOICES` when choice prompt exists)
+5. `CHOICE:<index>|<json-string>` (zero or more lines)
+6. `STATE_OUT:<path|NONE>`
+7. On error:
    - `ERROR_CODE:<code>`
    - `ERROR_MSG_JSON:<json-string>`
 

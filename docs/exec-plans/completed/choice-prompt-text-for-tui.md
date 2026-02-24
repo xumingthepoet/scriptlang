@@ -63,7 +63,7 @@
   - No backward-compat guarantee is required in development phase; resume should still tolerate snapshots without prompt text by defaulting to `null`.
 
 ## Done Criteria
-- [ ] Specs updated
-- [ ] Architecture docs still valid
-- [ ] Tests added/updated and passing
-- [ ] Plan moved to completed (in same delivery commit)
+- [x] Specs updated
+- [x] Architecture docs still valid
+- [x] Tests added/updated and passing
+- [x] Plan moved to completed (in same delivery commit)

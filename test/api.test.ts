@@ -135,6 +135,24 @@ test("resumeEngineFromXml works with default optional options", () => {
   assert.equal(resumed.waitingChoice, true);
 });
 
+test("api choices output exposes optional prompt text", () => {
+  const engine = createEngineFromXml({
+    scriptsXml: {
+      "main.script.xml": `
+<script name="main">
+  <choice text="Pick one">
+    <option text="ok"><text>done</text></option>
+  </choice>
+</script>
+`,
+    },
+    entryScript: "main",
+  });
+  const out = engine.next();
+  assert.equal(out.kind, "choices");
+  assert.equal(out.promptText, "Pick one");
+});
+
 test("api create/resume error paths", () => {
   assert.throws(() =>
     createEngineFromXml({
