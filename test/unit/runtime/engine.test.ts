@@ -2350,6 +2350,61 @@ test("defs functions run in code/expr and support recursion", () => {
   assert.deepEqual(engine.next(), { kind: "end" });
 });
 
+test("vm script compilation caches are reused across expr/code/function paths", () => {
+  const engine = createEngineFromXml({
+    scriptsXml: {
+      "defs.defs.xml": `
+<defs name="defs">
+  <function name="add1" args="number:a" return="number:r">
+    r = a + 1;
+  </function>
+</defs>
+`,
+      "main.script.xml": `
+<!-- include: defs.defs.xml -->
+<script name="main">
+  <var name="x" type="number" value="1"/>
+  <text>\${add1(x)}</text>
+  <code>x = add1(x);</code>
+  <text>\${add1(x)}</text>
+  <code>x = add1(x);</code>
+  <text>\${add1(x)}</text>
+</script>
+`,
+      "alt.script.xml": `
+<!-- include: defs.defs.xml -->
+<script name="alt" args="number:x">
+  <text>\${add1(x)}</text>
+</script>
+`,
+    },
+  });
+  const anyEngine = engine as any;
+  assert.equal(anyEngine.compiledExprScriptCache.size, 0);
+  assert.equal(anyEngine.compiledCodeScriptCache.size, 0);
+
+  engine.start("main");
+  assert.deepEqual(engine.next(), { kind: "text", text: "2" });
+  assert.equal(anyEngine.compiledExprScriptCache.size, 2);
+  assert.equal(anyEngine.compiledExprScriptCache.has("1"), true);
+  assert.equal(anyEngine.compiledExprScriptCache.has("add1(x)"), true);
+  assert.equal(anyEngine.compiledCodeScriptCache.size, 1);
+
+  assert.deepEqual(engine.next(), { kind: "text", text: "3" });
+  assert.equal(anyEngine.compiledExprScriptCache.size, 2);
+  assert.equal(anyEngine.compiledCodeScriptCache.size, 2);
+
+  assert.deepEqual(engine.next(), { kind: "text", text: "4" });
+  assert.equal(anyEngine.compiledExprScriptCache.size, 2);
+  assert.equal(anyEngine.compiledCodeScriptCache.size, 2);
+  assert.deepEqual(engine.next(), { kind: "end" });
+
+  engine.start("alt", { x: 100 });
+  assert.deepEqual(engine.next(), { kind: "text", text: "101" });
+  assert.equal(anyEngine.compiledExprScriptCache.size, 2);
+  assert.equal(anyEngine.compiledCodeScriptCache.size, 2);
+});
+
 test("defs function runtime validates arity, arg/return types, and script-var isolation", () => {
   expectCode(
     () =>

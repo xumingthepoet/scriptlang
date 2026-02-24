@@ -203,6 +203,8 @@ export class ScriptLangEngine {
   private readonly initialRandomSeed: number;
   private readonly readonlyProxyByRaw = new WeakMap<object, unknown>();
   private readonly rawByReadonlyProxy = new WeakMap<object, object>();
+  private readonly compiledExprScriptCache = new Map<string, vm.Script>();
+  private readonly compiledCodeScriptCache = new Map<string, vm.Script>();
 
   private frames: RuntimeFrame[] = [];
   private pendingBoundary: PendingBoundary | null = null;
@@ -1337,7 +1339,7 @@ export class ScriptLangEngine {
     } = {}
   ): unknown {
     const sandbox = this.buildSandbox(extraScopes, options);
-    const script = new vm.Script(`"use strict"; (${expr})`);
+    const script = this.getOrCompileExprScript(expr);
     return script.runInContext(sandbox);
   }
 
@@ -1349,8 +1351,28 @@ export class ScriptLangEngine {
     } = {}
   ): void {
     const sandbox = this.buildSandbox(options.extraScopes ?? [], options);
-    const script = new vm.Script(`"use strict";\n${code}`);
+    const script = this.getOrCompileCodeScript(code);
     script.runInContext(sandbox);
+  }
+
+  private getOrCompileExprScript(expr: string): vm.Script {
+    const cached = this.compiledExprScriptCache.get(expr);
+    if (cached) {
+      return cached;
+    }
+    const compiled = new vm.Script(`"use strict"; (${expr})`);
+    this.compiledExprScriptCache.set(expr, compiled);
+    return compiled;
+  }
+
+  private getOrCompileCodeScript(code: string): vm.Script {
+    const cached = this.compiledCodeScriptCache.get(code);
+    if (cached) {
+      return cached;
+    }
+    const compiled = new vm.Script(`"use strict";\n${code}`);
+    this.compiledCodeScriptCache.set(code, compiled);
+    return compiled;
   }
 
   private buildSandbox(
