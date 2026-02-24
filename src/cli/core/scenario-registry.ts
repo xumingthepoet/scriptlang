@@ -51,6 +51,12 @@ const SCENARIOS = [
     entryScript: "main",
     files: ["main.script.xml"],
   },
+  {
+    id: "09-random",
+    title: "Random Builtin",
+    entryScript: "main",
+    files: ["main.script.xml"],
+  },
 ] as const;
 
 const EXTERNAL_SCENARIO_PREFIX = "scripts-dir:";

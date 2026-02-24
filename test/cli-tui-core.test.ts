@@ -29,10 +29,11 @@ import {
 
 test("scenario registry lists and loads scenarios", () => {
   const scenarios = listScenarios();
-  assert.equal(scenarios.length, 8);
+  assert.equal(scenarios.length, 9);
   assert.equal(scenarios[0].id, "01-text-code");
   assert.ok(scenarios.some((scenario) => scenario.id === "07-battle-duel"));
   assert.ok(scenarios.some((scenario) => scenario.id === "08-json-globals"));
+  assert.ok(scenarios.some((scenario) => scenario.id === "09-random"));
 
   const loaded = loadScenarioById("04-call-ref-return");
   assert.equal(loaded.entryScript, "main");
@@ -48,6 +49,10 @@ test("scenario registry lists and loads scenarios", () => {
   assert.equal(jsonGlobals.entryScript, "main");
   assert.ok(jsonGlobals.scriptsXml["main.script.xml"].includes("include: game.json"));
   assert.ok(jsonGlobals.scriptsXml["game.json"].includes("\"title\": \"JSON Globals Demo\""));
+
+  const randomBuiltin = loadScenarioById("09-random");
+  assert.equal(randomBuiltin.entryScript, "main");
+  assert.ok(randomBuiltin.scriptsXml["main.script.xml"].includes("random(100)"));
 });
 
 test("scenario registry error paths", () => {

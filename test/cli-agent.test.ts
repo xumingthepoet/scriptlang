@@ -22,6 +22,7 @@ test("agent list returns scenario rows", () => {
   assert.ok(result.lines.some((line) => line.includes("01-text-code")));
   assert.ok(result.lines.some((line) => line.includes("07-battle-duel")));
   assert.ok(result.lines.some((line) => line.includes("08-json-globals")));
+  assert.ok(result.lines.some((line) => line.includes("09-random")));
 });
 
 test("agent start emits choices and writes state", () => {

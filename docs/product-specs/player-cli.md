@@ -32,6 +32,7 @@ Both modes run the same ScriptLang engine semantics.
   - `06-snapshot-flow`
   - `07-battle-duel` (multi-file battle loop demo with custom `<type>` combatants, call/ref, and ending transfer)
   - `08-json-globals` (reads nested fields from included `game.json` as readonly global data)
+  - `09-random` (demonstrates deterministic builtin `random(n)` in text and choices)
 
 ## 3. TUI Mode
 
