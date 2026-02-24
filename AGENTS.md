@@ -9,6 +9,7 @@ This repository is set up for agent-first engineering of `ScriptLang`.
 4. Read `/ARCHITECTURE.md` before writing implementation code.
 5. If behavior changes, update `/docs/product-specs/index.md` first.
 6. For non-trivial changes, create or update an execution plan in `/docs/exec-plans/active/`.
+7. If behavior changes are user-visible, add/update runnable examples under `/examples/scripts/`.
 
 ## Required Workflow
 1. **Spec first**: product behavior belongs in `/docs/product-specs/`.
@@ -29,4 +30,5 @@ This repository is set up for agent-first engineering of `ScriptLang`.
 ## Definition of Done
 - Product spec and architecture docs are consistent with code.
 - For non-trivial changes, execution plan exists and matches delivered behavior.
+- New user-visible behavior includes corresponding runnable example updates in `/examples/scripts/`.
 - Delivery follows `/docs/HARNESS.md` end-to-end.

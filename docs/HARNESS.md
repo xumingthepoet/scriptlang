@@ -24,12 +24,14 @@ This document is the single source of truth for agent delivery workflow in this 
    - `/ARCHITECTURE.md`
 2. Spec first:
    - if behavior changes, update `/docs/product-specs/` first.
+   - if behavior changes are user-visible, add/update at least one runnable scenario under `/examples/scripts/` that demonstrates the new behavior.
 3. Plan next:
    - for non-trivial work, create/update plan in `/docs/exec-plans/active/`.
 4. Implement:
    - follow architecture boundaries.
 5. Sync docs before gates:
    - update `/README.md`, `/ARCHITECTURE.md`, and impacted files in `/docs/`.
+   - sync impacted examples in `/examples/scripts/` so new behavior has an executable reference.
    - audit `/docs/exec-plans/active/`; move only truly completed plans.
 6. Run full gate:
    - `npm test` (includes `validate:docs`, `lint`, `typecheck`, `coverage:strict`, then unit tests).
@@ -44,6 +46,7 @@ This document is the single source of truth for agent delivery workflow in this 
   - implementation landed.
   - docs synced to current behavior.
   - tests updated as needed.
+  - examples updated as needed for new user-visible behavior.
   - full gate passed.
   - done checklist is fully checked.
 
