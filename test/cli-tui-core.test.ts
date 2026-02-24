@@ -92,7 +92,7 @@ test("external scripts-dir loading and ref resolution", () => {
   const loaded = loadScenarioByScriptsDir(externalDir);
   assert.equal(loaded.entryScript, "main");
   assert.equal(loaded.id, makeExternalScenarioId(path.resolve(externalDir)));
-  assert.ok(loaded.scriptsXml["main.script.xml"].includes("<choice>"));
+  assert.ok(loaded.scriptsXml["main.script.xml"].includes('<choice text="Choose">'));
 
   const viaRef = loadScenarioByRef(loaded.id);
   assert.equal(viaRef.id, loaded.id);
@@ -221,6 +221,18 @@ test("engine runner carries choice prompt text", () => {
   const started = startScenario(scenario, PLAYER_COMPILER_VERSION);
   assert.equal(started.boundary.event, "CHOICES");
   assert.equal(started.boundary.choicePromptText, "Pick");
+});
+
+test("engine runner normalizes legacy snapshot without prompt text to null", () => {
+  const scenario = loadScenarioById("03-choice-once");
+  const started = startScenario(scenario, PLAYER_COMPILER_VERSION);
+  const snapshot = started.engine.snapshot();
+  const legacySnapshot = structuredClone(snapshot);
+  delete legacySnapshot.pendingChoicePromptText;
+
+  const resumed = resumeScenario(scenario, legacySnapshot, PLAYER_COMPILER_VERSION);
+  assert.equal(resumed.boundary.event, "CHOICES");
+  assert.equal(resumed.boundary.choicePromptText, null);
 });
 
 test("state store save and load roundtrip", () => {

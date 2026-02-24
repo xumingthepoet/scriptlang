@@ -72,12 +72,16 @@ function getAttr(node: XmlElementNode, name: string, required = false): string |
   return value ?? null;
 }
 
-const getOptionalNonEmptyAttr = (node: XmlElementNode, name: string): string | null => {
-  if (!Object.hasOwn(node.attributes, name)) {
-    return null;
-  }
+const getRequiredNonEmptyAttr = (node: XmlElementNode, name: string): string => {
   const raw = node.attributes[name];
-  if (raw === undefined || raw.trim().length === 0) {
+  if (raw === undefined || raw === "") {
+    throw new ScriptLangError(
+      "XML_MISSING_ATTR",
+      `Missing required attribute "${name}" on <${node.name}>.`,
+      node.location
+    );
+  }
+  if (raw.trim().length === 0) {
     throw new ScriptLangError(
       "XML_EMPTY_ATTR",
       `Attribute "${name}" on <${node.name}> cannot be empty.`,
@@ -430,7 +434,7 @@ const compileGroup = (
       const choiceNode: ChoiceNode = {
         id: builder.nextNodeId("choice"),
         kind: "choice",
-        promptText: getOptionalNonEmptyAttr(child, "text"),
+        promptText: getRequiredNonEmptyAttr(child, "text"),
         options,
         location: child.location,
       };

@@ -13,7 +13,7 @@ test("createEngineFromXml and resumeEngineFromXml", () => {
     "main.script.xml": `
 <script name="main">
   <var name="hp" type="number" value="2"/>
-  <choice>
+  <choice text="Choose">
     <option text="up">
       <code>hp = hp + 1;</code>
     </option>
@@ -116,7 +116,7 @@ test("resumeEngineFromXml works with default optional options", () => {
   const scriptsXml = {
     "main.script.xml": `
 <script name="main">
-  <choice>
+  <choice text="Choose">
     <option text="ok"><text>done</text></option>
   </choice>
 </script>
@@ -135,7 +135,7 @@ test("resumeEngineFromXml works with default optional options", () => {
   assert.equal(resumed.waitingChoice, true);
 });
 
-test("api choices output exposes optional prompt text", () => {
+test("api choices output exposes required choice prompt text", () => {
   const engine = createEngineFromXml({
     scriptsXml: {
       "main.script.xml": `
@@ -164,7 +164,7 @@ test("api create/resume error paths", () => {
   );
 
   const scriptsXml = {
-    "main.script.xml": `<script name="main"><choice><option text="x"><text>x</text></option></choice></script>`,
+    "main.script.xml": `<script name="main"><choice text="Choose"><option text="x"><text>x</text></option></choice></script>`,
   };
   const engine = createEngineFromXml({
     scriptsXml,

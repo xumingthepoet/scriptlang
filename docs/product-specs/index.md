@@ -41,7 +41,7 @@
   - `<if when="...">...</if>` with optional `<else>`.
   - `<while when="...">...</while>`
   - `<choice text="..."><option ...>...</option></choice>`
-  - `<choice>` supports optional `text` (non-empty when present) as choice prompt text for host display.
+  - `<choice>` requires non-empty `text` as host-facing choice prompt text.
   - `<option>` supports `text` (required) and `when` (optional); `once` is not supported.
   - `<call script="..." args="[ref:]value,[ref:]value2"/>` (positional; maps to script arg declaration order)
   - `<return/>` and `<return script="..." args="[value,value2,...]"/>`
@@ -52,7 +52,7 @@
   - `next()` returns `text`, `choices`, or `end`.
   - `choose(index)` consumes current pending choice.
   - `waitingChoice` indicates whether a choice is pending.
-  - `choices` output may include optional rendered `promptText` from `<choice text="...">`.
+  - `choices` output includes rendered `promptText` from `<choice text="...">`.
 - Snapshot:
   - Only allowed when `waitingChoice === true`.
   - Resume requires same compiler version string.

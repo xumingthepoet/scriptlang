@@ -13,7 +13,7 @@
     <text>== ${roundBanner} ==</text>
     <text>${player.name} hp=${player.hp}, ${enemy.name} hp=${enemy.hp}, potions=${potions}</text>
 
-    <choice>
+    <choice text="Choose">
       <option text="Heavy Slash (4 dmg)">
         <var name="damage" type="number" value="4"/>
         <text>You use Heavy Slash for ${damage}.</text>

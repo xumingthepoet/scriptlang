@@ -23,7 +23,7 @@ test("next/choose and snapshot/resume roundtrip", () => {
 <script name="main">
   <var name="hp" type="number" value="10"/>
   <text>HP \${hp}</text>
-  <choice>
+  <choice text="Choose">
     <option text="Heal">
       <code>hp = hp + 5;</code>
     </option>
@@ -68,7 +68,7 @@ test("choice options remain visible on re-entry and after resume", () => {
 <script name="main">
   <var name="round" type="number" value="0"/>
   <while when="round &lt; 2">
-    <choice>
+    <choice text="Choose">
       <option text="Pick A">
         <code>round = round + 1;</code>
         <text>pick-\${round}</text>
@@ -498,7 +498,7 @@ test("resume rejects snapshots missing random state or pending choice items", ()
   const main = compileScript(
     `
 <script name="main">
-  <choice>
+  <choice text="Choose">
     <option text="ok"><text>x</text></option>
   </choice>
 </script>
@@ -619,7 +619,7 @@ test("tail-position call compacts stack in waiting-choice snapshot", () => {
   const b = compileScript(
     `
 <script name="b">
-  <choice>
+  <choice text="Choose">
     <option text="ok"><text>B</text></option>
   </choice>
 </script>
@@ -738,7 +738,7 @@ test("resume rejects snapshot frames with legacy null primitive metadata", () =>
     `
 <script name="main">
   <var name="hp" type="number" value="1"/>
-  <choice>
+  <choice text="Choose">
     <option text="ok"><text>x</text></option>
   </choice>
 </script>
@@ -983,7 +983,7 @@ test("resume rejects snapshot object varTypes with nested unsupported primitive"
 <!-- include: holder.types.xml -->
 <script name="main">
   <var name="h" type="Holder"/>
-  <choice>
+  <choice text="Choose">
     <option text="ok"><text>x</text></option>
   </choice>
 </script>
@@ -1006,7 +1006,7 @@ test("resume rejects snapshot object varTypes with nested unsupported primitive"
 <!-- include: holder.types.xml -->
 <script name="main">
   <var name="h" type="Holder"/>
-  <choice>
+  <choice text="Choose">
     <option text="ok"><text>x</text></option>
   </choice>
 </script>

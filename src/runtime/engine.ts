@@ -298,7 +298,7 @@ export class ScriptLangEngine {
             top.nodeIndex += 1;
             continue;
           }
-          const promptText = node.promptText ? this.renderText(node.promptText) : null;
+          const promptText = this.renderText(node.promptText);
           this.pendingChoice = { frameId: top.frameId, nodeId: node.id, options, promptText };
           this.waitingChoice = true;
           return this.toChoiceOutput(options, promptText);

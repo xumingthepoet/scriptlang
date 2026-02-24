@@ -33,7 +33,7 @@ test("agent start emits choices and writes state", () => {
   assert.equal(result.lines[0], "RESULT:OK");
   assert.ok(result.lines.includes("EVENT:CHOICES"));
   assert.ok(result.lines.some((line) => line.startsWith("TEXT_JSON:")));
-  assert.equal(result.lines.some((line) => line.startsWith("PROMPT_JSON:")), false);
+  assert.ok(result.lines.includes(`PROMPT_JSON:${JSON.stringify("Choose")}`));
   assert.ok(result.lines.some((line) => line.startsWith("CHOICE:0|")));
   assert.equal(result.lines[result.lines.length - 1], `STATE_OUT:${stateOut}`);
   assert.equal(fs.existsSync(stateOut), true);

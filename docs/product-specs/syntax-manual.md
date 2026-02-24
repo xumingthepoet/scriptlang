@@ -258,8 +258,9 @@ Syntax:
 
 `<choice>` attributes:
 
-- `text` (optional)
-  - non-empty when present (empty/whitespace-only is a compile error: `XML_EMPTY_ATTR`)
+- `text` (required)
+  - missing is a compile error (`XML_MISSING_ATTR`)
+  - empty/whitespace-only is a compile error (`XML_EMPTY_ATTR`)
   - supports `${expr}` runtime interpolation (same rendering behavior as option text)
   - is host-facing choice prompt text; it is not emitted as `<text>` output
 
@@ -326,7 +327,7 @@ Example:
 ## 16. Common Authoring Errors
 
 1. Using removed nodes (`vars/step/set/push/remove`) -> compile error.
-2. Missing required attributes (`name/type/when/script`) -> compile error.
+2. Missing required attributes (`name/type/when/script/choice text`) -> compile error.
 3. Unknown/invalid include target -> compile error.
 4. Include cycle -> compile error.
 5. Duplicate type name or duplicate field name -> compile error.
@@ -338,9 +339,9 @@ Example:
 11. Writing wrong type, `undefined`, or `null` into declared script variables -> runtime error.
 12. Using `null` as a declared type (`type="null"` or `args="null:x"`) -> compile error (`TYPE_PARSE_ERROR`).
 13. Using empty/whitespace-only `text` attribute on `<choice>` -> compile error (`XML_EMPTY_ATTR`).
-13. Using `value` attribute on `<text>/<code>` -> compile error (`XML_ATTR_NOT_ALLOWED`).
-14. Leaving `<text>/<code>` inline content empty -> compile error (`XML_EMPTY_NODE_CONTENT`).
-15. Using `ref:` in `<return script="..." args="..."/>` -> compile error (`XML_RETURN_REF_UNSUPPORTED`).
-16. Including malformed JSON data -> compile error (`JSON_PARSE_ERROR`).
-17. JSON basename is not a valid identifier -> compile error (`JSON_SYMBOL_INVALID`).
-18. Duplicate JSON symbol basename across reachable files -> compile error (`JSON_SYMBOL_DUPLICATE`).
+14. Using `value` attribute on `<text>/<code>` -> compile error (`XML_ATTR_NOT_ALLOWED`).
+15. Leaving `<text>/<code>` inline content empty -> compile error (`XML_EMPTY_NODE_CONTENT`).
+16. Using `ref:` in `<return script="..." args="..."/>` -> compile error (`XML_RETURN_REF_UNSUPPORTED`).
+17. Including malformed JSON data -> compile error (`JSON_PARSE_ERROR`).
+18. JSON basename is not a valid identifier -> compile error (`JSON_SYMBOL_INVALID`).
+19. Duplicate JSON symbol basename across reachable files -> compile error (`JSON_SYMBOL_DUPLICATE`).

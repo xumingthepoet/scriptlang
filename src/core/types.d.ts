@@ -74,7 +74,7 @@ export interface ChoiceOption {
 
 export interface ChoiceNode extends BaseNode {
   kind: "choice";
-  promptText: string | null;
+  promptText: string;
   options: ChoiceOption[];
 }
 

@@ -87,7 +87,7 @@ test("compiler validation error branches", () => {
   expectCode(
     () =>
       compileScript(
-        `<script name="a.script.xml"><choice><bad/></choice></script>`,
+        `<script name="a.script.xml"><choice text="Choose"><bad/></choice></script>`,
         "a.script.xml"
       ),
     "XML_CHOICE_OPTION_INVALID"
@@ -126,7 +126,7 @@ test("engine constructor empty scripts and waitingChoice getter", () => {
 test("engine choice error branches", () => {
   const s = compile(
     "main.script.xml",
-    `<vars/><step><choice><option text="a"><text>ok</text></option></choice></step>`
+    `<vars/><step><choice text="Choose"><option text="a"><text>ok</text></option></choice></step>`
   );
   const engine = new ScriptLangEngine({ scripts: { "main.script.xml": s }, compilerVersion: "dev" });
   expectCode(() => engine.choose(0), "ENGINE_NO_PENDING_CHOICE");
@@ -144,7 +144,7 @@ test("engine choice error branches", () => {
 test("choice frame and node missing branches", () => {
   const s = compile(
     "main.script.xml",
-    `<vars/><step><choice><option text="a"><text>ok</text></option></choice></step>`
+    `<vars/><step><choice text="Choose"><option text="a"><text>ok</text></option></choice></step>`
   );
   const engine = new ScriptLangEngine({ scripts: { "main.script.xml": s }, compilerVersion: "dev" });
   engine.start("main.script.xml");
@@ -173,7 +173,7 @@ test("while guard exceeded branch", () => {
 test("engine snapshot resume error branches", () => {
   const s = compile(
     "main.script.xml",
-    `<vars/><step><choice><option text="a"><text>ok</text></option></choice></step>`
+    `<vars/><step><choice text="Choose"><option text="a"><text>ok</text></option></choice></step>`
   );
   const engine = new ScriptLangEngine({ scripts: { "main.script.xml": s }, compilerVersion: "v1" });
   engine.start("main.script.xml");
@@ -208,7 +208,7 @@ test("engine snapshot resume error branches", () => {
 test("snapshot empty-frame defensive branch", () => {
   const s = compile(
     "main.script.xml",
-    `<vars/><step><choice><option text="x"><text>x</text></option></choice></step>`
+    `<vars/><step><choice text="Choose"><option text="x"><text>x</text></option></choice></step>`
   );
   const engine = new ScriptLangEngine({ scripts: { "main.script.xml": s }, compilerVersion: "dev" });
   engine.start("main.script.xml");
@@ -224,7 +224,7 @@ test("resume handles nested runtime frames", () => {
 <script name="nested.script.xml">
   <var name="x" type="number" value="1"/>
   <if when="true">
-    <choice>
+    <choice text="Choose">
       <option text="ok"><text>done</text></option>
     </choice>
   </if>
@@ -551,7 +551,7 @@ test("resume reconstructs continuation-bearing runtime frames", () => {
   );
   const child = compile(
     "child.script.xml",
-    `<vars/><step><choice><option text="go"><text>ok</text></option></choice></step>`
+    `<vars/><step><choice text="Choose"><option text="go"><text>ok</text></option></choice></step>`
   );
   const engine = new ScriptLangEngine({
     scripts: { "main.script.xml": main, "child.script.xml": child },
@@ -572,7 +572,7 @@ test("resume reconstructs continuation-bearing runtime frames", () => {
 test("engine helper paths for return target and root scope arg assignment", () => {
   const waiting = compile(
     "waiting.script.xml",
-    `<vars/><step><choice><option text="ok"><text>ok</text></option></choice></step>`
+    `<vars/><step><choice text="Choose"><option text="ok"><text>ok</text></option></choice></step>`
   );
   const target = compileScript(
     `<script name="target.script.xml" args="number:n"><text>ok</text></script>`,
@@ -613,11 +613,11 @@ test("engine control-flow branches for pending choices and hidden options", () =
   <while when="false">
     <text>never</text>
   </while>
-  <choice>
+  <choice text="Choose">
     <option text="hidden" when="false"><text>nope</text></option>
     <option text="visible"><text>ok</text></option>
   </choice>
-  <choice>
+  <choice text="Choose">
     <option text="all-hidden" when="false"><text>x</text></option>
   </choice>
   <if when="false">
@@ -882,7 +882,7 @@ test("resume covers conditional option filters and frameCounter fallback branch"
     `
 <script name="resume-branches.script.xml">
   <if when="true">
-    <choice>
+    <choice text="Choose">
       <option text="A" when="true"><text>A</text></option>
       <option text="B"><text>B</text></option>
     </choice>

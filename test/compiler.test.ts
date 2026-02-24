@@ -22,7 +22,7 @@ test("compile script into implicit groups with params and var nodes", () => {
   <while when="hp > 0">
     <code>hp = hp - 1;</code>
   </while>
-  <choice>
+  <choice text="Choose">
     <option text="Go" when="hp > 0">
       <call script="next" args="hp"/>
     </option>
@@ -251,7 +251,7 @@ test("compile text node supports inline text content", () => {
   assert.equal(node.value, "inline value");
 });
 
-test("choice supports optional prompt text attribute", () => {
+test("choice requires prompt text attribute and keeps raw template source", () => {
   const ir = compileScript(
     `
 <script name="main">
@@ -265,6 +265,21 @@ test("choice supports optional prompt text attribute", () => {
   const node = ir.groups[ir.rootGroupId].nodes[0];
   assert.equal(node.kind, "choice");
   assert.equal(node.promptText, "pick ${1 + 1}");
+});
+
+test("choice rejects missing prompt text attribute", () => {
+  assert.throws(
+    () =>
+      compileScript(
+        `<script name="main"><choice><option text="ok"><text>x</text></option></choice></script>`,
+        "choice-prompt-missing.script.xml"
+      ),
+    (e: unknown) => {
+      assert.ok(e instanceof ScriptLangError);
+      assert.equal(e.code, "XML_MISSING_ATTR");
+      return true;
+    }
+  );
 });
 
 test("choice prompt text rejects empty attribute", () => {
