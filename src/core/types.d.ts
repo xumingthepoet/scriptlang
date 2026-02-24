@@ -39,6 +39,7 @@ interface BaseNode {
 export interface TextNode extends BaseNode {
   kind: "text";
   value: string;
+  once: boolean;
 }
 
 export interface CodeNode extends BaseNode {
@@ -68,6 +69,8 @@ export interface ChoiceOption {
   id: string;
   text: string;
   whenExpr: string | null;
+  once: boolean;
+  fallOver: boolean;
   groupId: string;
   location: SourceSpan;
 }
@@ -76,6 +79,15 @@ export interface ChoiceNode extends BaseNode {
   kind: "choice";
   promptText: string;
   options: ChoiceOption[];
+}
+
+export interface BreakNode extends BaseNode {
+  kind: "break";
+}
+
+export interface ContinueNode extends BaseNode {
+  kind: "continue";
+  target: "while" | "choice";
 }
 
 export interface CallArgument {
@@ -102,6 +114,8 @@ export type ScriptNode =
   | IfNode
   | WhileNode
   | ChoiceNode
+  | BreakNode
+  | ContinueNode
   | CallNode
   | ReturnNode;
 
@@ -161,6 +175,7 @@ export interface SnapshotV1 {
   pendingChoiceNodeId: string | null;
   pendingChoiceItems: ChoiceItem[];
   pendingChoicePromptText?: string | null;
+  onceStateByScript?: Record<string, string[]>;
 }
 
 export interface ChoiceItem {

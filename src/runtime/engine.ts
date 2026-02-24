@@ -40,6 +40,9 @@ interface PendingChoice {
   promptText: string | null;
 }
 
+const ONCE_KEY_TEXT_PREFIX = "text:";
+const ONCE_KEY_OPTION_PREFIX = "option:";
+
 const deepClone = <T>(value: T): T => structuredClone(value);
 const isObjectLike = (value: unknown): value is object => value !== null && typeof value === "object";
 
@@ -188,6 +191,7 @@ export class ScriptLangEngine {
   private frameCounter = 1;
   private ended = false;
   private rngState = DEFAULT_RANDOM_SEED;
+  private onceStateByScript: Record<string, Set<string>> = {};
 
   constructor(options: ScriptLangEngineOptions) {
     this.scripts = options.scripts;
@@ -257,7 +261,14 @@ export class ScriptLangEngine {
       } else {
         const node = group.nodes[top.nodeIndex];
         if (node.kind === "text") {
+          if (node.once && this.hasOnceState(lookup.scriptName, `${ONCE_KEY_TEXT_PREFIX}${node.id}`)) {
+            top.nodeIndex += 1;
+            continue;
+          }
           top.nodeIndex += 1;
+          if (node.once) {
+            this.markOnceState(lookup.scriptName, `${ONCE_KEY_TEXT_PREFIX}${node.id}`);
+          }
           return { kind: "text", text: this.renderText(node.value) };
         }
         if (node.kind === "code") {
@@ -287,9 +298,17 @@ export class ScriptLangEngine {
           continue;
         }
         if (node.kind === "choice") {
-          const options = node.options
-            .filter((opt) => (opt.whenExpr ? this.evalBoolean(opt.whenExpr) : true))
-            .map((opt, index) => ({
+          const visibleRegularOptions = node.options.filter(
+            (opt) => !opt.fallOver && this.isChoiceOptionVisible(lookup.scriptName, opt)
+          );
+          let visibleOptions = visibleRegularOptions;
+          if (visibleOptions.length === 0) {
+            const fallOverOption = node.options.find((opt) => opt.fallOver) ?? null;
+            if (fallOverOption && this.isChoiceOptionVisible(lookup.scriptName, fallOverOption)) {
+              visibleOptions = [fallOverOption];
+            }
+          }
+          const options = visibleOptions.map((opt, index) => ({
               index,
               id: opt.id,
               text: this.renderText(opt.text),
@@ -309,6 +328,18 @@ export class ScriptLangEngine {
         }
         if (node.kind === "return") {
           this.executeReturn(node);
+          continue;
+        }
+        if (node.kind === "break") {
+          this.executeBreak();
+          continue;
+        }
+        if (node.kind === "continue") {
+          if (node.target === "while") {
+            this.executeContinueWhile();
+            continue;
+          }
+          this.executeContinueChoice();
           continue;
         }
 
@@ -343,6 +374,10 @@ export class ScriptLangEngine {
       throw new ScriptLangError("ENGINE_CHOICE_NOT_FOUND", `Choice "${item.id}" not found.`);
     }
 
+    const scriptName = this.groupLookup[frame.groupId].scriptName;
+    if (option.once) {
+      this.markOnceState(scriptName, `${ONCE_KEY_OPTION_PREFIX}${option.id}`);
+    }
     frame.nodeIndex += 1;
     this.pushGroupFrame(option.groupId, "resumeAfterChild");
     this.pendingChoice = null;
@@ -388,6 +423,7 @@ export class ScriptLangEngine {
       pendingChoiceNodeId: this.pendingChoice.nodeId,
       pendingChoiceItems: this.pendingChoice.options.map((item) => ({ ...item })),
       pendingChoicePromptText: this.pendingChoice.promptText,
+      onceStateByScript: this.serializeOnceState(),
     };
   }
 
@@ -418,9 +454,11 @@ export class ScriptLangEngine {
     }
     this.assertSnapshotPendingChoiceItems(snapshot.pendingChoiceItems);
     this.assertSnapshotPendingChoicePromptText(snapshot.pendingChoicePromptText);
+    this.assertSnapshotOnceState(snapshot.onceStateByScript);
 
     this.reset();
     this.rngState = snapshot.rngState;
+    this.onceStateByScript = this.deserializeOnceState(snapshot.onceStateByScript);
     this.frames = snapshot.runtimeFrames.map((frame) => this.restoreFrame(frame));
     this.frameCounter = this.frames.reduce((max, frame) => (frame.frameId > max ? frame.frameId : max), 0) + 1;
     const top = this.requireSnapshotTopFrame();
@@ -935,6 +973,46 @@ export class ScriptLangEngine {
     );
   }
 
+  private assertSnapshotOnceState(value: unknown): void {
+    if (value === undefined) {
+      return;
+    }
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new ScriptLangError(
+        "SNAPSHOT_ONCE_STATE_INVALID",
+        "Snapshot onceStateByScript must be an object when provided."
+      );
+    }
+    for (const entries of Object.values(value as Record<string, unknown>)) {
+      if (!Array.isArray(entries) || !entries.every((entry) => typeof entry === "string")) {
+        throw new ScriptLangError(
+          "SNAPSHOT_ONCE_STATE_INVALID",
+          "Snapshot onceStateByScript must map script names to string arrays."
+        );
+      }
+    }
+  }
+
+  private serializeOnceState(): Record<string, string[]> {
+    const output: Record<string, string[]> = {};
+    for (const [scriptName, state] of Object.entries(this.onceStateByScript)) {
+      output[scriptName] = [...state];
+    }
+    return output;
+  }
+
+  private deserializeOnceState(value: unknown): Record<string, Set<string>> {
+    if (value === undefined) {
+      return {};
+    }
+    const source = value as Record<string, string[]>;
+    const result: Record<string, Set<string>> = {};
+    for (const [scriptName, entries] of Object.entries(source)) {
+      result[scriptName] = new Set(entries);
+    }
+    return result;
+  }
+
   private toChoiceOutput(options: ChoiceItem[], promptText: string | null): EngineOutput {
     if (promptText === null) {
       return { kind: "choices", items: options };
@@ -1002,6 +1080,114 @@ export class ScriptLangEngine {
       current = next as Record<string, unknown>;
     }
     current[rest[rest.length - 1]] = value;
+  }
+
+  private isChoiceOptionVisible(scriptName: string, option: ChoiceNode["options"][number]): boolean {
+    const whenVisible = option.whenExpr ? this.evalBoolean(option.whenExpr) : true;
+    if (!whenVisible) {
+      return false;
+    }
+    if (!option.once) {
+      return true;
+    }
+    return !this.hasOnceState(scriptName, `${ONCE_KEY_OPTION_PREFIX}${option.id}`);
+  }
+
+  private hasOnceState(scriptName: string, key: string): boolean {
+    const scriptState = this.onceStateByScript[scriptName];
+    if (!scriptState) {
+      return false;
+    }
+    return scriptState.has(key);
+  }
+
+  private markOnceState(scriptName: string, key: string): void {
+    let scriptState = this.onceStateByScript[scriptName];
+    if (!scriptState) {
+      scriptState = new Set<string>();
+      this.onceStateByScript[scriptName] = scriptState;
+    }
+    scriptState.add(key);
+  }
+
+  private executeBreak(): void {
+    const whileBodyFrameIndex = this.findNearestWhileBodyFrameIndex();
+    if (whileBodyFrameIndex <= 0) {
+      throw new ScriptLangError("ENGINE_WHILE_CONTROL_TARGET_MISSING", "No target <while> frame found for <break>.");
+    }
+    const whileOwnerFrame = this.frames[whileBodyFrameIndex - 1];
+    const whileOwnerNode = this.groupLookup[whileOwnerFrame.groupId]?.group.nodes[whileOwnerFrame.nodeIndex];
+    if (!whileOwnerNode || whileOwnerNode.kind !== "while") {
+      throw new ScriptLangError("ENGINE_WHILE_CONTROL_TARGET_MISSING", "No target <while> node found for <break>.");
+    }
+    this.frames.splice(whileBodyFrameIndex);
+    whileOwnerFrame.nodeIndex += 1;
+  }
+
+  private executeContinueWhile(): void {
+    const whileBodyFrameIndex = this.findNearestWhileBodyFrameIndex();
+    if (whileBodyFrameIndex <= 0) {
+      throw new ScriptLangError(
+        "ENGINE_WHILE_CONTROL_TARGET_MISSING",
+        "No target <while> frame found for <continue>."
+      );
+    }
+    const whileOwnerFrame = this.frames[whileBodyFrameIndex - 1];
+    const whileOwnerNode = this.groupLookup[whileOwnerFrame.groupId]?.group.nodes[whileOwnerFrame.nodeIndex];
+    if (!whileOwnerNode || whileOwnerNode.kind !== "while") {
+      throw new ScriptLangError(
+        "ENGINE_WHILE_CONTROL_TARGET_MISSING",
+        "No target <while> node found for <continue>."
+      );
+    }
+    this.frames.splice(whileBodyFrameIndex);
+  }
+
+  private findNearestWhileBodyFrameIndex(): number {
+    for (let i = this.frames.length - 1; i >= 0; i -= 1) {
+      if (this.frames[i].completion === "whileBody") {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  private executeContinueChoice(): void {
+    const context = this.findChoiceContinueContext();
+    if (!context) {
+      throw new ScriptLangError(
+        "ENGINE_CHOICE_CONTINUE_TARGET_MISSING",
+        "No target <choice> node found for option <continue>."
+      );
+    }
+    this.frames.splice(context.choiceFrameIndex + 1);
+    const choiceFrame = this.frames[context.choiceFrameIndex];
+    choiceFrame.nodeIndex = context.choiceNodeIndex;
+  }
+
+  private findChoiceContinueContext(): { choiceFrameIndex: number; choiceNodeIndex: number } | null {
+    for (let i = this.frames.length - 1; i >= 0; i -= 1) {
+      const frame = this.frames[i];
+      if (frame.nodeIndex <= 0) {
+        continue;
+      }
+      const lookup = this.groupLookup[frame.groupId];
+      if (!lookup) {
+        continue;
+      }
+      const choiceNodeIndex = frame.nodeIndex - 1;
+      const previousNode = lookup.group.nodes[choiceNodeIndex];
+      if (!previousNode || previousNode.kind !== "choice") {
+        continue;
+      }
+      const optionGroupIds = new Set(previousNode.options.map((option) => option.groupId));
+      for (let j = i + 1; j < this.frames.length; j += 1) {
+        if (optionGroupIds.has(this.frames[j].groupId)) {
+          return { choiceFrameIndex: i, choiceNodeIndex };
+        }
+      }
+    }
+    return null;
   }
 
   private evalExpression(expr: string, extraScopes: Array<Record<string, unknown>> = []): unknown {

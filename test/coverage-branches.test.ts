@@ -104,6 +104,26 @@ test("compiler validation error branches", () => {
       ),
     "CALL_ARGS_PARSE_ERROR"
   );
+  expectCode(
+    () => compileScript(`<script name="a.script.xml"><text once="1">x</text></script>`, "a.script.xml"),
+    "XML_ATTR_BOOL_INVALID"
+  );
+  expectCode(
+    () =>
+      compileScript(
+        `<script name="a.script.xml"><choice text="x"><option text="a" fall_over="true"/><option text="b"/></choice></script>`,
+        "a.script.xml"
+      ),
+    "XML_OPTION_FALL_OVER_NOT_LAST"
+  );
+  expectCode(
+    () => compileScript(`<script name="a.script.xml"><break/></script>`, "a.script.xml"),
+    "XML_BREAK_OUTSIDE_WHILE"
+  );
+  expectCode(
+    () => compileScript(`<script name="a.script.xml"><continue/></script>`, "a.script.xml"),
+    "XML_CONTINUE_OUTSIDE_WHILE_OR_OPTION"
+  );
 });
 
 test("engine start and next defensive branches", () => {
@@ -915,4 +935,103 @@ test("resume covers conditional option filters and frameCounter fallback branch"
   });
   resumed.resume(mutated);
   assert.equal(resumed.waitingChoice, true);
+});
+
+test("engine once-state and control-flow error branches", () => {
+  const script = compileScript(
+    `
+<script name="branch-once.script.xml">
+  <choice text="Pick">
+    <option text="A" once="true"><text>a</text><continue/></option>
+    <option text="B" fall_over="true"><text>b</text></option>
+  </choice>
+</script>
+`,
+    "branch-once.script.xml"
+  );
+  const engine = new ScriptLangEngine({
+    scripts: { "branch-once.script.xml": script },
+    compilerVersion: "dev",
+  });
+  engine.start("branch-once.script.xml");
+  const first = engine.next();
+  assert.equal(first.kind, "choices");
+  const anyEngine = engine as any;
+  anyEngine.assertSnapshotOnceState(undefined);
+  expectCode(() => anyEngine.assertSnapshotOnceState([]), "SNAPSHOT_ONCE_STATE_INVALID");
+  expectCode(
+    () => anyEngine.assertSnapshotOnceState({ "branch-once.script.xml": [1] }),
+    "SNAPSHOT_ONCE_STATE_INVALID"
+  );
+  assert.deepEqual(anyEngine.deserializeOnceState(undefined), {});
+  anyEngine.markOnceState("branch-once.script.xml", "option:c0");
+  anyEngine.markOnceState("branch-once.script.xml", "option:c1");
+  assert.equal(anyEngine.hasOnceState("branch-once.script.xml", "option:c1"), true);
+
+  expectCode(() => anyEngine.executeBreak(), "ENGINE_WHILE_CONTROL_TARGET_MISSING");
+  expectCode(() => anyEngine.executeContinueWhile(), "ENGINE_WHILE_CONTROL_TARGET_MISSING");
+  expectCode(() => anyEngine.executeContinueChoice(), "ENGINE_CHOICE_CONTINUE_TARGET_MISSING");
+
+  anyEngine.frames = [
+    {
+      frameId: 9,
+      groupId: "ghost.group",
+      nodeIndex: 1,
+      scope: {},
+      completion: "none",
+      scriptRoot: false,
+      returnContinuation: null,
+      varTypes: {},
+    },
+  ];
+  assert.equal(anyEngine.findChoiceContinueContext(), null);
+
+  anyEngine.frames = [
+    {
+      frameId: 10,
+      groupId: script.rootGroupId,
+      nodeIndex: 1,
+      scope: {},
+      completion: "none",
+      scriptRoot: true,
+      returnContinuation: null,
+      varTypes: {},
+    },
+    {
+      frameId: 11,
+      groupId: script.rootGroupId,
+      nodeIndex: 0,
+      scope: {},
+      completion: "resumeAfterChild",
+      scriptRoot: false,
+      returnContinuation: null,
+      varTypes: {},
+    },
+  ];
+  assert.equal(anyEngine.findChoiceContinueContext(), null);
+
+  anyEngine.frames = [
+    {
+      frameId: 1,
+      groupId: script.rootGroupId,
+      nodeIndex: 0,
+      scope: {},
+      completion: "none",
+      scriptRoot: true,
+      returnContinuation: null,
+      varTypes: {},
+    },
+    {
+      frameId: 2,
+      groupId: script.rootGroupId,
+      nodeIndex: 0,
+      scope: {},
+      completion: "whileBody",
+      scriptRoot: false,
+      returnContinuation: null,
+      varTypes: {},
+    },
+  ];
+  expectCode(() => anyEngine.executeBreak(), "ENGINE_WHILE_CONTROL_TARGET_MISSING");
+  expectCode(() => anyEngine.executeContinueWhile(), "ENGINE_WHILE_CONTROL_TARGET_MISSING");
 });

@@ -297,6 +297,155 @@ test("choice prompt text rejects empty attribute", () => {
   );
 });
 
+test("text once attribute is parsed", () => {
+  const ir = compileScript(`<script name="main"><text once="true">intro</text></script>`, "text-once.script.xml");
+  const node = ir.groups[ir.rootGroupId].nodes[0];
+  assert.equal(node.kind, "text");
+  assert.equal(node.once, true);
+
+  const irFalse = compileScript(`<script name="main"><text once="false">intro</text></script>`, "text-once-false.script.xml");
+  const nodeFalse = irFalse.groups[irFalse.rootGroupId].nodes[0];
+  assert.equal(nodeFalse.kind, "text");
+  assert.equal(nodeFalse.once, false);
+});
+
+test("choice option once/fall_over and direct continue are parsed", () => {
+  const ir = compileScript(
+    `
+<script name="main">
+  <choice text="Pick">
+    <option text="A" once="true">
+      <continue/>
+    </option>
+    <option text="B" fall_over="true">
+      <text>end</text>
+    </option>
+  </choice>
+</script>
+`,
+    "choice-attrs.script.xml"
+  );
+  const node = ir.groups[ir.rootGroupId].nodes[0];
+  assert.equal(node.kind, "choice");
+  assert.equal(node.options[0].once, true);
+  assert.equal(node.options[0].fallOver, false);
+  assert.equal(node.options[1].fallOver, true);
+  const optionGroup = ir.groups[node.options[0].groupId];
+  assert.equal(optionGroup.nodes[0]?.kind, "continue");
+  if (optionGroup.nodes[0]?.kind === "continue") {
+    assert.equal(optionGroup.nodes[0].target, "choice");
+  }
+});
+
+test("choice fall_over validation rejects duplicate/non-last/when", () => {
+  assert.throws(
+    () =>
+      compileScript(
+        `<script name="main"><choice text="x"><option text="a" fall_over="true"/><option text="b" fall_over="true"/></choice></script>`,
+        "fall-over-dup.script.xml"
+      ),
+    (e: unknown) => {
+      assert.ok(e instanceof ScriptLangError);
+      assert.equal(e.code, "XML_OPTION_FALL_OVER_DUPLICATE");
+      return true;
+    }
+  );
+  assert.throws(
+    () =>
+      compileScript(
+        `<script name="main"><choice text="x"><option text="a" fall_over="true"/><option text="b"/></choice></script>`,
+        "fall-over-order.script.xml"
+      ),
+    (e: unknown) => {
+      assert.ok(e instanceof ScriptLangError);
+      assert.equal(e.code, "XML_OPTION_FALL_OVER_NOT_LAST");
+      return true;
+    }
+  );
+  assert.throws(
+    () =>
+      compileScript(
+        `<script name="main"><choice text="x"><option text="a"/><option text="b" fall_over="true" when="true"/></choice></script>`,
+        "fall-over-when.script.xml"
+      ),
+    (e: unknown) => {
+      assert.ok(e instanceof ScriptLangError);
+      assert.equal(e.code, "XML_OPTION_FALL_OVER_WHEN_FORBIDDEN");
+      return true;
+    }
+  );
+});
+
+test("once/fall_over boolean attrs reject invalid literals", () => {
+  assert.throws(
+    () => compileScript(`<script name="main"><text once="yes">x</text></script>`, "text-once-bool.script.xml"),
+    (e: unknown) => {
+      assert.ok(e instanceof ScriptLangError);
+      assert.equal(e.code, "XML_ATTR_BOOL_INVALID");
+      return true;
+    }
+  );
+  assert.throws(
+    () =>
+      compileScript(
+        `<script name="main"><choice text="x"><option text="a" fall_over="1"/></choice></script>`,
+        "option-fall-over-bool.script.xml"
+      ),
+    (e: unknown) => {
+      assert.ok(e instanceof ScriptLangError);
+      assert.equal(e.code, "XML_ATTR_BOOL_INVALID");
+      return true;
+    }
+  );
+});
+
+test("once attribute is rejected outside text/option", () => {
+  assert.throws(
+    () => compileScript(`<script name="main"><var name="x" type="number" value="1" once="true"/></script>`, "once-var.script.xml"),
+    (e: unknown) => {
+      assert.ok(e instanceof ScriptLangError);
+      assert.equal(e.code, "XML_ATTR_NOT_ALLOWED");
+      return true;
+    }
+  );
+});
+
+test("break/continue placement is validated at compile time", () => {
+  assert.throws(
+    () => compileScript(`<script name="main"><break/></script>`, "break-invalid.script.xml"),
+    (e: unknown) => {
+      assert.ok(e instanceof ScriptLangError);
+      assert.equal(e.code, "XML_BREAK_OUTSIDE_WHILE");
+      return true;
+    }
+  );
+  assert.throws(
+    () => compileScript(`<script name="main"><continue/></script>`, "continue-invalid.script.xml"),
+    (e: unknown) => {
+      assert.ok(e instanceof ScriptLangError);
+      assert.equal(e.code, "XML_CONTINUE_OUTSIDE_WHILE_OR_OPTION");
+      return true;
+    }
+  );
+  const ir = compileScript(
+    `<script name="main"><while when="true"><if when="true"><continue/></if></while></script>`,
+    "continue-while.script.xml"
+  );
+  const whileNode = ir.groups[ir.rootGroupId].nodes[0];
+  assert.equal(whileNode.kind, "while");
+  const whileGroup = ir.groups[whileNode.bodyGroupId];
+  const ifNode = whileGroup.nodes[0];
+  assert.equal(ifNode.kind, "if");
+  if (ifNode.kind === "if") {
+    const thenGroup = ir.groups[ifNode.thenGroupId];
+    const continueNode = thenGroup.nodes[0];
+    assert.equal(continueNode.kind, "continue");
+    if (continueNode.kind === "continue") {
+      assert.equal(continueNode.target, "while");
+    }
+  }
+});
+
 test("text/code reject value attribute and empty inline content", () => {
   const textWithValueAttr = `<script name="x"><text ${"value"}="x"/></script>`;
   const codeWithValueAttr = `<script name="x"><code ${"value"}="x"/></script>`;

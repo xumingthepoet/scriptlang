@@ -36,13 +36,15 @@
 - Executable nodes are direct children of `<script>`.
 - Supported executable nodes:
   - `<var name="..." type="..." value="..."/>`
-  - `<text>...</text>`
+  - `<text once="true|false">...</text>`
   - `<code>...</code>`
   - `<if when="...">...</if>` with optional `<else>`.
-  - `<while when="...">...</while>`
+  - `<while when="...">...</while>` with `<break/>` and `<continue/>` in while body
   - `<choice text="..."><option ...>...</option></choice>`
   - `<choice>` requires non-empty `text` as host-facing choice prompt text.
-  - `<option>` supports `text` (required) and `when` (optional); `once` is not supported.
+  - `<option>` supports `text` (required), `when` (optional), `once` (optional), and `fall_over` (optional).
+  - `<option>` direct child `<continue/>` returns to current choice and prompts re-selection.
+  - `<option fall_over="true">` is hidden by default and only shown when no non-fall-over option is visible.
   - `<call script="..." args="[ref:]value,[ref:]value2"/>` (positional; maps to script arg declaration order)
   - `<return/>` and `<return script="..." args="[value,value2,...]"/>`
 - Explicitly removed nodes: `<vars>`, `<step>`, `<set>`, `<push>`, `<remove>`.
@@ -56,7 +58,7 @@
 - Snapshot:
   - Only allowed when `waitingChoice === true`.
   - Resume requires same compiler version string.
-  - Snapshot payload includes runtime RNG state, rendered pending choice items, and rendered pending choice prompt text for deterministic resume.
+  - Snapshot payload includes runtime RNG state, rendered pending choice items, rendered pending choice prompt text, and once-state for deterministic resume.
 - Type behavior:
   - Script parameters come from `<script args="...">`.
   - `<call ... args="...">` arguments are positional and map by target script arg order.

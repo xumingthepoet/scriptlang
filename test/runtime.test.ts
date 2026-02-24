@@ -149,6 +149,168 @@ test("choice prompt text is host-facing and not emitted as text output", () => {
   assert.deepEqual(engine.next(), { kind: "end" });
 });
 
+test("text once is emitted only once and survives restart", () => {
+  const main = compileScript(
+    `
+<script name="main">
+  <text once="true">intro</text>
+  <text>always</text>
+</script>
+`,
+    "main.script.xml"
+  );
+  const engine = new ScriptLangEngine({
+    scripts: { main },
+    compilerVersion: "dev",
+  });
+  engine.start("main");
+  assert.deepEqual(engine.next(), { kind: "text", text: "intro" });
+  assert.deepEqual(engine.next(), { kind: "text", text: "always" });
+  assert.deepEqual(engine.next(), { kind: "end" });
+
+  engine.start("main");
+  assert.deepEqual(engine.next(), { kind: "text", text: "always" });
+  assert.deepEqual(engine.next(), { kind: "end" });
+});
+
+test("choice option once is hidden after selection and preserved across resume", () => {
+  const main = compileScript(
+    `
+<script name="main">
+  <var name="round" type="number" value="0"/>
+  <while when="round &lt; 2">
+    <choice text="Pick">
+      <option text="A" once="true">
+        <code>round = round + 1;</code>
+        <text>a-\${round}</text>
+      </option>
+      <option text="B">
+        <code>round = round + 1;</code>
+        <text>b-\${round}</text>
+      </option>
+    </choice>
+  </while>
+</script>
+`,
+    "main.script.xml"
+  );
+  const engine = new ScriptLangEngine({ scripts: { main }, compilerVersion: "dev" });
+  engine.start("main");
+  const first = engine.next();
+  assert.equal(first.kind, "choices");
+  engine.choose(0);
+  assert.deepEqual(engine.next(), { kind: "text", text: "a-1" });
+
+  const second = engine.next();
+  assert.equal(second.kind, "choices");
+  assert.deepEqual(
+    second.items.map((item) => item.text),
+    ["B"]
+  );
+
+  const snapshot = engine.snapshot();
+  const restored = new ScriptLangEngine({ scripts: { main }, compilerVersion: "dev" });
+  restored.resume(snapshot);
+  const resumed = restored.next();
+  assert.equal(resumed.kind, "choices");
+  assert.deepEqual(
+    resumed.items.map((item) => item.text),
+    ["B"]
+  );
+});
+
+test("option direct continue returns to current choice and respects once", () => {
+  const main = compileScript(
+    `
+<script name="main">
+  <choice text="Talk">
+    <option text="Ask once" once="true">
+      <text>asked</text>
+      <continue/>
+    </option>
+    <option text="Leave">
+      <text>left</text>
+    </option>
+  </choice>
+</script>
+`,
+    "main.script.xml"
+  );
+  const engine = new ScriptLangEngine({ scripts: { main }, compilerVersion: "dev" });
+  engine.start("main");
+  const first = engine.next();
+  assert.equal(first.kind, "choices");
+  engine.choose(0);
+  assert.deepEqual(engine.next(), { kind: "text", text: "asked" });
+
+  const second = engine.next();
+  assert.equal(second.kind, "choices");
+  assert.deepEqual(
+    second.items.map((item) => item.text),
+    ["Leave"]
+  );
+});
+
+test("choice fall_over option appears only when regular options are unavailable", () => {
+  const main = compileScript(
+    `
+<script name="main">
+  <choice text="Door">
+    <option text="Open" when="false"><text>open</text></option>
+    <option text="Use key" once="true"><text>key</text><continue/></option>
+    <option text="Leave" fall_over="true"><text>leave</text></option>
+  </choice>
+</script>
+`,
+    "main.script.xml"
+  );
+  const engine = new ScriptLangEngine({ scripts: { main }, compilerVersion: "dev" });
+  engine.start("main");
+  const first = engine.next();
+  assert.equal(first.kind, "choices");
+  assert.deepEqual(
+    first.items.map((item) => item.text),
+    ["Use key"]
+  );
+  engine.choose(0);
+  assert.deepEqual(engine.next(), { kind: "text", text: "key" });
+  const second = engine.next();
+  assert.equal(second.kind, "choices");
+  assert.deepEqual(
+    second.items.map((item) => item.text),
+    ["Leave"]
+  );
+});
+
+test("while break and continue follow nearest loop semantics", () => {
+  const main = compileScript(
+    `
+<script name="main">
+  <var name="i" type="number" value="0"/>
+  <while when="i &lt; 6">
+    <code>i = i + 1;</code>
+    <if when="i == 2">
+      <continue/>
+    </if>
+    <if when="i == 5">
+      <break/>
+    </if>
+    <text>tick-\${i}</text>
+  </while>
+  <text>done-\${i}</text>
+</script>
+`,
+    "main.script.xml"
+  );
+  const engine = new ScriptLangEngine({ scripts: { main }, compilerVersion: "dev" });
+  engine.start("main");
+  assert.deepEqual(engine.next(), { kind: "text", text: "tick-1" });
+  assert.deepEqual(engine.next(), { kind: "text", text: "tick-3" });
+  assert.deepEqual(engine.next(), { kind: "text", text: "tick-4" });
+  assert.deepEqual(engine.next(), { kind: "text", text: "done-5" });
+  assert.deepEqual(engine.next(), { kind: "end" });
+});
+
 test("call with ref writes back to caller var", () => {
   const main = compileScript(
     `

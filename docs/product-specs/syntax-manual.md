@@ -185,6 +185,10 @@ Interpolation `${expr}` is evaluated at runtime.
 Rules:
 - `value` attribute is not allowed on `<text>`.
 - Inline content must be non-empty (after trim).
+- `once` (optional, default `false`):
+  - accepts only `"true"` or `"false"`.
+  - when `true`, this text node is emitted only once per script for the engine instance.
+  - once-state is persisted by snapshot/resume.
 
 ## 9. `<code>`
 
@@ -234,12 +238,18 @@ Syntax:
 ```xml
 <while when="hp > 0">
   <code>hp = hp - 1;</code>
+  <if when="hp == 3"><continue/></if>
+  <if when="hp == 1"><break/></if>
 </while>
 ```
 
 Rules:
 
 - `when` is required and must evaluate to `boolean`.
+- `<break/>` exits the nearest enclosing `<while>`.
+- `<continue/>` inside while body skips to the nearest enclosing `<while>` next condition check.
+- Using `<break/>` outside while is a compile error.
+- Using `<continue/>` outside while is a compile error unless it is a direct child of `<option>` (see below).
 
 ## 12. `<choice>` / `<option>`
 
@@ -247,11 +257,15 @@ Syntax:
 
 ```xml
 <choice text="Choose your action (${random(100)})">
-  <option text="Attack" when="hp > 0">
+  <option text="Attack" when="hp > 0" once="true">
     <code>hp = hp - 1;</code>
+    <continue/>
   </option>
-  <option text="Run">
+  <option text="Run" when="hp > 0">
     <text>You ran away.</text>
+  </option>
+  <option text="Leave" fall_over="true">
+    <text>Nothing else is available.</text>
   </option>
 </choice>
 ```
@@ -268,6 +282,20 @@ Syntax:
 
 - `text` (required)
 - `when` (optional)
+- `once` (optional, default `false`)
+  - accepts only `"true"` or `"false"`.
+  - once-selected options become unavailable for later selections in the same script.
+- `fall_over` (optional, default `false`)
+  - accepts only `"true"` or `"false"`.
+  - per choice, at most one option can use `fall_over="true"`.
+  - fall-over option must be the last option.
+  - fall-over option cannot declare `when`.
+  - fall-over option is shown only when no non-fall-over option is currently visible.
+
+`<option>` body rules:
+
+- A direct child `<continue/>` returns execution to the current `<choice>` node and prompts selection again.
+- If a direct `<continue/>` is used with `once="true"`, the once effect still applies before re-entering the choice.
 
 ## 13. `<call>`
 
@@ -339,9 +367,15 @@ Example:
 11. Writing wrong type, `undefined`, or `null` into declared script variables -> runtime error.
 12. Using `null` as a declared type (`type="null"` or `args="null:x"`) -> compile error (`TYPE_PARSE_ERROR`).
 13. Using empty/whitespace-only `text` attribute on `<choice>` -> compile error (`XML_EMPTY_ATTR`).
-14. Using `value` attribute on `<text>/<code>` -> compile error (`XML_ATTR_NOT_ALLOWED`).
-15. Leaving `<text>/<code>` inline content empty -> compile error (`XML_EMPTY_NODE_CONTENT`).
-16. Using `ref:` in `<return script="..." args="..."/>` -> compile error (`XML_RETURN_REF_UNSUPPORTED`).
-17. Including malformed JSON data -> compile error (`JSON_PARSE_ERROR`).
-18. JSON basename is not a valid identifier -> compile error (`JSON_SYMBOL_INVALID`).
-19. Duplicate JSON symbol basename across reachable files -> compile error (`JSON_SYMBOL_DUPLICATE`).
+14. Invalid boolean literal on `once`/`fall_over` -> compile error (`XML_ATTR_BOOL_INVALID`).
+15. `fall_over="true"` used more than once in a choice -> compile error (`XML_OPTION_FALL_OVER_DUPLICATE`).
+16. `fall_over="true"` not on the last option -> compile error (`XML_OPTION_FALL_OVER_NOT_LAST`).
+17. `fall_over="true"` with `when` -> compile error (`XML_OPTION_FALL_OVER_WHEN_FORBIDDEN`).
+18. `<break/>` outside `<while>` -> compile error (`XML_BREAK_OUTSIDE_WHILE`).
+19. `<continue/>` outside `<while>` and non-option-direct position -> compile error (`XML_CONTINUE_OUTSIDE_WHILE_OR_OPTION`).
+20. Using `value` attribute on `<text>/<code>` -> compile error (`XML_ATTR_NOT_ALLOWED`).
+21. Leaving `<text>/<code>` inline content empty -> compile error (`XML_EMPTY_NODE_CONTENT`).
+22. Using `ref:` in `<return script="..." args="..."/>` -> compile error (`XML_RETURN_REF_UNSUPPORTED`).
+23. Including malformed JSON data -> compile error (`JSON_PARSE_ERROR`).
+24. JSON basename is not a valid identifier -> compile error (`JSON_SYMBOL_INVALID`).
+25. Duplicate JSON symbol basename across reachable files -> compile error (`JSON_SYMBOL_DUPLICATE`).

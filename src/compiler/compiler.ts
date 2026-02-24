@@ -2,11 +2,13 @@ import path from "node:path";
 
 import { ScriptLangError } from "../core/errors.js";
 import type {
+  BreakNode,
   CallArgument,
   CallNode,
   ChoiceNode,
   ChoiceOption,
   CodeNode,
+  ContinueNode,
   IfNode,
   ImplicitGroup,
   ReturnNode,
@@ -89,6 +91,25 @@ const getRequiredNonEmptyAttr = (node: XmlElementNode, name: string): string => 
     );
   }
   return raw;
+};
+
+const parseBooleanAttr = (node: XmlElementNode, name: string, defaultValue = false): boolean => {
+  const raw = node.attributes[name];
+  if (raw === undefined) {
+    return defaultValue;
+  }
+  const normalized = raw.trim();
+  if (normalized === "true") {
+    return true;
+  }
+  if (normalized === "false") {
+    return false;
+  }
+  throw new ScriptLangError(
+    "XML_ATTR_BOOL_INVALID",
+    `Attribute "${name}" on <${node.name}> must be "true" or "false".`,
+    node.location
+  );
 };
 
 const asElements = (nodes: XmlNode[]): XmlElementNode[] => {
@@ -327,7 +348,9 @@ const compileGroup = (
   parentGroupId: string | null,
   container: XmlElementNode,
   builder: GroupBuilder,
-  resolveNamedType?: NamedTypeResolver
+  resolveNamedType?: NamedTypeResolver,
+  whileDepth = 0,
+  allowOptionDirectContinue = false
 ): void => {
   const nodes: ScriptNode[] = [];
   builder.groups[groupId] = {
@@ -338,6 +361,14 @@ const compileGroup = (
   };
 
   for (const child of asElements(container.children)) {
+    if (Object.hasOwn(child.attributes, "once") && child.name !== "text") {
+      throw new ScriptLangError(
+        "XML_ATTR_NOT_ALLOWED",
+        'Attribute "once" is only allowed on <text> and <option>.',
+        child.location
+      );
+    }
+
     if (REMOVED_NODES.has(child.name)) {
       throw new ScriptLangError(
         "XML_REMOVED_NODE",
@@ -361,6 +392,7 @@ const compileGroup = (
         id: builder.nextNodeId("text"),
         kind: "text",
         value: parseInlineRequired(child),
+        once: parseBooleanAttr(child, "once"),
         location: child.location,
       };
       compiled = textNode;
@@ -380,9 +412,17 @@ const compileGroup = (
         ...child,
         children: asElements(child.children).filter((x) => x.name !== "else"),
       };
-      compileGroup(thenGroupId, groupId, thenContainer, builder, resolveNamedType);
+      compileGroup(
+        thenGroupId,
+        groupId,
+        thenContainer,
+        builder,
+        resolveNamedType,
+        whileDepth,
+        false
+      );
       if (elseNode) {
-        compileGroup(elseGroupId, groupId, elseNode, builder, resolveNamedType);
+        compileGroup(elseGroupId, groupId, elseNode, builder, resolveNamedType, whileDepth, false);
       } else {
         builder.groups[elseGroupId] = {
           groupId: elseGroupId,
@@ -402,7 +442,7 @@ const compileGroup = (
       compiled = ifNode;
     } else if (child.name === "while") {
       const bodyGroupId = builder.nextGroupId();
-      compileGroup(bodyGroupId, groupId, child, builder, resolveNamedType);
+      compileGroup(bodyGroupId, groupId, child, builder, resolveNamedType, whileDepth + 1, false);
       const whileNode: WhileNode = {
         id: builder.nextNodeId("while"),
         kind: "while",
@@ -413,7 +453,10 @@ const compileGroup = (
       compiled = whileNode;
     } else if (child.name === "choice") {
       const options: ChoiceOption[] = [];
-      for (const option of asElements(child.children)) {
+      const fallOverOptionPositions: Array<{ index: number; location: SourceSpan }> = [];
+      const optionElements = asElements(child.children);
+      for (let optionIndex = 0; optionIndex < optionElements.length; optionIndex += 1) {
+        const option = optionElements[optionIndex];
         if (option.name !== "option") {
           throw new ScriptLangError(
             "XML_CHOICE_OPTION_INVALID",
@@ -421,15 +464,44 @@ const compileGroup = (
             option.location
           );
         }
+        const whenExpr = getAttr(option, "when", false);
+        const once = parseBooleanAttr(option, "once");
+        const fallOver = parseBooleanAttr(option, "fall_over");
+        if (fallOver) {
+          if (whenExpr !== null) {
+            throw new ScriptLangError(
+              "XML_OPTION_FALL_OVER_WHEN_FORBIDDEN",
+              "<option fall_over=\"true\"> cannot declare when.",
+              option.location
+            );
+          }
+          fallOverOptionPositions.push({ index: optionIndex, location: option.location });
+        }
         const optionGroupId = builder.nextGroupId();
-        compileGroup(optionGroupId, groupId, option, builder, resolveNamedType);
+        compileGroup(optionGroupId, groupId, option, builder, resolveNamedType, whileDepth, true);
         options.push({
           id: builder.nextChoiceId(),
           text: getAttr(option, "text", true) as string,
-          whenExpr: getAttr(option, "when", false),
+          whenExpr,
+          once,
+          fallOver,
           groupId: optionGroupId,
           location: option.location,
         });
+      }
+      if (fallOverOptionPositions.length > 1) {
+        throw new ScriptLangError(
+          "XML_OPTION_FALL_OVER_DUPLICATE",
+          "<choice> can only contain one <option fall_over=\"true\">.",
+          fallOverOptionPositions[1].location
+        );
+      }
+      if (fallOverOptionPositions.length === 1 && fallOverOptionPositions[0].index !== optionElements.length - 1) {
+        throw new ScriptLangError(
+          "XML_OPTION_FALL_OVER_NOT_LAST",
+          "<option fall_over=\"true\"> must be the last option in <choice>.",
+          fallOverOptionPositions[0].location
+        );
       }
       const choiceNode: ChoiceNode = {
         id: builder.nextNodeId("choice"),
@@ -439,6 +511,41 @@ const compileGroup = (
         location: child.location,
       };
       compiled = choiceNode;
+    } else if (child.name === "break") {
+      if (whileDepth <= 0) {
+        throw new ScriptLangError(
+          "XML_BREAK_OUTSIDE_WHILE",
+          "<break> is only allowed inside <while>.",
+          child.location
+        );
+      }
+      const breakNode: BreakNode = {
+        id: builder.nextNodeId("break"),
+        kind: "break",
+        location: child.location,
+      };
+      compiled = breakNode;
+    } else if (child.name === "continue") {
+      let target: "while" | "choice" | null = null;
+      if (allowOptionDirectContinue) {
+        target = "choice";
+      } else if (whileDepth > 0) {
+        target = "while";
+      }
+      if (target === null) {
+        throw new ScriptLangError(
+          "XML_CONTINUE_OUTSIDE_WHILE_OR_OPTION",
+          "<continue> is only allowed inside <while> or as a direct child of <option>.",
+          child.location
+        );
+      }
+      const continueNode: ContinueNode = {
+        id: builder.nextNodeId("continue"),
+        kind: "continue",
+        target,
+        location: child.location,
+      };
+      compiled = continueNode;
     } else if (child.name === "call") {
       const callNode: CallNode = {
         id: builder.nextNodeId("call"),
@@ -843,7 +950,7 @@ export const compileScript = (
   const params = parseScriptArgs(root, options.resolveNamedType);
   const builder = new GroupBuilder(scriptPath);
   const rootGroupId = builder.nextGroupId();
-  compileGroup(rootGroupId, null, root, builder, options.resolveNamedType);
+  compileGroup(rootGroupId, null, root, builder, options.resolveNamedType, 0, false);
 
   return {
     scriptPath,

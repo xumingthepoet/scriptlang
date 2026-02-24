@@ -1,0 +1,11 @@
+<script name="main">
+  <text once="true">You step into the tavern for the first time.</text>
+  <choice text="Talk to the bartender">
+    <option text="Ask for rumors" once="true">
+      <text>You hear a secret route to the castle.</text>
+    </option>
+    <option text="Order water">
+      <text>A calm break.</text>
+    </option>
+  </choice>
+</script>
