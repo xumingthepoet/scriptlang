@@ -446,6 +446,93 @@ test("break/continue placement is validated at compile time", () => {
   }
 });
 
+test("loop macro expands into var + while + decrement code", () => {
+  const ir = compileScript(
+    `
+<script name="main">
+  <loop times="3">
+    <text>x</text>
+  </loop>
+</script>
+`,
+    "loop-expand.script.xml"
+  );
+  const rootNodes = ir.groups[ir.rootGroupId].nodes;
+  assert.equal(rootNodes[0]?.kind, "var");
+  assert.equal(rootNodes[1]?.kind, "while");
+  if (rootNodes[0]?.kind === "var") {
+    assert.equal(rootNodes[0].declaration.type.kind, "primitive");
+    assert.equal(rootNodes[0].declaration.initialValueExpr, "3");
+    assert.match(rootNodes[0].declaration.name, /^__sl_loop_\d+_remaining$/);
+  }
+  if (rootNodes[1]?.kind === "while" && rootNodes[0]?.kind === "var") {
+    assert.equal(rootNodes[1].whenExpr, `${rootNodes[0].declaration.name} > 0`);
+    const body = ir.groups[rootNodes[1].bodyGroupId];
+    assert.equal(body.nodes[0]?.kind, "code");
+    assert.equal(body.nodes[1]?.kind, "text");
+  }
+});
+
+test("loop macro supports nested loops and avoids temp var collisions", () => {
+  const ir = compileScript(
+    `
+<script name="main">
+  <var name="__sl_loop_0_remaining" type="number" value="99"/>
+  <loop times="2">
+    <loop times="1">
+      <text>nested</text>
+    </loop>
+  </loop>
+</script>
+`,
+    "loop-nested.script.xml"
+  );
+  const rootNodes = ir.groups[ir.rootGroupId].nodes;
+  assert.equal(rootNodes[0]?.kind, "var");
+  assert.equal(rootNodes[1]?.kind, "var");
+  if (rootNodes[1]?.kind === "var") {
+    assert.notEqual(rootNodes[1].declaration.name, "__sl_loop_0_remaining");
+  }
+});
+
+test("loop times rejects ${...} wrapper form", () => {
+  assert.throws(
+    () =>
+      compileScript(
+        `<script name="main"><loop times="\${n}"><text>x</text></loop></script>`,
+        "loop-template-times.script.xml"
+      ),
+    (e: unknown) => {
+      assert.ok(e instanceof ScriptLangError);
+      assert.equal(e.code, "XML_LOOP_TIMES_TEMPLATE_UNSUPPORTED");
+      return true;
+    }
+  );
+});
+
+test("loop times requires non-empty attribute", () => {
+  assert.throws(
+    () => compileScript(`<script name="main"><loop><text>x</text></loop></script>`, "loop-missing-times.script.xml"),
+    (e: unknown) => {
+      assert.ok(e instanceof ScriptLangError);
+      assert.equal(e.code, "XML_MISSING_ATTR");
+      return true;
+    }
+  );
+  assert.throws(
+    () =>
+      compileScript(
+        `<script name="main"><loop times="   "><text>x</text></loop></script>`,
+        "loop-empty-times.script.xml"
+      ),
+    (e: unknown) => {
+      assert.ok(e instanceof ScriptLangError);
+      assert.equal(e.code, "XML_EMPTY_ATTR");
+      return true;
+    }
+  );
+});
+
 test("text/code reject value attribute and empty inline content", () => {
   const textWithValueAttr = `<script name="x"><text ${"value"}="x"/></script>`;
   const codeWithValueAttr = `<script name="x"><code ${"value"}="x"/></script>`;

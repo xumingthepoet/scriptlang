@@ -105,6 +105,14 @@ test("compiler validation error branches", () => {
     "CALL_ARGS_PARSE_ERROR"
   );
   expectCode(
+    () =>
+      compileScript(
+        `<script name="a.script.xml"><var name="" type="number" value="1"/></script>`,
+        "a.script.xml"
+      ),
+    "XML_MISSING_ATTR"
+  );
+  expectCode(
     () => compileScript(`<script name="a.script.xml"><text once="1">x</text></script>`, "a.script.xml"),
     "XML_ATTR_BOOL_INVALID"
   );

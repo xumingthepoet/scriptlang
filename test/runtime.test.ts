@@ -311,6 +311,57 @@ test("while break and continue follow nearest loop semantics", () => {
   assert.deepEqual(engine.next(), { kind: "end" });
 });
 
+test("loop times authoring sugar runs fixed and expression counts", () => {
+  const main = compileScript(
+    `
+<script name="main">
+  <var name="times" type="number" value="2"/>
+  <loop times="3">
+    <text>a</text>
+  </loop>
+  <loop times="times + 1">
+    <text>b</text>
+  </loop>
+</script>
+`,
+    "main.script.xml"
+  );
+  const engine = new ScriptLangEngine({ scripts: { main }, compilerVersion: "dev" });
+  engine.start("main");
+  assert.deepEqual(engine.next(), { kind: "text", text: "a" });
+  assert.deepEqual(engine.next(), { kind: "text", text: "a" });
+  assert.deepEqual(engine.next(), { kind: "text", text: "a" });
+  assert.deepEqual(engine.next(), { kind: "text", text: "b" });
+  assert.deepEqual(engine.next(), { kind: "text", text: "b" });
+  assert.deepEqual(engine.next(), { kind: "text", text: "b" });
+  assert.deepEqual(engine.next(), { kind: "end" });
+});
+
+test("loop body supports break and continue through while-backed expansion", () => {
+  const main = compileScript(
+    `
+<script name="main">
+  <var name="i" type="number" value="0"/>
+  <loop times="6">
+    <code>i = i + 1;</code>
+    <if when="i == 2"><continue/></if>
+    <if when="i == 5"><break/></if>
+    <text>tick-\${i}</text>
+  </loop>
+  <text>done-\${i}</text>
+</script>
+`,
+    "main.script.xml"
+  );
+  const engine = new ScriptLangEngine({ scripts: { main }, compilerVersion: "dev" });
+  engine.start("main");
+  assert.deepEqual(engine.next(), { kind: "text", text: "tick-1" });
+  assert.deepEqual(engine.next(), { kind: "text", text: "tick-3" });
+  assert.deepEqual(engine.next(), { kind: "text", text: "tick-4" });
+  assert.deepEqual(engine.next(), { kind: "text", text: "done-5" });
+  assert.deepEqual(engine.next(), { kind: "end" });
+});
+
 test("call with ref writes back to caller var", () => {
   const main = compileScript(
     `

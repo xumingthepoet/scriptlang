@@ -22,6 +22,7 @@ import type {
   VarNode,
   WhileNode,
 } from "../core/types.js";
+import { expandScriptMacros } from "./macros.js";
 import { parseXmlDocument } from "./xml.js";
 import type { XmlElementNode, XmlNode } from "./xml-types.js";
 
@@ -948,9 +949,12 @@ export const compileScript = (
 
   const scriptName = getAttr(root, "name", true) as string;
   const params = parseScriptArgs(root, options.resolveNamedType);
+  const expandedRoot = expandScriptMacros(root, {
+    reservedVarNames: params.map((param) => param.name),
+  });
   const builder = new GroupBuilder(scriptPath);
   const rootGroupId = builder.nextGroupId();
-  compileGroup(rootGroupId, null, root, builder, options.resolveNamedType, 0, false);
+  compileGroup(rootGroupId, null, expandedRoot, builder, options.resolveNamedType, 0, false);
 
   return {
     scriptPath,

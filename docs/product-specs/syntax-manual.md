@@ -56,9 +56,10 @@ Allowed direct children of `<script>` are executable nodes:
 3. `<code>`
 4. `<if>` / `<else>`
 5. `<while>`
-6. `<choice>` / `<option>`
-7. `<call>`
-8. `<return>`
+6. `<loop>`
+7. `<choice>` / `<option>`
+8. `<call>`
+9. `<return>`
 
 Removed nodes (compile-time error):
 
@@ -251,6 +252,24 @@ Rules:
 - Using `<break/>` outside while is a compile error.
 - Using `<continue/>` outside while is a compile error unless it is a direct child of `<option>` (see below).
 
+## 11.1 `<loop>`
+
+Syntax:
+
+```xml
+<loop times="3">
+  <text>tick</text>
+</loop>
+```
+
+Rules:
+
+- `times` is required.
+- `times` uses regular expression syntax (same style as `when` / `<code>` expressions).
+- `times` does not support `${...}` wrapper syntax.
+- `<loop>` is compile-time macro sugar and expands to existing runtime primitives (`<var>` + `<while>` + `<code>`).
+- `<break/>` and `<continue/>` in loop body follow the same nearest-loop behavior as while.
+
 ## 12. `<choice>` / `<option>`
 
 Syntax:
@@ -373,9 +392,10 @@ Example:
 17. `fall_over="true"` with `when` -> compile error (`XML_OPTION_FALL_OVER_WHEN_FORBIDDEN`).
 18. `<break/>` outside `<while>` -> compile error (`XML_BREAK_OUTSIDE_WHILE`).
 19. `<continue/>` outside `<while>` and non-option-direct position -> compile error (`XML_CONTINUE_OUTSIDE_WHILE_OR_OPTION`).
-20. Using `value` attribute on `<text>/<code>` -> compile error (`XML_ATTR_NOT_ALLOWED`).
-21. Leaving `<text>/<code>` inline content empty -> compile error (`XML_EMPTY_NODE_CONTENT`).
-22. Using `ref:` in `<return script="..." args="..."/>` -> compile error (`XML_RETURN_REF_UNSUPPORTED`).
-23. Including malformed JSON data -> compile error (`JSON_PARSE_ERROR`).
-24. JSON basename is not a valid identifier -> compile error (`JSON_SYMBOL_INVALID`).
-25. Duplicate JSON symbol basename across reachable files -> compile error (`JSON_SYMBOL_DUPLICATE`).
+20. Using `${...}` wrapper in `<loop times="...">` -> compile error (`XML_LOOP_TIMES_TEMPLATE_UNSUPPORTED`).
+21. Using `value` attribute on `<text>/<code>` -> compile error (`XML_ATTR_NOT_ALLOWED`).
+22. Leaving `<text>/<code>` inline content empty -> compile error (`XML_EMPTY_NODE_CONTENT`).
+23. Using `ref:` in `<return script="..." args="..."/>` -> compile error (`XML_RETURN_REF_UNSUPPORTED`).
+24. Including malformed JSON data -> compile error (`JSON_PARSE_ERROR`).
+25. JSON basename is not a valid identifier -> compile error (`JSON_SYMBOL_INVALID`).
+26. Duplicate JSON symbol basename across reachable files -> compile error (`JSON_SYMBOL_DUPLICATE`).

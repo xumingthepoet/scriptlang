@@ -55,6 +55,7 @@ npm run player:tui -- --scripts-dir examples/scripts/09-random
 npm run player:tui -- --scripts-dir examples/scripts/10-once-static
 npm run player:tui -- --scripts-dir examples/scripts/11-choice-fallover-continue
 npm run player:tui -- --scripts-dir examples/scripts/12-while-break-continue
+npm run player:tui -- --scripts-dir examples/scripts/13-loop-times
 ```
 
 Play scripts from an external directory (entry is always `<script name="main">`; multi-file dependencies including `.script.xml` / `.types.xml` / `.json` data files must be included from `main` via header `include`):

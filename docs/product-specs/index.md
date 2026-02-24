@@ -15,10 +15,11 @@
 
 ## Current Canonical Behavior
 1. Every script compiles to a root implicit group.
-2. `if/while/choice/call` execute via implicit child groups.
+2. `if/while/loop/choice/call` execute via implicit child groups.
 3. Snapshot persistence is based on current node/group path + ancestor scopes.
 4. Language-level `random(n)` builtin exists and is deterministic when seeded.
 5. Host function access is explicit and whitelisted.
+6. `<loop times="...">` is compile-time authoring sugar expanded into existing runtime primitives.
 
 ## XML Surface (Implemented)
 - Allowed roots: `<script>` and `<types>`.
@@ -40,6 +41,7 @@
   - `<code>...</code>`
   - `<if when="...">...</if>` with optional `<else>`.
   - `<while when="...">...</while>` with `<break/>` and `<continue/>` in while body
+  - `<loop times="...">...</loop>` for count-based loops (times is expression syntax, not `${...}` template wrapping)
   - `<choice text="..."><option ...>...</option></choice>`
   - `<choice>` requires non-empty `text` as host-facing choice prompt text.
   - `<option>` supports `text` (required), `when` (optional), `once` (optional), and `fall_over` (optional).
