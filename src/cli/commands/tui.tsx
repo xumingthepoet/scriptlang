@@ -111,7 +111,9 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
   const [choicePromptText, setChoicePromptText] = useState(started.boundary.choicePromptText);
   const [inputPromptText, setInputPromptText] = useState(started.boundary.inputPromptText);
   const [inputDefaultText, setInputDefaultText] = useState(started.boundary.inputDefaultText);
-  const [inputBuffer, setInputBuffer] = useState("");
+  const [inputBuffer, setInputBuffer] = useState(
+    started.boundary.event === "INPUT" ? (started.boundary.inputDefaultText ?? "") : ""
+  );
   const [selectedChoiceIndex, setSelectedChoiceIndex] = useState(0);
   const [choiceScrollOffset, setChoiceScrollOffset] = useState(0);
   const [ended, setEnded] = useState(started.boundary.event === "END");
@@ -180,7 +182,7 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
       setChoicePromptText(null);
       setInputPromptText(boundary.inputPromptText);
       setInputDefaultText(boundary.inputDefaultText);
-      setInputBuffer("");
+      setInputBuffer(boundary.inputDefaultText ?? "");
       setEnded(false);
       setSelectedChoiceIndex(0);
       setChoiceScrollOffset(0);
@@ -351,18 +353,12 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
   const reservedRows =
     3 + // header rows: scenario/state/status
     1 + // divider
-    1 + // choice title
     CHOICE_VIEWPORT_ROWS +
     1 + // choice window info
     (ended ? 1 : 0) +
     1 + // keys
     (helpVisible ? 1 : 0);
-  const availableTextRows = Math.max(1, terminalSize.rows - reservedRows);
   const wrappedTextRows = lines.flatMap((line) => wrapLineToWidth(line, contentWidth));
-  const visibleTextRows =
-    wrappedTextRows.length <= availableTextRows
-      ? wrappedTextRows
-      : wrappedTextRows.slice(-availableTextRows);
   const inputModeEnabled = !typingInProgress && inputPromptText !== null;
   const choiceDisplayEnabled = !typingInProgress && !inputModeEnabled && choices.length > 0;
   const choiceRowsSource = choiceDisplayEnabled ? choices : [];
@@ -407,10 +403,18 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
     "keys: up/down move | type+backspace input | enter submit/choose | s save | l load | r restart | h help | q quit",
     contentWidth
   );
-  const choiceHeaderText = truncateToWidth(
-    inputPromptText ?? choicePromptText ?? "choices (up/down + enter):",
-    contentWidth
-  );
+  const interactionHeaderRaw = inputModeEnabled
+    ? inputPromptText ?? ""
+    : choiceDisplayEnabled
+    ? (choicePromptText ?? "choices (up/down + enter):")
+    : "";
+  const choiceHeaderText = truncateToWidth(interactionHeaderRaw, contentWidth);
+  const totalReservedRows = reservedRows + (choiceHeaderText.length > 0 ? 1 : 0);
+  const adjustedAvailableTextRows = Math.max(1, terminalSize.rows - totalReservedRows);
+  const clippedVisibleTextRows =
+    wrappedTextRows.length <= adjustedAvailableTextRows
+      ? wrappedTextRows
+      : wrappedTextRows.slice(-adjustedAvailableTextRows);
   const helpText = truncateToWidth(
     "snapshot is valid only when waiting at choices/input. if save fails, continue until interaction appears.",
     contentWidth
@@ -421,11 +425,11 @@ const PlayerApp = ({ scenario, stateFile }: { scenario: LoadedScenario; stateFil
       <Text>{headerText}</Text>
       <Text color="gray">{stateText}</Text>
       <Text color="gray">{statusText}</Text>
-      {visibleTextRows.map((line, index) => (
+      {clippedVisibleTextRows.map((line, index) => (
         <Text key={`line-${index}`}>{line}</Text>
       ))}
       <Text color="gray">{dividerLine}</Text>
-      <Text color="cyan">{choiceHeaderText}</Text>
+      {choiceHeaderText.length > 0 && <Text color="cyan">{choiceHeaderText}</Text>}
       <Box flexDirection="column">
         {visibleChoiceRows.map((row) => (
           <Text key={row.key} color={row.selected ? "green" : undefined}>
