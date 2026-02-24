@@ -1,3 +1,4 @@
+<!-- include: buff.script.xml -->
 <script name="main">
   <var name="hp" type="number" value="1"/>
   <text>before hp=${hp}</text>

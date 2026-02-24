@@ -34,6 +34,10 @@ This repository is initialized for **agent-first harness engineering**:
 - `npm run player:tui -- --scripts-dir <path>`: run interactive Ink TUI player from build output.
 - `npm run player:agent -- <subcommand> ...`: run non-interactive agent mode from build output (`start` requires `--scripts-dir`).
 
+## Test Layout
+- `test/unit/**`: unit tests mirrored to non-`.d.ts` files in `src/` with defensive edge-path coverage.
+- `test/smoke/**`: integration smoke tests focused on runnable examples under `examples/scripts/`.
+
 ## Harness Workflow Notes
 - Process authority lives in `/docs/HARNESS.md`.
 - Use `/AGENTS.md` for startup checklist and `/docs/TEST_WORKFLOW.md` for test/coverage mechanics.

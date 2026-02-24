@@ -1,3 +1,4 @@
+<!-- include: next.script.xml -->
 <script name="main">
   <text>jumping</text>
   <return script="next"/>

@@ -6,7 +6,7 @@ import v8 from "node:v8";
 
 import { test } from "vitest";
 
-import { runAgentCommand } from "../src/cli/commands/agent.js";
+import { runAgentCommand } from "../../../../src/cli/commands/agent.js";
 
 const runWithCapture = (argv: string[]) => {
   const lines: string[] = [];

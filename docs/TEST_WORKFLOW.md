@@ -30,6 +30,18 @@ If coverage is below 100%:
 3. Re-run `npm test`.
 4. Repeat until thresholds are fully satisfied.
 
+## Test Topology
+
+The repository test layout is split into two layers:
+
+- `test/unit/**`: defensive unit tests mirrored one-to-one with non-`.d.ts` files under `src/`.
+  - Directory shape should follow `src/` structure.
+  - Test blocks in a file should follow the declaration order of the mapped source file.
+  - Error/edge paths should live in the mapped unit file instead of cross-cutting aggregate files.
+- `test/smoke/**`: integration smoke tests.
+  - Primary responsibility is validating runnable examples under `examples/scripts/`.
+  - Smoke scenarios should assert end-to-end behavior (`start -> choices -> choose -> end`) via stable host interfaces.
+
 ## Failure Handling
 
 - If tests fail, fix code or tests, then rerun `npm test`.

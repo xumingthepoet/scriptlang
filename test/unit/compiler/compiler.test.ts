@@ -1,14 +1,12 @@
 import assert from "node:assert/strict";
 import { test, vi } from "vitest";
 
-import { expandScriptMacros } from "../src/compiler/macros.js";
-import { parseXmlDocument } from "../src/compiler/xml.js";
 import {
   ScriptLangError,
   compileProjectBundleFromXmlMap,
   compileProjectScriptsFromXmlMap,
   compileScript,
-} from "../src/index.js";
+} from "../../../src/index.js";
 
 test("compile script into implicit groups with params and var nodes", () => {
   const xml = `
@@ -475,31 +473,6 @@ test("loop macro expands into var + while + decrement code", () => {
   }
 });
 
-test("loop macro supports nested loops and avoids temp var collisions", () => {
-  const root = parseXmlDocument(
-    `
-<script name="main">
-  <var name="__sl_loop_0_remaining" type="number" value="99"/>
-  <loop times="2">
-    <loop times="1">
-      <text>nested</text>
-    </loop>
-  </loop>
-</script>
-`
-  ).root;
-  const expanded = expandScriptMacros(root, {
-    reservedVarNames: [],
-  });
-  const rootNodes = expanded.children.filter((node) => node.kind === "element");
-  assert.equal(rootNodes[0]?.name, "var");
-  assert.equal(rootNodes[1]?.name, "var");
-  assert.equal(rootNodes[0]?.attributes.name, "__sl_loop_0_remaining");
-  if (rootNodes[1]?.name === "var") {
-    assert.notEqual(rootNodes[1].attributes.name, "__sl_loop_0_remaining");
-  }
-});
-
 test("reserved __ prefix is rejected for script/arg/var names", () => {
   assert.throws(
     () => compileScript(`<script name="__main"><text>x</text></script>`, "reserved-script-name.script.xml"),
@@ -963,5 +936,33 @@ test("project compiler loads JSON globals and validates symbol rules", () => {
         "b/config.json": `{"x":2}`,
       }),
     "JSON_SYMBOL_DUPLICATE"
+  );
+});
+
+test("compiler defensive validation branches", () => {
+  expectCode(() => compileScript("<nope/>", "a.script.xml"), "XML_INVALID_ROOT");
+  expectCode(
+    () =>
+      compileScript(
+        `<script name="a.script.xml"><choice text="Choose"><bad/></choice></script>`,
+        "a.script.xml"
+      ),
+    "XML_CHOICE_OPTION_INVALID"
+  );
+  expectCode(
+    () => compileScript(`<script name="a.script.xml"><unknown/></script>`, "a.script.xml"),
+    "XML_UNKNOWN_NODE"
+  );
+  expectCode(
+    () =>
+      compileScript(
+        `<script name="a.script.xml"><var name="" type="number" value="1"/></script>`,
+        "a.script.xml"
+      ),
+    "XML_MISSING_ATTR"
+  );
+  expectCode(
+    () => compileScript(`<script name="a.script.xml"><text once="1">x</text></script>`, "a.script.xml"),
+    "XML_ATTR_BOOL_INVALID"
   );
 });

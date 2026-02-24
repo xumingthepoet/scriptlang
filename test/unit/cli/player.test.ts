@@ -2,20 +2,9 @@ import assert from "node:assert/strict";
 
 import { test } from "vitest";
 
-import { runPlayerCli } from "../src/cli/player.js";
+import { runPlayerCli } from "../../../src/cli/player.js";
 
-test("esm exports remain available", async () => {
-  const indexModule = await import("../src/index.js");
-  const compilerModule = await import("../src/compiler/index.js");
-  const runtimeModule = await import("../src/runtime/index.js");
-
-  assert.equal(typeof indexModule.compileScript, "function");
-  assert.equal(typeof indexModule.createEngineFromXml, "function");
-  assert.equal(typeof compilerModule.parseXmlDocument, "function");
-  assert.equal(typeof runtimeModule.ScriptLangEngine, "function");
-});
-
-test("player cli usage paths", async () => {
+test("runPlayerCli usage and error paths", async () => {
   const writes: string[] = [];
   const errWrites: string[] = [];
   const stdoutWrite = process.stdout.write.bind(process.stdout);

@@ -6,7 +6,7 @@ import {
   compileScriptsFromXmlMap,
   createEngineFromXml,
   resumeEngineFromXml,
-} from "../src/index.js";
+} from "../../src/index.js";
 
 test("createEngineFromXml and resumeEngineFromXml", () => {
   const scriptsXml = {
@@ -294,4 +294,24 @@ test("createEngineFromXml requires main script to exist", () => {
       return true;
     }
   );
+});
+
+test("api createEngineFromXml supports host functions", () => {
+  const engine = createEngineFromXml({
+    entryScript: "main",
+    compilerVersion: "dev",
+    hostFunctions: {
+      add: (...args: unknown[]) => Number(args[0]) + Number(args[1]),
+    },
+    scriptsXml: {
+      "main.script.xml": `
+<script name="main">
+  <var name="hp" type="number" value="1"/>
+  <code>hp = add(hp, 2);</code>
+  <text>v=\${hp}</text>
+</script>
+`,
+    },
+  });
+  assert.deepEqual(engine.next(), { kind: "text", text: "v=3" });
 });
