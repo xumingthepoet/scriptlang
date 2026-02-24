@@ -95,6 +95,10 @@ Example:
 </types>
 ```
 
+Reserved naming:
+
+- `<types name>`, `<type name>`, and `<field name>` values starting with `__` are reserved and rejected with `NAME_RESERVED_PREFIX`.
+
 ## 5. Script Identity and Parameters
 
 `<script>` attributes:
@@ -121,6 +125,7 @@ Rules:
 - `name` must be unique across compiled scripts.
 - `args` defines script-root typed variables.
 - Missing call arguments use type-based default values.
+- Names starting with `__` are reserved for internal compiler/macro use and are rejected with `NAME_RESERVED_PREFIX`.
 
 ## 6. `<var>` Declarations
 
@@ -167,6 +172,7 @@ Rules:
   - `x.json -> x`
   - `config/player.json -> player`
 - Symbol name must be a valid JS identifier (`[A-Za-z_$][A-Za-z0-9_$]*`).
+- Symbol names starting with `__` are reserved and rejected with `NAME_RESERVED_PREFIX`.
 - Duplicate symbol names across reachable JSON files are compile errors.
 - JSON is parsed with strict `JSON.parse` (comments and trailing commas are invalid).
 - JSON symbols are visible only to scripts that can reach the JSON file in their own include closure.
@@ -399,3 +405,4 @@ Example:
 24. Including malformed JSON data -> compile error (`JSON_PARSE_ERROR`).
 25. JSON basename is not a valid identifier -> compile error (`JSON_SYMBOL_INVALID`).
 26. Duplicate JSON symbol basename across reachable files -> compile error (`JSON_SYMBOL_DUPLICATE`).
+27. Using `__` prefix in user-defined names (script/arg/var/types-collection/type/field/json symbol) -> compile error (`NAME_RESERVED_PREFIX`).

@@ -8,7 +8,8 @@ interface MacroExpansionContext {
 
 type MacroHandler = (node: XmlElementNode, context: MacroExpansionContext) => XmlElementNode[];
 
-const LOOP_TEMP_VAR_PREFIX = "__sl_loop_";
+export const INTERNAL_RESERVED_NAME_PREFIX = "__";
+const LOOP_TEMP_VAR_PREFIX = `${INTERNAL_RESERVED_NAME_PREFIX}sl_loop_`;
 
 const collectDeclaredVarNames = (node: XmlElementNode, names: Set<string>): void => {
   if (node.name === "var") {

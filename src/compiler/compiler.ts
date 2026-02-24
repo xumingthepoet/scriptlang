@@ -22,7 +22,7 @@ import type {
   VarNode,
   WhileNode,
 } from "../core/types.js";
-import { expandScriptMacros } from "./macros.js";
+import { INTERNAL_RESERVED_NAME_PREFIX, expandScriptMacros } from "./macros.js";
 import { parseXmlDocument } from "./xml.js";
 import type { XmlElementNode, XmlNode } from "./xml-types.js";
 
@@ -111,6 +111,32 @@ const parseBooleanAttr = (node: XmlElementNode, name: string, defaultValue = fal
     `Attribute "${name}" on <${node.name}> must be "true" or "false".`,
     node.location
   );
+};
+
+const assertNameNotReserved = (name: string, label: string, span?: SourceSpan): void => {
+  if (!name.trim().startsWith(INTERNAL_RESERVED_NAME_PREFIX)) {
+    return;
+  }
+  throw new ScriptLangError(
+    "NAME_RESERVED_PREFIX",
+    `Name "${name}" for ${label} cannot start with "${INTERNAL_RESERVED_NAME_PREFIX}" because that prefix is reserved for internal compiler/macro symbols.`,
+    span
+  );
+};
+
+const validateReservedPrefixInUserVarDeclarations = (node: XmlElementNode): void => {
+  if (node.name === "var") {
+    const name = node.attributes.name;
+    if (name !== undefined && name !== "") {
+      assertNameNotReserved(name, "var", node.location);
+    }
+  }
+  for (const child of node.children) {
+    if (child.kind !== "element") {
+      continue;
+    }
+    validateReservedPrefixInUserVarDeclarations(child);
+  }
 };
 
 const asElements = (nodes: XmlNode[]): XmlElementNode[] => {
@@ -267,6 +293,7 @@ const parseScriptArgs = (root: XmlElementNode, resolveNamedType?: NamedTypeResol
     }
     const typeSource = normalized.slice(0, separator).trim();
     const name = normalized.slice(separator + 1).trim();
+    assertNameNotReserved(name, "script arg", root.location);
     if (names.has(name)) {
       throw new ScriptLangError(
         "SCRIPT_ARGS_DUPLICATE",
@@ -598,6 +625,7 @@ const compileGroup = (
 
 const parseTypeDeclarationsFromRoot = (root: XmlElementNode, sourcePath: string): ParsedTypeDecl[] => {
   const collectionName = getAttr(root, "name", true) as string;
+  assertNameNotReserved(collectionName, "types collection", root.location);
   const declarations: ParsedTypeDecl[] = [];
 
   for (const child of asElements(root.children)) {
@@ -609,6 +637,7 @@ const parseTypeDeclarationsFromRoot = (root: XmlElementNode, sourcePath: string)
       );
     }
     const typeName = getAttr(child, "name", true) as string;
+    assertNameNotReserved(typeName, "type", child.location);
     const fields: ParsedTypeFieldDecl[] = [];
     const fieldNames = new Set<string>();
     for (const fieldNode of asElements(child.children)) {
@@ -620,6 +649,7 @@ const parseTypeDeclarationsFromRoot = (root: XmlElementNode, sourcePath: string)
         );
       }
       const fieldName = getAttr(fieldNode, "name", true) as string;
+      assertNameNotReserved(fieldName, "field", fieldNode.location);
       if (fieldNames.has(fieldName)) {
         throw new ScriptLangError(
           "TYPE_FIELD_DUPLICATE",
@@ -917,6 +947,7 @@ const parseJsonGlobalSymbol = (filePath: string): string => {
       `Invalid JSON global symbol "${symbol}" derived from "${filePath}". JSON basename must be a valid identifier.`
     );
   }
+  assertNameNotReserved(symbol, "JSON global symbol", undefined);
   return symbol;
 };
 
@@ -948,7 +979,9 @@ export const compileScript = (
   }
 
   const scriptName = getAttr(root, "name", true) as string;
+  assertNameNotReserved(scriptName, "script", root.location);
   const params = parseScriptArgs(root, options.resolveNamedType);
+  validateReservedPrefixInUserVarDeclarations(root);
   const expandedRoot = expandScriptMacros(root, {
     reservedVarNames: params.map((param) => param.name),
   });

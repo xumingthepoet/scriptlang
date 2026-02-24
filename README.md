@@ -12,6 +12,7 @@ This repository is initialized for **agent-first harness engineering**:
 - Current phase: active development with V2 XML syntax and V1 snapshot schema (`snapshot.v1`).
 - Compatibility posture: no backward-compat requirement by default during development; remove legacy syntax/behavior unless a task explicitly requires compatibility.
 - Ongoing implementation tasks are tracked in `/docs/exec-plans/active/`.
+- Internal reserved prefix: user-authored names starting with `__` are compile-time errors.
 
 ## Repo Map
 - `/AGENTS.md`: required workflow for engineers and coding agents.

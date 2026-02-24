@@ -20,11 +20,13 @@
 4. Language-level `random(n)` builtin exists and is deterministic when seeded.
 5. Host function access is explicit and whitelisted.
 6. `<loop times="...">` is compile-time authoring sugar expanded into existing runtime primitives.
+7. `__` is reserved for internal compiler/macro names and cannot be used by user-defined named entities.
 
 ## XML Surface (Implemented)
 - Allowed roots: `<script>` and `<types>`.
 - Script ID is `name`; runtime lookup and `<call script="...">` use this ID.
 - Type collection root: `<types name="...">`.
+- Any user-defined name that starts with `__` is a compile error (`NAME_RESERVED_PREFIX`), including script names, script args, `<var name>`, `<types name>`, `<type name>`, `<field name>`, and JSON global symbol names.
 - Header include directives are supported in script/type XML roots:
   - `<!-- include: rel/path.ext -->`
   - include traversal starts at the file that declares `<script name="main">`

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test, vi } from "vitest";
 
+import { expandScriptMacros } from "../src/compiler/macros.js";
+import { parseXmlDocument } from "../src/compiler/xml.js";
 import {
   ScriptLangError,
   compileProjectBundleFromXmlMap,
@@ -474,7 +476,7 @@ test("loop macro expands into var + while + decrement code", () => {
 });
 
 test("loop macro supports nested loops and avoids temp var collisions", () => {
-  const ir = compileScript(
+  const root = parseXmlDocument(
     `
 <script name="main">
   <var name="__sl_loop_0_remaining" type="number" value="99"/>
@@ -484,15 +486,87 @@ test("loop macro supports nested loops and avoids temp var collisions", () => {
     </loop>
   </loop>
 </script>
-`,
-    "loop-nested.script.xml"
-  );
-  const rootNodes = ir.groups[ir.rootGroupId].nodes;
-  assert.equal(rootNodes[0]?.kind, "var");
-  assert.equal(rootNodes[1]?.kind, "var");
-  if (rootNodes[1]?.kind === "var") {
-    assert.notEqual(rootNodes[1].declaration.name, "__sl_loop_0_remaining");
+`
+  ).root;
+  const expanded = expandScriptMacros(root, {
+    reservedVarNames: [],
+  });
+  const rootNodes = expanded.children.filter((node) => node.kind === "element");
+  assert.equal(rootNodes[0]?.name, "var");
+  assert.equal(rootNodes[1]?.name, "var");
+  assert.equal(rootNodes[0]?.attributes.name, "__sl_loop_0_remaining");
+  if (rootNodes[1]?.name === "var") {
+    assert.notEqual(rootNodes[1].attributes.name, "__sl_loop_0_remaining");
   }
+});
+
+test("reserved __ prefix is rejected for script/arg/var names", () => {
+  assert.throws(
+    () => compileScript(`<script name="__main"><text>x</text></script>`, "reserved-script-name.script.xml"),
+    (e: unknown) => {
+      assert.ok(e instanceof ScriptLangError);
+      assert.equal(e.code, "NAME_RESERVED_PREFIX");
+      return true;
+    }
+  );
+  assert.throws(
+    () => compileScript(`<script name="main" args="number:__x"><text>x</text></script>`, "reserved-arg-name.script.xml"),
+    (e: unknown) => {
+      assert.ok(e instanceof ScriptLangError);
+      assert.equal(e.code, "NAME_RESERVED_PREFIX");
+      return true;
+    }
+  );
+  assert.throws(
+    () => compileScript(`<script name="main"><var name="__x" type="number" value="1"/></script>`, "reserved-var-name.script.xml"),
+    (e: unknown) => {
+      assert.ok(e instanceof ScriptLangError);
+      assert.equal(e.code, "NAME_RESERVED_PREFIX");
+      return true;
+    }
+  );
+});
+
+test("reserved __ prefix is rejected for types/fields/json symbols", () => {
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main.script.xml": `<!-- include: bad.types.xml -->
+<script name="main"><text>x</text></script>`,
+        "bad.types.xml": `<types name="__meta"><type name="A"><field name="x" type="number"/></type></types>`,
+      }),
+    "NAME_RESERVED_PREFIX"
+  );
+
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main.script.xml": `<!-- include: bad.types.xml -->
+<script name="main"><text>x</text></script>`,
+        "bad.types.xml": `<types name="meta"><type name="__A"><field name="x" type="number"/></type></types>`,
+      }),
+    "NAME_RESERVED_PREFIX"
+  );
+
+  expectCode(
+    () =>
+      compileProjectScriptsFromXmlMap({
+        "main.script.xml": `<!-- include: bad.types.xml -->
+<script name="main"><text>x</text></script>`,
+        "bad.types.xml": `<types name="meta"><type name="A"><field name="__x" type="number"/></type></types>`,
+      }),
+    "NAME_RESERVED_PREFIX"
+  );
+
+  expectCode(
+    () =>
+      compileProjectBundleFromXmlMap({
+        "main.script.xml": `<!-- include: __game.json -->
+<script name="main"><text>x</text></script>`,
+        "__game.json": `{"x":1}`,
+      }),
+    "NAME_RESERVED_PREFIX"
+  );
 });
 
 test("loop times rejects ${...} wrapper form", () => {
