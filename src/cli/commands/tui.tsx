@@ -15,7 +15,7 @@ import {
 } from "../core/source-loader.js";
 import { createPlayerState, loadPlayerState, savePlayerState } from "../core/state-store.js";
 
-export const DEFAULT_STATE_FILE = "./.scriptlang/save.bin";
+export const DEFAULT_STATE_FILE = "./.scriptlang/save.json";
 const CHOICE_VIEWPORT_ROWS = 5;
 const TYPEWRITER_CHARS_PER_SECOND = 60;
 const TYPEWRITER_TICK_MS = Math.floor(1000 / TYPEWRITER_CHARS_PER_SECOND);

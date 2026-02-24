@@ -10,10 +10,10 @@ test("parseTuiArgs parses scripts-dir, optional entry-script, and optional state
   assert.equal(parsed.entryScript, "main");
   assert.equal(parsed.stateFile, DEFAULT_STATE_FILE);
 
-  const withState = parseTuiArgs(["--scripts-dir", "/tmp/demo", "--state-file", "/tmp/s.bin"]);
+  const withState = parseTuiArgs(["--scripts-dir", "/tmp/demo", "--state-file", "/tmp/s.json"]);
   assert.equal(withState.scriptsDir, "/tmp/demo");
   assert.equal(withState.entryScript, "main");
-  assert.equal(withState.stateFile, "/tmp/s.bin");
+  assert.equal(withState.stateFile, "/tmp/s.json");
 
   const withEntry = parseTuiArgs(["--scripts-dir", "/tmp/demo", "--entry-script", "alt"]);
   assert.equal(withEntry.scriptsDir, "/tmp/demo");

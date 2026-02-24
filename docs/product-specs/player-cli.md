@@ -75,9 +75,13 @@ Text viewport rules:
 
 State handling:
 
-- Default state file: `./.scriptlang/save.bin`.
+- Default state file: `./.scriptlang/save.json`.
 - Save is only valid while waiting for a choice (snapshot constraint).
 - Save is valid while waiting for `choice` or `input`.
+- State files are UTF-8 JSON text (`player-state.v2`), not Node `v8` binary payloads.
+- JSON state encoding must preserve ScriptLang runtime values used by snapshots, including:
+  - `Map` via tagged portable encoding.
+  - non-finite numbers (`NaN`, `Infinity`, `-Infinity`) via tagged portable encoding.
 
 ## 4. Agent Mode
 
@@ -126,6 +130,7 @@ Rules:
 - Invalid `input` operation (wrong boundary) returns `RESULT:ERROR`.
 - Corrupt/missing state file returns `RESULT:ERROR`.
 - State `scenarioId` that is not `scripts-dir:<absolute-path>` returns `RESULT:ERROR`.
+- Legacy binary `.bin` payloads are invalid state input and return `RESULT:ERROR`.
 
 Error lines must include:
 
@@ -138,3 +143,6 @@ Error lines must include:
 - Snapshot compatibility still follows runtime rules:
   - schema must be `snapshot.v2`
   - compiler version must match.
+- Player-state file compatibility:
+  - schema must be `player-state.v2`
+  - old `player-state.v1` binary payloads are not supported.

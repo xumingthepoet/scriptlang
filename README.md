@@ -77,16 +77,16 @@ npm run player:tui -- --scripts-dir /absolute/path/to/scripts --entry-script alt
 Run to boundary and persist state for agent orchestration:
 
 ```bash
-npm run player:agent -- start --scripts-dir examples/scripts/06-snapshot-flow --state-out /tmp/sl-state.bin
-npm run player:agent -- start --scripts-dir examples/scripts/15-entry-override-recursive --entry-script alt --state-out /tmp/sl-alt-state.bin
-npm run player:agent -- choose --state-in /tmp/sl-state.bin --choice 0 --state-out /tmp/sl-next.bin
-npm run player:agent -- input --state-in /tmp/sl-next.bin --text "Rin" --state-out /tmp/sl-next-2.bin
+npm run player:agent -- start --scripts-dir examples/scripts/06-snapshot-flow --state-out /tmp/sl-state.json
+npm run player:agent -- start --scripts-dir examples/scripts/15-entry-override-recursive --entry-script alt --state-out /tmp/sl-alt-state.json
+npm run player:agent -- choose --state-in /tmp/sl-state.json --choice 0 --state-out /tmp/sl-next.json
+npm run player:agent -- input --state-in /tmp/sl-next.json --text "Rin" --state-out /tmp/sl-next-2.json
 ```
 
 Agent mode can also start from an external scripts directory:
 
 ```bash
-npm run player:agent -- start --scripts-dir /absolute/path/to/scripts --state-out /tmp/sl-state.bin
+npm run player:agent -- start --scripts-dir /absolute/path/to/scripts --state-out /tmp/sl-state.json
 ```
 
 ## Quick Start

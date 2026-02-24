@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import v8 from "node:v8";
 
 import { test } from "vitest";
 
@@ -336,15 +335,15 @@ test("agent error protocol paths", () => {
   assert.equal(outOfRange.code, 1);
   assert.ok(outOfRange.lines.some((line) => line.startsWith("ERROR_CODE:ENGINE_CHOICE_INDEX")));
 
-  const legacyStatePath = path.join(dir, "legacy.bin");
-  const parsed = v8.deserialize(fs.readFileSync(statePath)) as {
+  const legacyStatePath = path.join(dir, "legacy.json");
+  const parsed = JSON.parse(fs.readFileSync(statePath, "utf8")) as {
     schemaVersion: string;
     scenarioId: string;
     compilerVersion: string;
     snapshot: unknown;
   };
   parsed.scenarioId = "06-snapshot-flow";
-  fs.writeFileSync(legacyStatePath, v8.serialize(parsed));
+  fs.writeFileSync(legacyStatePath, JSON.stringify(parsed), "utf8");
 
   const legacyChoose = runWithCapture([
     "choose",
