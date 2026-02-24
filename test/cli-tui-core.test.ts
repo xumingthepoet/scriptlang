@@ -13,13 +13,11 @@ import {
   startScenario,
 } from "../src/cli/core/engine-runner.js";
 import {
-  getScenarioScriptsRoot,
-  listScenarios,
-  loadScenarioById,
-  loadScenarioByRef,
-  loadScenarioByScriptsDir,
-  makeExternalScenarioId,
-} from "../src/cli/core/scenario-registry.js";
+  getExamplesScriptsRoot,
+  loadSourceByRef,
+  loadSourceByScriptsDir,
+  makeScriptsDirScenarioId,
+} from "../src/cli/core/source-loader.js";
 import {
   PLAYER_STATE_SCHEMA,
   createPlayerState,
@@ -27,63 +25,33 @@ import {
   savePlayerState,
 } from "../src/cli/core/state-store.js";
 
-test("scenario registry lists and loads scenarios", () => {
-  const scenarios = listScenarios();
-  assert.equal(scenarios.length, 9);
-  assert.equal(scenarios[0].id, "01-text-code");
-  assert.ok(scenarios.some((scenario) => scenario.id === "07-battle-duel"));
-  assert.ok(scenarios.some((scenario) => scenario.id === "08-json-globals"));
-  assert.ok(scenarios.some((scenario) => scenario.id === "09-random"));
+const scriptsDir = (id: string): string => path.resolve("examples", "scripts", id);
 
-  const loaded = loadScenarioById("04-call-ref-return");
+test("source loader reads script directories including bundled examples", () => {
+  const loaded = loadSourceByScriptsDir(scriptsDir("04-call-ref-return"));
   assert.equal(loaded.entryScript, "main");
   assert.ok(loaded.scriptsXml["main.script.xml"].includes("<call script=\"buff\""));
   assert.ok(loaded.scriptsXml["buff.script.xml"].includes("target = target + amount"));
 
-  const battle = loadScenarioById("07-battle-duel");
+  const battle = loadSourceByScriptsDir(scriptsDir("07-battle-duel"));
   assert.equal(battle.entryScript, "main");
   assert.ok(battle.scriptsXml["main.script.xml"].includes("<call"));
   assert.ok(battle.scriptsXml["battle-loop.script.xml"].includes("<while"));
 
-  const jsonGlobals = loadScenarioById("08-json-globals");
+  const jsonGlobals = loadSourceByScriptsDir(scriptsDir("08-json-globals"));
   assert.equal(jsonGlobals.entryScript, "main");
   assert.ok(jsonGlobals.scriptsXml["main.script.xml"].includes("include: game.json"));
   assert.ok(jsonGlobals.scriptsXml["game.json"].includes("\"title\": \"JSON Globals Demo\""));
 
-  const randomBuiltin = loadScenarioById("09-random");
+  const randomBuiltin = loadSourceByScriptsDir(scriptsDir("09-random"));
   assert.equal(randomBuiltin.entryScript, "main");
   assert.ok(randomBuiltin.scriptsXml["main.script.xml"].includes("random(100)"));
 });
 
-test("scenario registry error paths", () => {
-  assert.throws(() => loadScenarioById("missing-id"), (error: unknown) => {
-    assert.equal((error as { code?: string }).code, "CLI_SCENARIO_NOT_FOUND");
-    return true;
-  });
-
-  const originalExistsSync = fs.existsSync.bind(fs);
-  const existsSpy = vi.spyOn(fs, "existsSync");
-  existsSpy.mockImplementation((target) => {
-    const asString = String(target);
-    if (asString.endsWith(`${path.sep}main.script.xml`)) {
-      return false;
-    }
-    return originalExistsSync(target);
-  });
-  try {
-    assert.throws(() => loadScenarioById("01-text-code"), (error: unknown) => {
-      assert.equal((error as { code?: string }).code, "CLI_SCENARIO_FILE_MISSING");
-      return true;
-    });
-  } finally {
-    existsSpy.mockRestore();
-  }
-});
-
-test("scenario root detection failure path", () => {
+test("source root detection failure path", () => {
   const existsSpy = vi.spyOn(fs, "existsSync").mockImplementation(() => false);
   try {
-    assert.throws(() => getScenarioScriptsRoot(), (error: unknown) => {
+    assert.throws(() => getExamplesScriptsRoot(), (error: unknown) => {
       assert.equal((error as { code?: string }).code, "CLI_PROJECT_ROOT");
       return true;
     });
@@ -92,22 +60,30 @@ test("scenario root detection failure path", () => {
   }
 });
 
-test("external scripts-dir loading and ref resolution", () => {
-  const externalDir = path.resolve("examples", "scripts", "06-snapshot-flow");
-  const loaded = loadScenarioByScriptsDir(externalDir);
+test("source root resolves from project layout", () => {
+  const root = getExamplesScriptsRoot();
+  assert.equal(path.basename(root), "scripts");
+  assert.equal(path.basename(path.dirname(root)), "examples");
+});
+
+test("scripts-dir loading and ref resolution", () => {
+  const externalDir = scriptsDir("06-snapshot-flow");
+  const loaded = loadSourceByScriptsDir(externalDir);
   assert.equal(loaded.entryScript, "main");
-  assert.equal(loaded.id, makeExternalScenarioId(path.resolve(externalDir)));
+  assert.equal(loaded.id, makeScriptsDirScenarioId(path.resolve(externalDir)));
   assert.ok(loaded.scriptsXml["main.script.xml"].includes('<choice text="Choose">'));
 
-  const viaRef = loadScenarioByRef(loaded.id);
+  const viaRef = loadSourceByRef(loaded.id);
   assert.equal(viaRef.id, loaded.id);
   assert.equal(viaRef.entryScript, "main");
 
-  const exampleViaRef = loadScenarioByRef("01-text-code");
-  assert.equal(exampleViaRef.id, "01-text-code");
+  assert.throws(() => loadSourceByRef("06-snapshot-flow"), (error: unknown) => {
+    assert.equal((error as { code?: string }).code, "CLI_STATE_INVALID");
+    return true;
+  });
 });
 
-test("external scripts-dir includes .types.xml files", () => {
+test("scripts-dir includes .types.xml files", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "scriptlang-types-dir-"));
   fs.writeFileSync(
     path.join(dir, "main.script.xml"),
@@ -119,12 +95,12 @@ test("external scripts-dir includes .types.xml files", () => {
     `<types name="game"><type name="Actor"><field name="hp" type="number"/></type></types>`
   );
 
-  const loaded = loadScenarioByScriptsDir(dir);
+  const loaded = loadSourceByScriptsDir(dir);
   assert.ok(loaded.scriptsXml["main.script.xml"]);
   assert.ok(loaded.scriptsXml["game.types.xml"]);
 });
 
-test("external scripts-dir includes .json files", () => {
+test("scripts-dir includes .json files", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "scriptlang-json-dir-"));
   fs.writeFileSync(
     path.join(dir, "main.script.xml"),
@@ -133,74 +109,39 @@ test("external scripts-dir includes .json files", () => {
   );
   fs.writeFileSync(path.join(dir, "game.json"), `{"player":{"name":"Hero"}}`);
 
-  const loaded = loadScenarioByScriptsDir(dir);
+  const loaded = loadSourceByScriptsDir(dir);
   assert.ok(loaded.scriptsXml["main.script.xml"]);
   assert.ok(loaded.scriptsXml["game.json"]);
 });
 
-test("loadScenarioById auto-includes discovered .types.xml files", () => {
-  const scenarioDir = path.join(getScenarioScriptsRoot(), "01-text-code");
-  const injectedName = "extra.types.xml";
-  const injectedContent =
-    `<types name="extra"><type name="X"><field name="hp" type="number"/></type></types>`;
-  const injectedPath = path.join(scenarioDir, injectedName);
-
-  try {
-    fs.writeFileSync(injectedPath, injectedContent);
-    const loaded = loadScenarioById("01-text-code");
-    assert.ok(loaded.scriptsXml[injectedName]);
-  } finally {
-    if (fs.existsSync(injectedPath)) {
-      fs.unlinkSync(injectedPath);
-    }
-  }
-});
-
-test("loadScenarioById auto-includes discovered .json files", () => {
-  const scenarioDir = path.join(getScenarioScriptsRoot(), "01-text-code");
-  const injectedName = "extra.json";
-  const injectedContent = `{"bonus":1}`;
-  const injectedPath = path.join(scenarioDir, injectedName);
-
-  try {
-    fs.writeFileSync(injectedPath, injectedContent);
-    const loaded = loadScenarioById("01-text-code");
-    assert.ok(loaded.scriptsXml[injectedName]);
-  } finally {
-    if (fs.existsSync(injectedPath)) {
-      fs.unlinkSync(injectedPath);
-    }
-  }
-});
-
-test("external scripts-dir error paths", () => {
+test("scripts-dir error paths", () => {
   const missingDir = path.join(os.tmpdir(), `scriptlang-missing-${Date.now()}`);
-  assert.throws(() => loadScenarioByScriptsDir(missingDir), (error: unknown) => {
+  assert.throws(() => loadSourceByScriptsDir(missingDir), (error: unknown) => {
     assert.equal((error as { code?: string }).code, "CLI_SCRIPTS_DIR_NOT_FOUND");
     return true;
   });
 
   const filePath = path.join(os.tmpdir(), `scriptlang-file-${Date.now()}.txt`);
   fs.writeFileSync(filePath, "x");
-  assert.throws(() => loadScenarioByScriptsDir(filePath), (error: unknown) => {
+  assert.throws(() => loadSourceByScriptsDir(filePath), (error: unknown) => {
     assert.equal((error as { code?: string }).code, "CLI_SCRIPTS_DIR_NOT_FOUND");
     return true;
   });
 
   const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), "scriptlang-empty-scripts-"));
-  assert.throws(() => loadScenarioByScriptsDir(emptyDir), (error: unknown) => {
+  assert.throws(() => loadSourceByScriptsDir(emptyDir), (error: unknown) => {
     assert.equal((error as { code?: string }).code, "CLI_SCRIPTS_DIR_EMPTY");
     return true;
   });
 
-  assert.throws(() => loadScenarioByRef("scripts-dir:"), (error: unknown) => {
+  assert.throws(() => loadSourceByRef("scripts-dir:"), (error: unknown) => {
     assert.equal((error as { code?: string }).code, "CLI_STATE_INVALID");
     return true;
   });
 });
 
 test("engine runner start choose and resume flows", () => {
-  const scenario = loadScenarioById("06-snapshot-flow");
+  const scenario = loadSourceByScriptsDir(scriptsDir("06-snapshot-flow"));
   const started = startScenario(scenario, PLAYER_COMPILER_VERSION);
 
   assert.equal(started.boundary.event, "CHOICES");
@@ -222,14 +163,14 @@ test("engine runner carries choice prompt text", () => {
     path.join(dir, "main.script.xml"),
     `<script name="main"><choice text="Pick"><option text="Go"><text>done</text></option></choice></script>`
   );
-  const scenario = loadScenarioByScriptsDir(dir);
+  const scenario = loadSourceByScriptsDir(dir);
   const started = startScenario(scenario, PLAYER_COMPILER_VERSION);
   assert.equal(started.boundary.event, "CHOICES");
   assert.equal(started.boundary.choicePromptText, "Pick");
 });
 
 test("engine runner normalizes legacy snapshot without prompt text to null", () => {
-  const scenario = loadScenarioById("03-choice-once");
+  const scenario = loadSourceByScriptsDir(scriptsDir("03-choice-once"));
   const started = startScenario(scenario, PLAYER_COMPILER_VERSION);
   const snapshot = started.engine.snapshot();
   const legacySnapshot = structuredClone(snapshot);
@@ -241,7 +182,7 @@ test("engine runner normalizes legacy snapshot without prompt text to null", () 
 });
 
 test("state store save and load roundtrip", () => {
-  const scenario = loadScenarioById("06-snapshot-flow");
+  const scenario = loadSourceByScriptsDir(scriptsDir("06-snapshot-flow"));
   const started = startScenario(scenario, PLAYER_COMPILER_VERSION);
   const snapshot = started.engine.snapshot();
 
@@ -257,6 +198,7 @@ test("state store save and load roundtrip", () => {
 });
 
 test("state store validation errors", () => {
+  const scenarioId = makeScriptsDirScenarioId(path.resolve(scriptsDir("06-snapshot-flow")));
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "scriptlang-state-invalid-"));
 
   const missing = path.join(dir, "missing.bin");
@@ -270,7 +212,7 @@ test("state store validation errors", () => {
     wrongSchemaPath,
     v8.serialize({
       schemaVersion: "old",
-      scenarioId: "06-snapshot-flow",
+      scenarioId,
       compilerVersion: PLAYER_COMPILER_VERSION,
       snapshot: { schemaVersion: "snapshot.v1", compilerVersion: PLAYER_COMPILER_VERSION, waitingChoice: true },
     })
@@ -300,7 +242,7 @@ test("state store validation errors", () => {
     badCompilerPath,
     v8.serialize({
       schemaVersion: PLAYER_STATE_SCHEMA,
-      scenarioId: "06-snapshot-flow",
+      scenarioId,
       compilerVersion: "",
       snapshot: { schemaVersion: "snapshot.v1", compilerVersion: PLAYER_COMPILER_VERSION, waitingChoice: true },
     })
@@ -315,7 +257,7 @@ test("state store validation errors", () => {
     badSnapshotPath,
     v8.serialize({
       schemaVersion: PLAYER_STATE_SCHEMA,
-      scenarioId: "06-snapshot-flow",
+      scenarioId,
       compilerVersion: PLAYER_COMPILER_VERSION,
       snapshot: {},
     })
@@ -325,12 +267,34 @@ test("state store validation errors", () => {
     return true;
   });
 
+  const invalidPayloadPath = path.join(dir, "invalid-payload.bin");
+  fs.writeFileSync(invalidPayloadPath, v8.serialize("not-an-object"));
+  assert.throws(() => loadPlayerState(invalidPayloadPath), (error: unknown) => {
+    assert.equal((error as { code?: string }).code, "CLI_STATE_INVALID");
+    return true;
+  });
+
+  const nullSnapshotPath = path.join(dir, "null-snapshot.bin");
+  fs.writeFileSync(
+    nullSnapshotPath,
+    v8.serialize({
+      schemaVersion: PLAYER_STATE_SCHEMA,
+      scenarioId,
+      compilerVersion: PLAYER_COMPILER_VERSION,
+      snapshot: null,
+    })
+  );
+  assert.throws(() => loadPlayerState(nullSnapshotPath), (error: unknown) => {
+    assert.equal((error as { code?: string }).code, "CLI_STATE_INVALID");
+    return true;
+  });
+
   const missingRngStatePath = path.join(dir, "missing-rng-state.bin");
   fs.writeFileSync(
     missingRngStatePath,
     v8.serialize({
       schemaVersion: PLAYER_STATE_SCHEMA,
-      scenarioId: "06-snapshot-flow",
+      scenarioId,
       compilerVersion: PLAYER_COMPILER_VERSION,
       snapshot: {
         schemaVersion: "snapshot.v1",
@@ -350,7 +314,7 @@ test("state store validation errors", () => {
     missingPendingItemsPath,
     v8.serialize({
       schemaVersion: PLAYER_STATE_SCHEMA,
-      scenarioId: "06-snapshot-flow",
+      scenarioId,
       compilerVersion: PLAYER_COMPILER_VERSION,
       snapshot: {
         schemaVersion: "snapshot.v1",
@@ -370,7 +334,7 @@ test("state store validation errors", () => {
     badPromptTypePath,
     v8.serialize({
       schemaVersion: PLAYER_STATE_SCHEMA,
-      scenarioId: "06-snapshot-flow",
+      scenarioId,
       compilerVersion: PLAYER_COMPILER_VERSION,
       snapshot: {
         schemaVersion: "snapshot.v1",
@@ -378,7 +342,7 @@ test("state store validation errors", () => {
         waitingChoice: true,
         rngState: 1,
         pendingChoiceItems: [],
-        pendingChoicePromptText: 123,
+        pendingChoicePromptText: 1,
       },
     })
   );
@@ -387,24 +351,23 @@ test("state store validation errors", () => {
     return true;
   });
 
-  const nullSnapshotPath = path.join(dir, "null-snapshot.bin");
+  const badPendingItemsPath = path.join(dir, "bad-pending-items.bin");
   fs.writeFileSync(
-    nullSnapshotPath,
+    badPendingItemsPath,
     v8.serialize({
       schemaVersion: PLAYER_STATE_SCHEMA,
-      scenarioId: "06-snapshot-flow",
+      scenarioId,
       compilerVersion: PLAYER_COMPILER_VERSION,
-      snapshot: null,
+      snapshot: {
+        schemaVersion: "snapshot.v1",
+        compilerVersion: PLAYER_COMPILER_VERSION,
+        waitingChoice: true,
+        rngState: 1,
+        pendingChoiceItems: [{ index: 0, id: 1, text: "x" }],
+      },
     })
   );
-  assert.throws(() => loadPlayerState(nullSnapshotPath), (error: unknown) => {
-    assert.equal((error as { code?: string }).code, "CLI_STATE_INVALID");
-    return true;
-  });
-
-  const nonObjectPath = path.join(dir, "non-object.bin");
-  fs.writeFileSync(nonObjectPath, v8.serialize("bad"));
-  assert.throws(() => loadPlayerState(nonObjectPath), (error: unknown) => {
+  assert.throws(() => loadPlayerState(badPendingItemsPath), (error: unknown) => {
     assert.equal((error as { code?: string }).code, "CLI_STATE_INVALID");
     return true;
   });

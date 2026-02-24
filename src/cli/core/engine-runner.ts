@@ -1,7 +1,7 @@
 import { createEngineFromXml, resumeEngineFromXml } from "../../api.js";
 import type { ChoiceItem, SnapshotV1 } from "../../core/types.js";
 import type { ScriptLangEngine } from "../../runtime/index.js";
-import type { LoadedScenario } from "./scenario-registry.js";
+import type { LoadedScenario } from "./source-loader.js";
 
 export const PLAYER_COMPILER_VERSION = "player.v1";
 

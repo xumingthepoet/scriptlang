@@ -5,12 +5,7 @@ import {
   resumeScenario,
   startScenario,
 } from "../core/engine-runner.js";
-import {
-  loadScenarioById,
-  loadScenarioByRef,
-  loadScenarioByScriptsDir,
-  listScenarios,
-} from "../core/scenario-registry.js";
+import { loadSourceByRef, loadSourceByScriptsDir } from "../core/source-loader.js";
 import { createPlayerState, loadPlayerState, savePlayerState } from "../core/state-store.js";
 
 type WriteLine = (line: string) => void;
@@ -73,21 +68,14 @@ const emitError = (writeLine: WriteLine, error: unknown): number => {
 };
 
 const resolveStartScenario = (flags: Record<string, string>) => {
-  const example = flags.example ?? "";
   const scriptsDir = flags["scripts-dir"] ?? "";
-  if (example && scriptsDir) {
-    throw makeCliError(
-      "CLI_SOURCE_CONFLICT",
-      "Use exactly one source selector: --example <id> or --scripts-dir <path>."
-    );
-  }
-  if (!example && !scriptsDir) {
+  if (!scriptsDir) {
     throw makeCliError(
       "CLI_SOURCE_REQUIRED",
-      "Missing source selector. Use --example <id> or --scripts-dir <path>."
+      "Missing source selector. Use --scripts-dir <path>."
     );
   }
-  return example ? loadScenarioById(example) : loadScenarioByScriptsDir(scriptsDir);
+  return loadSourceByScriptsDir(scriptsDir);
 };
 
 const emitBoundary = (
@@ -111,18 +99,6 @@ const emitBoundary = (
     writeLine(`CHOICE:${choice.index}|${JSON.stringify(choice.text)}`);
   }
   writeLine(`STATE_OUT:${stateOut ?? "NONE"}`);
-  return 0;
-};
-
-const runList = (writeLine: WriteLine): number => {
-  const scenarios = listScenarios();
-  writeLine("RESULT:OK");
-  writeLine("EVENT:TEXT");
-  for (let i = 0; i < scenarios.length; i += 1) {
-    const scenario = scenarios[i];
-    writeLine(`TEXT_JSON:${JSON.stringify(`${scenario.id}\t${scenario.title}`)}`);
-  }
-  writeLine("STATE_OUT:NONE");
   return 0;
 };
 
@@ -167,7 +143,7 @@ const runChoose = (args: string[], writeLine: WriteLine): number => {
   }
 
   const state = loadPlayerState(stateIn);
-  const scenario = loadScenarioByRef(state.scenarioId);
+  const scenario = loadSourceByRef(state.scenarioId);
   const resumed = resumeScenario(scenario, state.snapshot, state.compilerVersion);
   const boundary = chooseAndContinue(resumed.engine, choice);
 
@@ -203,10 +179,7 @@ export const runAgentCommand = (
   try {
     const [subcommand, ...rest] = argv;
     if (!subcommand) {
-      throw makeCliError("CLI_AGENT_USAGE", "Missing agent subcommand. Use list/start/choose.");
-    }
-    if (subcommand === "list") {
-      return runList(writeLine);
+      throw makeCliError("CLI_AGENT_USAGE", "Missing agent subcommand. Use start/choose.");
     }
     if (subcommand === "start") {
       return runStart(rest, writeLine);
@@ -214,7 +187,7 @@ export const runAgentCommand = (
     if (subcommand === "choose") {
       return runChoose(rest, writeLine);
     }
-    throw makeCliError("CLI_AGENT_USAGE", `Unknown agent subcommand: ${subcommand}`);
+    throw makeCliError("CLI_AGENT_USAGE", `Unknown agent subcommand: ${subcommand}. Use start/choose.`);
   } catch (error) {
     return emitError(writeLine, error);
   }

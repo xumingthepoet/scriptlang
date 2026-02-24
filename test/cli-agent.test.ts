@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import v8 from "node:v8";
 
 import { test } from "vitest";
 
@@ -13,23 +14,26 @@ const runWithCapture = (argv: string[]) => {
   return { code, lines };
 };
 
-test("agent list returns scenario rows", () => {
+const scriptsDir = (id: string): string => path.resolve("examples", "scripts", id);
+
+test("agent list command is unsupported", () => {
   const result = runWithCapture(["list"]);
-  assert.equal(result.code, 0);
-  assert.equal(result.lines[0], "RESULT:OK");
-  assert.equal(result.lines[1], "EVENT:TEXT");
-  assert.equal(result.lines[result.lines.length - 1], "STATE_OUT:NONE");
-  assert.ok(result.lines.some((line) => line.includes("01-text-code")));
-  assert.ok(result.lines.some((line) => line.includes("07-battle-duel")));
-  assert.ok(result.lines.some((line) => line.includes("08-json-globals")));
-  assert.ok(result.lines.some((line) => line.includes("09-random")));
+  assert.equal(result.code, 1);
+  assert.equal(result.lines[0], "RESULT:ERROR");
+  assert.ok(result.lines.some((line) => line.startsWith("ERROR_CODE:CLI_AGENT_USAGE")));
 });
 
 test("agent start emits choices and writes state", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "scriptlang-agent-start-"));
   const stateOut = path.join(dir, "state.bin");
 
-  const result = runWithCapture(["start", "--example", "06-snapshot-flow", "--state-out", stateOut]);
+  const result = runWithCapture([
+    "start",
+    "--scripts-dir",
+    scriptsDir("06-snapshot-flow"),
+    "--state-out",
+    stateOut,
+  ]);
   assert.equal(result.code, 0);
   assert.equal(result.lines[0], "RESULT:OK");
   assert.ok(result.lines.includes("EVENT:CHOICES"));
@@ -44,7 +48,13 @@ test("agent start runs battle duel to first combat choice", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "scriptlang-agent-battle-start-"));
   const stateOut = path.join(dir, "battle.bin");
 
-  const result = runWithCapture(["start", "--example", "07-battle-duel", "--state-out", stateOut]);
+  const result = runWithCapture([
+    "start",
+    "--scripts-dir",
+    scriptsDir("07-battle-duel"),
+    "--state-out",
+    stateOut,
+  ]);
   assert.equal(result.code, 0);
   assert.ok(result.lines.includes("EVENT:CHOICES"));
   assert.ok(result.lines.some((line) => line.startsWith("CHOICE:0|")));
@@ -57,7 +67,13 @@ test("agent start can finish without state file", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "scriptlang-agent-end-"));
   const stateOut = path.join(dir, "state.bin");
 
-  const result = runWithCapture(["start", "--example", "01-text-code", "--state-out", stateOut]);
+  const result = runWithCapture([
+    "start",
+    "--scripts-dir",
+    scriptsDir("01-text-code"),
+    "--state-out",
+    stateOut,
+  ]);
   assert.equal(result.code, 0);
   assert.ok(result.lines.includes("EVENT:END"));
   assert.equal(result.lines[result.lines.length - 1], "STATE_OUT:NONE");
@@ -66,18 +82,18 @@ test("agent start can finish without state file", () => {
 
 test("agent choices include prompt line when choice prompt exists", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "scriptlang-agent-prompt-"));
-  const scriptsDir = path.join(dir, "scripts");
+  const tempScriptsDir = path.join(dir, "scripts");
   const stateOut = path.join(dir, "state.bin");
-  fs.mkdirSync(scriptsDir, { recursive: true });
+  fs.mkdirSync(tempScriptsDir, { recursive: true });
   fs.writeFileSync(
-    path.join(scriptsDir, "main.script.xml"),
+    path.join(tempScriptsDir, "main.script.xml"),
     `<script name="main"><choice text="Pick one"><option text="Go"><text>x</text></option></choice></script>`
   );
 
   const result = runWithCapture([
     "start",
     "--scripts-dir",
-    scriptsDir,
+    tempScriptsDir,
     "--state-out",
     stateOut,
   ]);
@@ -87,31 +103,19 @@ test("agent choices include prompt line when choice prompt exists", () => {
   assert.equal(result.lines[result.lines.length - 1], `STATE_OUT:${stateOut}`);
 });
 
-test("agent start supports external scripts-dir source", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "scriptlang-agent-external-start-"));
-  const stateOut = path.join(dir, "state.bin");
-  const scriptsDir = path.resolve("examples", "scripts", "06-snapshot-flow");
-
-  const result = runWithCapture([
-    "start",
-    "--scripts-dir",
-    scriptsDir,
-    "--state-out",
-    stateOut,
-  ]);
-  assert.equal(result.code, 0);
-  assert.ok(result.lines.includes("EVENT:CHOICES"));
-  assert.equal(result.lines[result.lines.length - 1], `STATE_OUT:${stateOut}`);
-  assert.equal(fs.existsSync(stateOut), true);
-});
-
 test("agent choose can continue to next choices and to end", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "scriptlang-agent-choose-"));
   const firstState = path.join(dir, "first.bin");
   const secondState = path.join(dir, "second.bin");
   const thirdState = path.join(dir, "third.bin");
 
-  const start = runWithCapture(["start", "--example", "03-choice-once", "--state-out", firstState]);
+  const start = runWithCapture([
+    "start",
+    "--scripts-dir",
+    scriptsDir("03-choice-once"),
+    "--state-out",
+    firstState,
+  ]);
   assert.equal(start.code, 0);
   assert.ok(start.lines.includes("EVENT:CHOICES"));
 
@@ -142,16 +146,15 @@ test("agent choose can continue to next choices and to end", () => {
   assert.equal(chooseSecond.lines[chooseSecond.lines.length - 1], "STATE_OUT:NONE");
 });
 
-test("agent choose resumes external scripts-dir state", () => {
+test("agent choose resumes scripts-dir state", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "scriptlang-agent-external-choose-"));
   const firstState = path.join(dir, "first.bin");
   const secondState = path.join(dir, "second.bin");
-  const scriptsDir = path.resolve("examples", "scripts", "06-snapshot-flow");
 
   const started = runWithCapture([
     "start",
     "--scripts-dir",
-    scriptsDir,
+    scriptsDir("06-snapshot-flow"),
     "--state-out",
     firstState,
   ]);
@@ -182,33 +185,25 @@ test("agent error protocol paths", () => {
   assert.equal(unknownSubcommand.code, 1);
   assert.ok(unknownSubcommand.lines.some((line) => line.startsWith("ERROR_CODE:CLI_AGENT_USAGE")));
 
-  const badArgFormat = runWithCapture(["start", "example", "06-snapshot-flow"]);
+  const badArgFormat = runWithCapture(["start", "scripts-dir", scriptsDir("06-snapshot-flow")]);
   assert.equal(badArgFormat.code, 1);
   assert.ok(badArgFormat.lines.some((line) => line.startsWith("ERROR_CODE:CLI_ARG_FORMAT")));
 
-  const missingArgValue = runWithCapture(["start", "--example"]);
+  const missingArgValue = runWithCapture(["start", "--scripts-dir"]);
   assert.equal(missingArgValue.code, 1);
   assert.ok(missingArgValue.lines.some((line) => line.startsWith("ERROR_CODE:CLI_ARG_MISSING")));
 
-  const missingRequiredArg = runWithCapture(["start", "--example", "06-snapshot-flow"]);
+  const missingRequiredArg = runWithCapture([
+    "start",
+    "--scripts-dir",
+    scriptsDir("06-snapshot-flow"),
+  ]);
   assert.equal(missingRequiredArg.code, 1);
   assert.ok(missingRequiredArg.lines.some((line) => line.startsWith("ERROR_CODE:CLI_ARG_REQUIRED")));
 
   const missingSource = runWithCapture(["start", "--state-out", "out.bin"]);
   assert.equal(missingSource.code, 1);
   assert.ok(missingSource.lines.some((line) => line.startsWith("ERROR_CODE:CLI_SOURCE_REQUIRED")));
-
-  const sourceConflict = runWithCapture([
-    "start",
-    "--example",
-    "06-snapshot-flow",
-    "--scripts-dir",
-    path.resolve("examples", "scripts", "06-snapshot-flow"),
-    "--state-out",
-    "out.bin",
-  ]);
-  assert.equal(sourceConflict.code, 1);
-  assert.ok(sourceConflict.lines.some((line) => line.startsWith("ERROR_CODE:CLI_SOURCE_CONFLICT")));
 
   const noMainDir = fs.mkdtempSync(path.join(os.tmpdir(), "scriptlang-no-main-"));
   fs.writeFileSync(
@@ -240,7 +235,13 @@ test("agent error protocol paths", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "scriptlang-agent-choice-range-"));
   const statePath = path.join(dir, "state.bin");
   const nextState = path.join(dir, "next.bin");
-  const started = runWithCapture(["start", "--example", "06-snapshot-flow", "--state-out", statePath]);
+  const started = runWithCapture([
+    "start",
+    "--scripts-dir",
+    scriptsDir("06-snapshot-flow"),
+    "--state-out",
+    statePath,
+  ]);
   assert.equal(started.code, 0);
   const outOfRange = runWithCapture([
     "choose",
@@ -254,15 +255,46 @@ test("agent error protocol paths", () => {
   assert.equal(outOfRange.code, 1);
   assert.ok(outOfRange.lines.some((line) => line.startsWith("ERROR_CODE:ENGINE_CHOICE_INDEX")));
 
+  const legacyStatePath = path.join(dir, "legacy.bin");
+  const parsed = v8.deserialize(fs.readFileSync(statePath)) as {
+    schemaVersion: string;
+    scenarioId: string;
+    compilerVersion: string;
+    snapshot: unknown;
+  };
+  parsed.scenarioId = "06-snapshot-flow";
+  fs.writeFileSync(legacyStatePath, v8.serialize(parsed));
+
+  const legacyChoose = runWithCapture([
+    "choose",
+    "--state-in",
+    legacyStatePath,
+    "--choice",
+    "0",
+    "--state-out",
+    nextState,
+  ]);
+  assert.equal(legacyChoose.code, 1);
+  assert.ok(legacyChoose.lines.some((line) => line.startsWith("ERROR_CODE:CLI_STATE_INVALID")));
+
   const lines: string[] = [];
   let writeCount = 0;
-  const unknownErrorCode = runAgentCommand(["list"], (line) => {
-    writeCount += 1;
-    if (writeCount === 1) {
-      throw "boom";
+  const unknownErrorCode = runAgentCommand(
+    [
+      "start",
+      "--scripts-dir",
+      scriptsDir("06-snapshot-flow"),
+      "--state-out",
+      path.join(dir, "writer.bin"),
+    ],
+    (line) => {
+      writeCount += 1;
+      if (writeCount === 1) {
+        throw "boom";
+      }
+      lines.push(line);
     }
-    lines.push(line);
-  });
+  );
   assert.equal(unknownErrorCode, 1);
   assert.ok(lines.some((line) => line.startsWith("ERROR_CODE:CLI_ERROR")));
   assert.ok(lines.some((line) => line.startsWith("ERROR_MSG_JSON:\"Unknown CLI error.\"")));
@@ -272,13 +304,22 @@ test("agent error protocol paths", () => {
   const engineMainError = Object.assign(new Error('Entry script "main" is not registered.'), {
     code: "ENGINE_SCRIPT_NOT_FOUND",
   });
-  const mappedCode = runAgentCommand(["list"], (line) => {
-    mappedWriteCount += 1;
-    if (mappedWriteCount === 1) {
-      throw engineMainError;
+  const mappedCode = runAgentCommand(
+    [
+      "start",
+      "--scripts-dir",
+      scriptsDir("06-snapshot-flow"),
+      "--state-out",
+      path.join(dir, "writer2.bin"),
+    ],
+    (line) => {
+      mappedWriteCount += 1;
+      if (mappedWriteCount === 1) {
+        throw engineMainError;
+      }
+      mappedLines.push(line);
     }
-    mappedLines.push(line);
-  });
+  );
   assert.equal(mappedCode, 1);
   assert.ok(mappedLines.some((line) => line.startsWith("ERROR_CODE:CLI_ENTRY_MAIN_NOT_FOUND")));
 });

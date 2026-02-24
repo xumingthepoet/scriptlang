@@ -30,8 +30,8 @@ This repository is initialized for **agent-first harness engineering**:
 - `npm run build`: compile TypeScript output into `dist/`.
 - `npm test`: strict gate (`validate:docs` + `lint` + `typecheck` + `coverage:strict`) then unit tests.
 - `npm run player:dev -- <mode> ...`: run player from source via `tsx`.
-- `npm run player:tui -- (--example <id> | --scripts-dir <path>)`: run interactive Ink TUI player from build output.
-- `npm run player:agent -- <subcommand> ...`: run non-interactive agent mode from build output (`start` supports `--example` or `--scripts-dir`).
+- `npm run player:tui -- --scripts-dir <path>`: run interactive Ink TUI player from build output.
+- `npm run player:agent -- <subcommand> ...`: run non-interactive agent mode from build output (`start` requires `--scripts-dir`).
 
 ## Harness Workflow Notes
 - Process authority lives in `/docs/HARNESS.md`.
@@ -45,28 +45,13 @@ Build first:
 npm run build
 ```
 
-Play in interactive mode:
+Play bundled examples (treated as ordinary script directories):
 
 ```bash
-npm run player:tui -- --example 06-snapshot-flow
-```
-
-Play the complex battle demo:
-
-```bash
-npm run player:tui -- --example 07-battle-duel
-```
-
-Play the JSON globals demo:
-
-```bash
-npm run player:tui -- --example 08-json-globals
-```
-
-Play the random builtin demo:
-
-```bash
-npm run player:tui -- --example 09-random
+npm run player:tui -- --scripts-dir examples/scripts/06-snapshot-flow
+npm run player:tui -- --scripts-dir examples/scripts/07-battle-duel
+npm run player:tui -- --scripts-dir examples/scripts/08-json-globals
+npm run player:tui -- --scripts-dir examples/scripts/09-random
 ```
 
 Play scripts from an external directory (entry is always `<script name="main">`; multi-file dependencies including `.script.xml` / `.types.xml` / `.json` data files must be included from `main` via header `include`):
@@ -75,16 +60,10 @@ Play scripts from an external directory (entry is always `<script name="main">`;
 npm run player:tui -- --scripts-dir /absolute/path/to/scripts
 ```
 
-List available examples in agent mode:
-
-```bash
-npm run player:agent -- list
-```
-
 Run to boundary and persist state for agent orchestration:
 
 ```bash
-npm run player:agent -- start --example 06-snapshot-flow --state-out /tmp/sl-state.bin
+npm run player:agent -- start --scripts-dir examples/scripts/06-snapshot-flow --state-out /tmp/sl-state.bin
 npm run player:agent -- choose --state-in /tmp/sl-state.bin --choice 0 --state-out /tmp/sl-next.bin
 ```
 
@@ -117,7 +96,7 @@ const engine = createEngineFromXml({
 <script name="main">
   <var name="hero" type="Actor" value="{ hp: 10, name: 'Rin' }"/>
   <text>\${game.title} HP \${hero.hp}</text>
-  <choice>
+  <choice text="Choose action">
     <option text="Heal"><code>hero.hp = hero.hp + 5;</code></option>
   </choice>
   <text>After \${hero.hp}</text>

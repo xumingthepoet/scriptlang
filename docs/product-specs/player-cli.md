@@ -13,33 +13,20 @@ Both modes run the same ScriptLang engine semantics.
 
 ## 2. Scenario Source
 
-- Source can be either:
-  - bundled scenarios from `examples/scripts/`
-  - external scripts directory via `--scripts-dir <path>` (entry is fixed to `<script name="main">`)
-- Each scenario has:
-  - `id`
-  - `title`
-  - `entryScript`
-  - one or more `.script.xml` files.
-  - optional `.types.xml` files for global custom type declarations.
-  - optional `.json` files for global read-only game data.
-- Bundled examples currently include:
-  - `01-text-code`
-  - `02-if-while`
-  - `03-choice-once`
-  - `04-call-ref-return`
-  - `05-return-transfer`
-  - `06-snapshot-flow`
-  - `07-battle-duel` (multi-file battle loop demo with custom `<type>` combatants, call/ref, and ending transfer)
-  - `08-json-globals` (reads nested fields from included `game.json` as readonly global data)
-  - `09-random` (demonstrates deterministic builtin `random(n)` in text and choices)
+- Source is always provided via `--scripts-dir <path>`.
+- `--scripts-dir` can point to any script project directory, including directories under `examples/scripts/`.
+- Entry script is fixed to `<script name="main">`.
+- A source directory may include:
+  - one or more `.script.xml` files
+  - optional `.types.xml` files for global custom type declarations
+  - optional `.json` files for global read-only game data
 
 ## 3. TUI Mode
 
 Command:
 
 ```bash
-scriptlang-player tui (--example <id> | --scripts-dir <path>) [--state-file <path>]
+scriptlang-player tui --scripts-dir <path> [--state-file <path>]
 ```
 
 Behavior:
@@ -86,15 +73,13 @@ State handling:
 
 - Default state file: `./.scriptlang/save.bin`.
 - Save is only valid while waiting for a choice (snapshot constraint).
-- For `--scripts-dir`, entry script is fixed to `<script name="main">`.
 
 ## 4. Agent Mode
 
 Commands:
 
 ```bash
-scriptlang-player agent list
-scriptlang-player agent start (--example <id> | --scripts-dir <path>) --state-out <path>
+scriptlang-player agent start --scripts-dir <path> --state-out <path>
 scriptlang-player agent choose --state-in <path> --choice <index> --state-out <path>
 ```
 
@@ -112,13 +97,10 @@ Output protocol (stdout, line-based):
 
 Rules:
 
-- `start` runs from scenario entry until boundary (`choices` or `end`).
-- `start` requires exactly one source selector:
-  - bundled example: `--example <id>`
-  - external scripts directory: `--scripts-dir <path>`
-- for `--scripts-dir`, entry script is fixed to script name `main`.
+- `start` runs from source entry until boundary (`choices` or `end`).
+- `start` requires `--scripts-dir <path>` and `--state-out <path>`.
 - when multiple script files exist, `main` must include required script/type files via header `include` directives.
-- included `.json` assets in the same scenario source are loaded and available to script runtime through include closure rules.
+- included `.json` assets in the same source directory are loaded and available to script runtime through include closure rules.
 - `choose` resumes from `--state-in`, applies selection, then runs to next boundary.
 - `state` is persisted only when output boundary is `CHOICES`.
 - if boundary is `END`, output must be `STATE_OUT:NONE`.
@@ -126,10 +108,11 @@ Rules:
 ## 5. Errors
 
 - Bad arguments return `RESULT:ERROR`.
-- Unknown example id returns `RESULT:ERROR`.
+- Unknown/unsupported subcommand returns `RESULT:ERROR`.
 - Invalid scripts directory or missing `main` entry script returns `RESULT:ERROR`.
 - Invalid choice index returns `RESULT:ERROR`.
 - Corrupt/missing state file returns `RESULT:ERROR`.
+- State `scenarioId` that is not `scripts-dir:<absolute-path>` returns `RESULT:ERROR`.
 
 Error lines must include:
 

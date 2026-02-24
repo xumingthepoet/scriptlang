@@ -38,7 +38,7 @@ test("player cli usage paths", async () => {
     assert.equal(unknownCode, 1);
 
     const agentListCode = await runPlayerCli(["agent", "list"]);
-    assert.equal(agentListCode, 0);
+    assert.equal(agentListCode, 1);
 
     const tuiBadCode = await runPlayerCli(["tui"]);
     assert.equal(tuiBadCode, 1);
