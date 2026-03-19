@@ -1,4 +1,4 @@
-.PHONY: check fmt test lint gate
+.PHONY: check fmt test lint coverage gate
 
 check:
 	cargo check --workspace
@@ -9,7 +9,10 @@ fmt:
 test:
 	cargo test --workspace -q
 
+coverage:
+	cargo llvm-cov --package sl-core --package sl-parser --package sl-compiler --package sl-runtime --lib --fail-under-lines 100 --fail-under-functions 100; \
+
 lint:
 	cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-gate: check fmt test lint
+gate: check fmt test lint coverage
