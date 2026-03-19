@@ -1,0 +1,4 @@
+choice Pick | A | B
+text Alpha
+text After
+end

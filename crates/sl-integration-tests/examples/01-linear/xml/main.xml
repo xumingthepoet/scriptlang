@@ -1,0 +1,9 @@
+<module name="main">
+  <var name="score">1</var>
+  <script name="main">
+    <temp name="hp">score + 1</temp>
+    <code>hp += 1;</code>
+    <text>${hp}</text>
+    <end/>
+  </script>
+</module>

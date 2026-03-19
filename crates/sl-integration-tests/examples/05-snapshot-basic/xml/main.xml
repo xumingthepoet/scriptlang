@@ -1,0 +1,8 @@
+<module name="main">
+  <var name="counter">0</var>
+  <script name="main">
+    <code>counter += 1;</code>
+    <text>${counter}</text>
+    <end/>
+  </script>
+</module>

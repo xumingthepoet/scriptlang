@@ -1,0 +1,14 @@
+<module name="main">
+  <script name="main">
+    <choice text="Pick">
+      <option text="A">
+        <text>Alpha</text>
+      </option>
+      <option text="B">
+        <text>Beta</text>
+      </option>
+    </choice>
+    <text>After</text>
+    <end/>
+  </script>
+</module>

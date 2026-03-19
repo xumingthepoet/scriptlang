@@ -1,0 +1,5 @@
+<module name="main">
+  <script name="main">
+    <goto script="@missing.nope"/>
+  </script>
+</module>

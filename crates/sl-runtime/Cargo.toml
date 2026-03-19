@@ -1,0 +1,8 @@
+[package]
+name = "sl-runtime"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rhai.workspace = true
+sl-core = { path = "../sl-core" }

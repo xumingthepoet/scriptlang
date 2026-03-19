@@ -1,0 +1,11 @@
+[package]
+name = "sl-api"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rhai.workspace = true
+sl-core = { path = "../sl-core" }
+sl-parser = { path = "../sl-parser" }
+sl-compiler = { path = "../sl-compiler" }
+sl-runtime = { path = "../sl-runtime" }

@@ -1,0 +1,21 @@
+<module name="main">
+  <var name="counter">0</var>
+  <script name="main">
+    <goto script="@main.loop_check"/>
+  </script>
+  <script name="loop_check">
+    <if when="counter &lt; 3">
+      <goto script="@main.loop_body"/>
+    </if>
+    <goto script="@main.after_loop"/>
+  </script>
+  <script name="loop_body">
+    <code>counter += 1;</code>
+    <text>${counter}</text>
+    <goto script="@main.loop_check"/>
+  </script>
+  <script name="after_loop">
+    <text>done</text>
+    <end/>
+  </script>
+</module>

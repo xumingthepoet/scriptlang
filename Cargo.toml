@@ -1,0 +1,16 @@
+[workspace]
+members = [
+    "crates/sl-core",
+    "crates/sl-parser",
+    "crates/sl-compiler",
+    "crates/sl-runtime",
+    "crates/sl-api",
+    "crates/sl-integration-tests",
+]
+resolver = "3"
+
+[workspace.dependencies]
+regex = "1.12.2"
+rhai = { version = "1.23.6", features = ["sync"] }
+roxmltree = "0.21.1"
+thiserror = "2.0.17"

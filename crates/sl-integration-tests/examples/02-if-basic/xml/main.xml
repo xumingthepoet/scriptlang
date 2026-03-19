@@ -1,0 +1,14 @@
+<module name="main">
+  <var name="flag">true</var>
+  <script name="main">
+    <if when="flag">
+      <text>yes</text>
+    </if>
+    <code>flag = false;</code>
+    <if when="flag">
+      <text>no</text>
+    </if>
+    <text>done</text>
+    <end/>
+  </script>
+</module>

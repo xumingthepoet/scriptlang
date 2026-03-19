@@ -1,0 +1,9 @@
+[package]
+name = "sl-integration-tests"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+sl-api = { path = "../sl-api" }
+sl-core = { path = "../sl-core" }
