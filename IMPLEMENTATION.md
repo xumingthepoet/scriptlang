@@ -35,6 +35,7 @@
 
 - `<module>`
 - `<import>`
+- `private="true"` attribute on module-level `<const>`, `<var>`, `<script>`
 - `<script>`
 - `<var>`
 - `<const>`
@@ -58,6 +59,7 @@
 - `<if>` 只有单分支，没有 `else`
 - `<goto>` 可以跳到可解析的其他 script，包括跨 module script
 - `<import>` 只能出现在 `<module>` 下，并按源码顺序向后影响当前 module 的编译期上下文
+- `private="true"` 目前只影响 module 边界导出；同一 module 内仍可直接引用 private const / var / script
 - runtime 不保留 module 概念，只按 `script_id + pc` 执行
 
 ## Parser / Compiler / Runtime
@@ -92,6 +94,7 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 - `<const>` 只在 semantic analyze 阶段内存在；进入 `SemanticProgram` 后不再保留 const 声明
 - compiler 当前为每个 module 隐式提供最早生效的 `import kernel` 上下文
 - semantic 当前会先建立 module 导出目录和作用域，再把 const / goto 等名字解析成规范目标
+- semantic 当前会区分“module 内声明存在”和“对 import 暴露的导出成员”；`private="true"` 会从导出目录中隐藏该声明
 - `assemble` 不再消费 import / scope / context 信息；它只消费已经解析好的语义结果
 - `const_eval` 当前只负责 builtin 常量求值、稳定字面量回写和表达式 / 模板替换，不再自己实现 import 可见性规则
 - 在 assemble 阶段收集 module 级 `<var>` 声明、为 script 分配全局唯一 `script_id`
@@ -105,15 +108,18 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
   - 当前 module 的短名 const
   - imported module 的短名 const
   - `m1.zero` 形式的显式模块限定 const
+  - imported private const 不可见，会报 `does not export const`
 - var 名字解析当前支持：
   - 当前 module 的短名 var
   - imported module 的短名 var
   - `m1.value` 形式的显式模块限定 var
+  - imported private var 不可见，会报 `does not export var`
 - `<goto>` 当前支持：
   - 当前 module 短名 script
   - imported module 的短名 script
   - `@m1.entry` 形式的显式模块限定 script
   - 显式模块限定目标若 module 已存在但未 import，会在 semantic 阶段报可见性错误
+  - imported private script 不可见，会报 script visibility 错误
 
 当前 IR 指令包括：
 

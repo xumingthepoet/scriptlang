@@ -1,0 +1,7 @@
+<module name="main">
+  <import name="other"/>
+  <script name="main">
+    <code>other.shared += 1;</code>
+    <end/>
+  </script>
+</module>

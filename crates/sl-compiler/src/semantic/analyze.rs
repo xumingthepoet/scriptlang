@@ -657,6 +657,64 @@ mod tests {
     }
 
     #[test]
+    fn analyze_forms_keep_private_members_visible_inside_their_module() {
+        let program = analyze_forms(&[node(
+            "module",
+            vec![("name", "main")],
+            vec![
+                child(node(
+                    "const",
+                    vec![("name", "hidden"), ("private", "true")],
+                    vec![text("1")],
+                )),
+                child(node(
+                    "var",
+                    vec![("name", "hidden_var"), ("private", "true")],
+                    vec![text("hidden")],
+                )),
+                child(node(
+                    "script",
+                    vec![("name", "helper"), ("private", "true")],
+                    vec![child(node("end", vec![], vec![]))],
+                )),
+                child(node(
+                    "script",
+                    vec![("name", "main")],
+                    vec![
+                        child(node(
+                            "temp",
+                            vec![("name", "x")],
+                            vec![text("main.hidden + hidden")],
+                        )),
+                        child(node(
+                            "code",
+                            vec![],
+                            vec![text("hidden_var += main.hidden_var;")],
+                        )),
+                        child(node("goto", vec![("script", "@main.helper")], vec![])),
+                    ],
+                )),
+            ],
+        )])
+        .expect("analyze");
+
+        let hidden_var = runtime_global_name("main.hidden_var");
+        assert!(matches!(
+            &program.modules[0].scripts[1].body[0],
+            SemanticStmt::Temp { expr, .. } if expr == "1 + 1"
+        ));
+        assert!(matches!(
+            &program.modules[0].scripts[1].body[1],
+            SemanticStmt::Code { code } if code == &format!("{hidden_var} += {hidden_var};")
+        ));
+        assert!(matches!(
+            &program.modules[0].scripts[1].body[2],
+            SemanticStmt::Goto { target }
+                if target == &ResolvedRef::script("main", "helper")
+        ));
+    }
+
+    #[test]
     fn analyze_forms_rejects_invalid_const_usage() {
         let top_level = analyze_forms(&[node("script", vec![("name", "entry")], vec![])])
             .expect_err("top-level should fail");
@@ -758,6 +816,120 @@ mod tests {
             duplicate_const
                 .to_string()
                 .contains("duplicate const declaration `main.value`")
+        );
+
+        let invalid_private = analyze_forms(&[node(
+            "module",
+            vec![("name", "main")],
+            vec![child(node(
+                "const",
+                vec![("name", "value"), ("private", "maybe")],
+                vec![text("1")],
+            ))],
+        )])
+        .expect_err("invalid private attr should fail");
+        assert!(
+            invalid_private
+                .to_string()
+                .contains("invalid boolean value `maybe` for `private`")
+        );
+
+        let hidden_private_const = analyze_forms(&[
+            node(
+                "module",
+                vec![("name", "other")],
+                vec![child(node(
+                    "const",
+                    vec![("name", "value"), ("private", "true")],
+                    vec![text("1")],
+                ))],
+            ),
+            node(
+                "module",
+                vec![("name", "main")],
+                vec![
+                    child(node("import", vec![("name", "other")], vec![])),
+                    child(node(
+                        "const",
+                        vec![("name", "copy")],
+                        vec![text("other.value")],
+                    )),
+                ],
+            ),
+        ])
+        .expect_err("private const import should fail");
+        assert!(
+            hidden_private_const
+                .to_string()
+                .contains("module `other` does not export const `value`")
+        );
+
+        let hidden_private_var = analyze_forms(&[
+            node(
+                "module",
+                vec![("name", "other")],
+                vec![child(node(
+                    "var",
+                    vec![("name", "shared"), ("private", "true")],
+                    vec![text("2")],
+                ))],
+            ),
+            node(
+                "module",
+                vec![("name", "main")],
+                vec![
+                    child(node("import", vec![("name", "other")], vec![])),
+                    child(node(
+                        "script",
+                        vec![("name", "main")],
+                        vec![child(node(
+                            "code",
+                            vec![],
+                            vec![text("other.shared += 1;")],
+                        ))],
+                    )),
+                ],
+            ),
+        ])
+        .expect_err("private var import should fail");
+        assert!(
+            hidden_private_var
+                .to_string()
+                .contains("module `other` does not export var `shared`")
+        );
+
+        let hidden_private_script = analyze_forms(&[
+            node(
+                "module",
+                vec![("name", "other")],
+                vec![child(node(
+                    "script",
+                    vec![("name", "helper"), ("private", "true")],
+                    vec![child(node("end", vec![], vec![]))],
+                ))],
+            ),
+            node(
+                "module",
+                vec![("name", "main")],
+                vec![
+                    child(node("import", vec![("name", "other")], vec![])),
+                    child(node(
+                        "script",
+                        vec![("name", "main")],
+                        vec![child(node(
+                            "goto",
+                            vec![("script", "@other.helper")],
+                            vec![],
+                        ))],
+                    )),
+                ],
+            ),
+        ])
+        .expect_err("private script import should fail");
+        assert!(
+            hidden_private_script
+                .to_string()
+                .contains("script `other.helper` referenced by <goto> is not visible")
         );
     }
 

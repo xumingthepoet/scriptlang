@@ -4,7 +4,7 @@ use sl_core::{Form, ScriptLangError, TextSegment, TextTemplate};
 
 use super::const_eval::{ConstEnv, ConstLookup, ConstValue, parse_const_value};
 use super::types::{ModulePath, ResolvedRef, runtime_global_name};
-use crate::form_util::{child_forms, error_at, required_attr, trimmed_text_items};
+use crate::form_util::{attr, child_forms, error_at, required_attr, trimmed_text_items};
 
 pub(crate) const DEFAULT_KERNEL_MODULE: &str = "kernel";
 
@@ -22,10 +22,40 @@ pub(crate) struct ModuleScope {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ModuleMembers {
+    declared: BTreeSet<String>,
+    exported: BTreeSet<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ModuleExports {
-    pub(crate) consts: BTreeSet<String>,
-    pub(crate) scripts: BTreeSet<String>,
-    pub(crate) vars: BTreeSet<String>,
+    pub(crate) consts: ModuleMembers,
+    pub(crate) scripts: ModuleMembers,
+    pub(crate) vars: ModuleMembers,
+}
+
+impl ModuleMembers {
+    fn insert(&mut self, name: String, exported: bool) -> bool {
+        if !self.declared.insert(name.clone()) {
+            return false;
+        }
+        if exported {
+            self.exported.insert(name);
+        }
+        true
+    }
+
+    fn contains_declared(&self, name: &str) -> bool {
+        self.declared.contains(name)
+    }
+
+    fn contains_exported(&self, name: &str) -> bool {
+        self.exported.contains(name)
+    }
+
+    fn declared_names(&self) -> BTreeSet<String> {
+        self.declared.clone()
+    }
 }
 
 pub(crate) struct ModuleCatalog<'a> {
@@ -117,7 +147,10 @@ impl<'a> ModuleCatalog<'a> {
                 match child.head.as_str() {
                     "const" => {
                         let const_name = required_attr(child, "name")?.to_string();
-                        if !exports.consts.insert(const_name.clone()) {
+                        if !exports
+                            .consts
+                            .insert(const_name.clone(), !is_private(child)?)
+                        {
                             return Err(error_at(
                                 child,
                                 format!("duplicate const declaration `{name}.{const_name}`"),
@@ -126,7 +159,10 @@ impl<'a> ModuleCatalog<'a> {
                     }
                     "script" => {
                         let script_name = required_attr(child, "name")?.to_string();
-                        if !exports.scripts.insert(script_name.clone()) {
+                        if !exports
+                            .scripts
+                            .insert(script_name.clone(), !is_private(child)?)
+                        {
                             return Err(error_at(
                                 child,
                                 format!("duplicate script declaration `{name}.{script_name}`"),
@@ -135,7 +171,7 @@ impl<'a> ModuleCatalog<'a> {
                     }
                     "var" => {
                         let var_name = required_attr(child, "name")?.to_string();
-                        if !exports.vars.insert(var_name.clone()) {
+                        if !exports.vars.insert(var_name.clone(), !is_private(child)?) {
                             return Err(error_at(
                                 child,
                                 format!("duplicate var declaration `{name}.{var_name}`"),
@@ -207,7 +243,7 @@ impl<'a> ConstCatalog<'a> {
             .modules
             .exports(module_name)?
             .consts
-            .contains(const_name)
+            .contains_declared(const_name)
         {
             return Ok(None);
         }
@@ -230,7 +266,7 @@ impl<'a> ConstCatalog<'a> {
         target_name: &str,
     ) -> Result<Option<ConstValue>, ScriptLangError> {
         let entry = self.modules.entry(module_name)?;
-        let mut remaining_const_names = entry.exports.consts.clone();
+        let mut remaining_const_names = entry.exports.consts.declared_names();
         let mut const_env = self.cached_env(module_name);
         for cached_name in const_env.keys() {
             remaining_const_names.remove(cached_name);
@@ -290,7 +326,16 @@ impl<'a, 'b> ScopeResolver<'a, 'b> {
     fn resolve_script_ref_impl(&self, raw: &str) -> Result<ResolvedRef, ScriptLangError> {
         let raw = raw.strip_prefix('@').unwrap_or(raw);
         if let Some((target_module, script_name)) = raw.rsplit_once('.') {
-            if self.scope.can_access_module(target_module) {
+            if target_module == self.scope.current_module() {
+                return Ok(ResolvedRef::script(target_module, script_name));
+            }
+            if self.scope.can_access_module(target_module)
+                && self
+                    .modules
+                    .exports(target_module)?
+                    .scripts
+                    .contains_exported(script_name)
+            {
                 return Ok(ResolvedRef::script(target_module, script_name));
             }
             if self.modules.contains(target_module) {
@@ -306,13 +351,18 @@ impl<'a, 'b> ScopeResolver<'a, 'b> {
             .modules
             .exports(self.scope.current_module())?
             .scripts
-            .contains(raw)
+            .contains_declared(raw)
         {
             return Ok(ResolvedRef::script(self.scope.current_module(), raw));
         }
 
         for import in self.scope.imports().iter().rev() {
-            if self.modules.exports(import.as_str())?.scripts.contains(raw) {
+            if self
+                .modules
+                .exports(import.as_str())?
+                .scripts
+                .contains_exported(raw)
+            {
                 return Ok(ResolvedRef::script(import.as_str(), raw));
             }
         }
@@ -325,7 +375,7 @@ impl<'a, 'b> ScopeResolver<'a, 'b> {
             .modules
             .exports(self.scope.current_module())?
             .vars
-            .contains(name)
+            .contains_declared(name)
         {
             return Ok(Some(ResolvedRef::new(
                 self.scope.current_module(),
@@ -334,7 +384,12 @@ impl<'a, 'b> ScopeResolver<'a, 'b> {
             )));
         }
         for import in self.scope.imports().iter().rev() {
-            if self.modules.exports(import.as_str())?.vars.contains(name) {
+            if self
+                .modules
+                .exports(import.as_str())?
+                .vars
+                .contains_exported(name)
+            {
                 return Ok(Some(ResolvedRef::new(
                     import.as_str(),
                     name,
@@ -359,7 +414,18 @@ impl<'a, 'b> ScopeResolver<'a, 'b> {
                 self.scope.current_module()
             )));
         }
-        if self.modules.exports(module_path)?.vars.contains(name) {
+        let exports = self.modules.exports(module_path)?;
+        if module_path == self.scope.current_module() {
+            if exports.vars.contains_declared(name) {
+                return Ok(Some(ResolvedRef::new(
+                    module_path,
+                    name,
+                    super::types::MemberKind::Var,
+                )));
+            }
+            return Ok(None);
+        }
+        if exports.vars.contains_exported(name) {
             Ok(Some(ResolvedRef::new(
                 module_path,
                 name,
@@ -380,7 +446,12 @@ impl ConstLookup for ScopeResolver<'_, '_> {
 
     fn resolve_short_const(&mut self, name: &str) -> Result<Option<ConstValue>, ScriptLangError> {
         for import in self.scope.imports().iter().rev() {
-            if !self.modules.exports(import.as_str())?.consts.contains(name) {
+            if !self
+                .modules
+                .exports(import.as_str())?
+                .consts
+                .contains_exported(name)
+            {
                 continue;
             }
             if let Some(value) = self.const_catalog.resolve_const(import.as_str(), name)? {
@@ -401,7 +472,13 @@ impl ConstLookup for ScopeResolver<'_, '_> {
         if !self.scope.can_access_module(module_path) {
             return Ok(QualifiedConstLookup::HiddenModule);
         }
-        if !self.modules.exports(module_path)?.consts.contains(name) {
+        let exports = self.modules.exports(module_path)?;
+        let is_visible = if module_path == self.scope.current_module() {
+            exports.consts.contains_declared(name)
+        } else {
+            exports.consts.contains_exported(name)
+        };
+        if !is_visible {
             return Ok(QualifiedConstLookup::UnknownConst);
         }
         let value = self
@@ -582,5 +659,17 @@ pub(crate) fn validate_import_target(
             form,
             format!("imported module `{import_name}` does not exist"),
         ))
+    }
+}
+
+fn is_private(form: &Form) -> Result<bool, ScriptLangError> {
+    match attr(form, "private") {
+        None => Ok(false),
+        Some("true") => Ok(true),
+        Some("false") => Ok(false),
+        Some(other) => Err(error_at(
+            form,
+            format!("invalid boolean value `{other}` for `private`"),
+        )),
     }
 }

@@ -1,0 +1,12 @@
+<module name="main">
+  <const name="seed" private="true">1</const>
+  <var name="counter" private="true">seed + 2</var>
+  <script name="helper" private="true">
+    <text>tag</text>
+    <end/>
+  </script>
+  <script name="main">
+    <text>${counter}</text>
+    <goto script="@main.helper"/>
+  </script>
+</module>

@@ -1,0 +1,3 @@
+<module name="other">
+  <var name="shared" private="true">1</var>
+</module>
