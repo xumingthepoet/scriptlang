@@ -18,6 +18,43 @@ pub(crate) struct SemanticVar {
     pub(crate) expr: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct ModulePath(pub(crate) String);
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum MemberKind {
+    Script,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ResolvedRef {
+    pub(crate) module_path: ModulePath,
+    pub(crate) member_name: String,
+    pub(crate) member_kind: MemberKind,
+}
+
+impl ResolvedRef {
+    pub(crate) fn new(
+        module_path: impl Into<String>,
+        member_name: impl Into<String>,
+        member_kind: MemberKind,
+    ) -> Self {
+        Self {
+            module_path: ModulePath(module_path.into()),
+            member_name: member_name.into(),
+            member_kind,
+        }
+    }
+
+    pub(crate) fn script(module_path: impl Into<String>, member_name: impl Into<String>) -> Self {
+        Self::new(module_path, member_name, MemberKind::Script)
+    }
+
+    pub(crate) fn qualified_name(&self) -> String {
+        format!("{}.{}", self.module_path.0, self.member_name)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SemanticScript {
     pub(crate) name: String,
@@ -46,7 +83,7 @@ pub(crate) enum SemanticStmt {
         options: Vec<SemanticChoiceOption>,
     },
     Goto {
-        target_script_ref: String,
+        target: ResolvedRef,
     },
     End,
 }

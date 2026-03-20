@@ -2,6 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use sl_core::{ScriptLangError, TextSegment, TextTemplate};
 
+use super::resolve::QualifiedConstLookup;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ConstValue {
     Bool(bool),
@@ -13,15 +15,27 @@ pub(crate) enum ConstValue {
 
 pub(crate) type ConstEnv = BTreeMap<String, ConstValue>;
 
-pub(crate) fn parse_const_value(
+pub(crate) trait ConstLookup {
+    fn current_module(&self) -> &str;
+    fn resolve_short_const(&mut self, name: &str) -> Result<Option<ConstValue>, ScriptLangError>;
+    fn resolve_qualified_const(
+        &mut self,
+        module_path: &str,
+        name: &str,
+    ) -> Result<QualifiedConstLookup, ScriptLangError>;
+}
+
+pub(crate) fn parse_const_value<R: ConstLookup>(
     source: &str,
-    env: &ConstEnv,
+    local_env: &ConstEnv,
+    resolver: &mut R,
     blocked_names: &BTreeSet<String>,
 ) -> Result<ConstValue, ScriptLangError> {
     let mut parser = ConstParser {
         source,
         cursor: 0,
-        env,
+        local_env,
+        resolver,
         blocked_names,
     };
     let value = parser.parse_value()?;
@@ -34,9 +48,10 @@ pub(crate) fn parse_const_value(
     Ok(value)
 }
 
-pub(crate) fn rewrite_expr_with_consts(
+pub(crate) fn rewrite_expr_with_consts<R: ConstLookup>(
     source: &str,
-    env: &ConstEnv,
+    local_env: &ConstEnv,
+    resolver: &mut R,
     blocked_names: &BTreeSet<String>,
     shadowed_names: &BTreeSet<String>,
 ) -> Result<String, ScriptLangError> {
@@ -53,29 +68,66 @@ pub(crate) fn rewrite_expr_with_consts(
             continue;
         }
         if is_ident_start(ch) {
-            let start = cursor;
-            cursor += 1;
-            while cursor < bytes.len() && is_ident_continue(bytes[cursor] as char) {
-                cursor += 1;
-            }
-            let ident = &source[start..cursor];
-            if is_property_access(bytes, start)
-                || is_map_key(source, cursor)
-                || shadowed_names.contains(ident)
-            {
-                rewritten.push_str(ident);
+            let (end, segments) = scan_reference_path(source, cursor);
+            let raw = &source[cursor..end];
+            let first = segments[0].as_str();
+
+            if shadowed_names.contains(first) || is_property_access(bytes, cursor) {
+                rewritten.push_str(raw);
+                cursor = end;
                 continue;
             }
-            if blocked_names.contains(ident) {
-                return Err(ScriptLangError::message(format!(
-                    "const `{ident}` cannot be referenced before it is defined"
-                )));
-            }
-            if let Some(value) = env.get(ident) {
-                rewritten.push_str(&value.to_rhai_literal());
+
+            if segments.len() == 1 {
+                let ident = first;
+                if is_map_key(source, end) {
+                    rewritten.push_str(ident);
+                } else if let Some(value) = local_env.get(ident) {
+                    rewritten.push_str(&value.to_rhai_literal());
+                } else if let Some(value) = resolver.resolve_short_const(ident)? {
+                    rewritten.push_str(&value.to_rhai_literal());
+                } else if blocked_names.contains(ident) {
+                    return Err(ScriptLangError::message(format!(
+                        "const `{ident}` cannot be referenced before it is defined"
+                    )));
+                } else {
+                    rewritten.push_str(ident);
+                }
             } else {
-                rewritten.push_str(ident);
+                let module_path = segments[..segments.len() - 1].join(".");
+                let name = segments.last().expect("qualified path");
+                if module_path == resolver.current_module() {
+                    if let Some(value) = local_env.get(name) {
+                        rewritten.push_str(&value.to_rhai_literal());
+                    } else {
+                        return Err(ScriptLangError::message(format!(
+                            "module `{module_path}` does not export const `{name}`"
+                        )));
+                    }
+                } else {
+                    match resolver.resolve_qualified_const(&module_path, name)? {
+                        QualifiedConstLookup::Value(value) => {
+                            rewritten.push_str(&value.to_rhai_literal());
+                        }
+                        QualifiedConstLookup::HiddenModule => {
+                            return Err(ScriptLangError::message(format!(
+                                "module `{module_path}` is not imported into `{}`",
+                                resolver.current_module()
+                            )));
+                        }
+                        QualifiedConstLookup::UnknownConst => {
+                            return Err(ScriptLangError::message(format!(
+                                "module `{module_path}` does not export const `{name}`"
+                            )));
+                        }
+                        QualifiedConstLookup::NotModulePath => {
+                            rewritten.push_str(raw);
+                        }
+                    }
+                }
             }
+
+            cursor = end;
             continue;
         }
         rewritten.push(ch);
@@ -85,9 +137,10 @@ pub(crate) fn rewrite_expr_with_consts(
     Ok(rewritten)
 }
 
-pub(crate) fn rewrite_template_with_consts(
+pub(crate) fn rewrite_template_with_consts<R: ConstLookup>(
     template: TextTemplate,
-    env: &ConstEnv,
+    local_env: &ConstEnv,
+    resolver: &mut R,
     blocked_names: &BTreeSet<String>,
     shadowed_names: &BTreeSet<String>,
 ) -> Result<TextTemplate, ScriptLangError> {
@@ -98,7 +151,8 @@ pub(crate) fn rewrite_template_with_consts(
             TextSegment::Literal(text) => Ok(TextSegment::Literal(text)),
             TextSegment::Expr(expr) => Ok(TextSegment::Expr(rewrite_expr_with_consts(
                 &expr,
-                env,
+                local_env,
+                resolver,
                 blocked_names,
                 shadowed_names,
             )?)),
@@ -133,14 +187,15 @@ impl ConstValue {
     }
 }
 
-struct ConstParser<'a> {
+struct ConstParser<'a, R: ConstLookup> {
     source: &'a str,
     cursor: usize,
-    env: &'a ConstEnv,
+    local_env: &'a ConstEnv,
+    resolver: &'a mut R,
     blocked_names: &'a BTreeSet<String>,
 }
 
-impl<'a> ConstParser<'a> {
+impl<'a, R: ConstLookup> ConstParser<'a, R> {
     fn parse_value(&mut self) -> Result<ConstValue, ScriptLangError> {
         self.skip_ws();
         let Some(ch) = self.peek_char() else {
@@ -151,7 +206,7 @@ impl<'a> ConstParser<'a> {
             '[' => self.parse_array(),
             '#' => self.parse_object(),
             '-' | '0'..='9' => self.parse_number(),
-            _ if is_ident_start(ch) => self.parse_identifier_value(),
+            _ if is_ident_start(ch) => self.parse_reference_value(),
             _ => Err(ScriptLangError::message(format!(
                 "unsupported const expression starting with `{ch}`"
             ))),
@@ -203,7 +258,7 @@ impl<'a> ConstParser<'a> {
         self.skip_ws();
         match self.peek_char() {
             Some('"') | Some('\'') => self.parse_string(),
-            Some(ch) if is_ident_start(ch) => self.parse_identifier(),
+            Some(ch) if is_ident_start(ch) => self.parse_ident(),
             Some(ch) => Err(ScriptLangError::message(format!(
                 "unsupported object key starting with `{ch}`"
             ))),
@@ -235,27 +290,67 @@ impl<'a> ConstParser<'a> {
         Ok(ConstValue::Integer(value))
     }
 
-    fn parse_identifier_value(&mut self) -> Result<ConstValue, ScriptLangError> {
-        let ident = self.parse_identifier()?;
-        match ident.as_str() {
-            "true" => Ok(ConstValue::Bool(true)),
-            "false" => Ok(ConstValue::Bool(false)),
-            other => {
-                if self.blocked_names.contains(other) {
-                    return Err(ScriptLangError::message(format!(
-                        "const `{other}` cannot be referenced before it is defined"
-                    )));
+    fn parse_reference_value(&mut self) -> Result<ConstValue, ScriptLangError> {
+        let segments = self.parse_reference_path()?;
+        if segments.len() == 1 {
+            let ident = segments[0].as_str();
+            match ident {
+                "true" => Ok(ConstValue::Bool(true)),
+                "false" => Ok(ConstValue::Bool(false)),
+                _ => {
+                    if let Some(value) = self.local_env.get(ident) {
+                        return Ok(value.clone());
+                    }
+                    if let Some(value) = self.resolver.resolve_short_const(ident)? {
+                        return Ok(value);
+                    }
+                    if self.blocked_names.contains(ident) {
+                        return Err(ScriptLangError::message(format!(
+                            "const `{ident}` cannot be referenced before it is defined"
+                        )));
+                    }
+                    Err(ScriptLangError::message(format!(
+                        "unsupported const reference `{ident}`; only visible const values are allowed"
+                    )))
                 }
-                self.env.get(other).cloned().ok_or_else(|| {
+            }
+        } else {
+            let module_path = segments[..segments.len() - 1].join(".");
+            let name = segments.last().expect("qualified path").as_str();
+            if module_path == self.resolver.current_module() {
+                self.local_env.get(name).cloned().ok_or_else(|| {
                     ScriptLangError::message(format!(
-                        "unsupported const reference `{other}`; only previously defined const values are allowed"
+                        "module `{module_path}` does not export const `{name}`"
                     ))
                 })
+            } else {
+                match self.resolver.resolve_qualified_const(&module_path, name)? {
+                    QualifiedConstLookup::Value(value) => Ok(value),
+                    QualifiedConstLookup::HiddenModule => Err(ScriptLangError::message(format!(
+                        "module `{module_path}` is not imported into `{}`",
+                        self.resolver.current_module()
+                    ))),
+                    QualifiedConstLookup::UnknownConst => Err(ScriptLangError::message(format!(
+                        "module `{module_path}` does not export const `{name}`"
+                    ))),
+                    QualifiedConstLookup::NotModulePath => Err(ScriptLangError::message(format!(
+                        "unsupported const reference `{}`; only visible const values are allowed",
+                        segments.join(".")
+                    ))),
+                }
             }
         }
     }
 
-    fn parse_identifier(&mut self) -> Result<String, ScriptLangError> {
+    fn parse_reference_path(&mut self) -> Result<Vec<String>, ScriptLangError> {
+        let mut segments = vec![self.parse_ident()?];
+        while self.consume_char('.') {
+            segments.push(self.parse_ident()?);
+        }
+        Ok(segments)
+    }
+
+    fn parse_ident(&mut self) -> Result<String, ScriptLangError> {
         let Some(ch) = self.peek_char() else {
             return Err(ScriptLangError::message("unexpected end of input"));
         };
@@ -351,6 +446,29 @@ fn scan_quoted(bytes: &[u8], start: usize) -> Result<usize, ScriptLangError> {
     Err(ScriptLangError::message("unterminated string literal"))
 }
 
+fn scan_reference_path(source: &str, start: usize) -> (usize, Vec<String>) {
+    let mut cursor = start;
+    let mut segments = Vec::new();
+    loop {
+        let ident_start = cursor;
+        cursor += 1;
+        let bytes = source.as_bytes();
+        while cursor < bytes.len() && is_ident_continue(bytes[cursor] as char) {
+            cursor += 1;
+        }
+        segments.push(source[ident_start..cursor].to_string());
+        if cursor >= bytes.len() || bytes[cursor] != b'.' {
+            break;
+        }
+        let next = cursor + 1;
+        if next >= bytes.len() || !is_ident_start(bytes[next] as char) {
+            break;
+        }
+        cursor = next;
+    }
+    (cursor, segments)
+}
+
 fn is_property_access(bytes: &[u8], ident_start: usize) -> bool {
     let mut cursor = ident_start;
     while cursor > 0 {
@@ -387,29 +505,95 @@ fn is_ident_continue(ch: char) -> bool {
 mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
-    use sl_core::{TextSegment, TextTemplate};
+    use crate::semantic::resolve::QualifiedConstLookup;
+    use sl_core::{ScriptLangError, TextSegment, TextTemplate};
 
     use super::{
-        ConstValue, parse_const_value, rewrite_expr_with_consts, rewrite_template_with_consts,
+        ConstEnv, ConstLookup, ConstValue, parse_const_value, rewrite_expr_with_consts,
+        rewrite_template_with_consts,
     };
+
+    struct TestResolver {
+        current_module: String,
+        imported_short_env: BTreeMap<String, ConstValue>,
+        visible_modules: BTreeMap<String, ConstEnv>,
+        known_modules: BTreeSet<String>,
+    }
+
+    impl ConstLookup for TestResolver {
+        fn current_module(&self) -> &str {
+            &self.current_module
+        }
+
+        fn resolve_short_const(
+            &mut self,
+            name: &str,
+        ) -> Result<Option<ConstValue>, ScriptLangError> {
+            Ok(self.imported_short_env.get(name).cloned())
+        }
+
+        fn resolve_qualified_const(
+            &mut self,
+            module_path: &str,
+            name: &str,
+        ) -> Result<QualifiedConstLookup, ScriptLangError> {
+            if let Some(module_env) = self.visible_modules.get(module_path) {
+                if let Some(value) = module_env.get(name) {
+                    Ok(QualifiedConstLookup::Value(value.clone()))
+                } else {
+                    Ok(QualifiedConstLookup::UnknownConst)
+                }
+            } else if self.known_modules.contains(module_path) {
+                Ok(QualifiedConstLookup::HiddenModule)
+            } else {
+                Ok(QualifiedConstLookup::NotModulePath)
+            }
+        }
+    }
+
+    fn visible() -> TestResolver {
+        TestResolver {
+            current_module: "main".to_string(),
+            imported_short_env: BTreeMap::from([("answer".to_string(), ConstValue::Integer(42))]),
+            visible_modules: BTreeMap::from([(
+                "lib.math".to_string(),
+                BTreeMap::from([("zero".to_string(), ConstValue::Integer(0))]),
+            )]),
+            known_modules: BTreeSet::from(["lib.math".to_string(), "hidden".to_string()]),
+        }
+    }
 
     #[test]
     fn parse_const_value_supports_literals_containers_and_const_refs() {
-        let env = BTreeMap::from([("answer".to_string(), ConstValue::Integer(42))]);
+        let local_env = BTreeMap::from([("local".to_string(), ConstValue::Integer(7))]);
+        let mut visible = visible();
 
         assert_eq!(
-            parse_const_value(r#"[answer, true, "ok"]"#, &env, &BTreeSet::new()).expect("parse"),
+            parse_const_value(
+                r#"[local, answer, true, "ok"]"#,
+                &local_env,
+                &mut visible,
+                &BTreeSet::new()
+            )
+            .expect("parse"),
             ConstValue::Array(vec![
+                ConstValue::Integer(7),
                 ConstValue::Integer(42),
                 ConstValue::Bool(true),
                 ConstValue::String("ok".to_string()),
             ])
         );
         assert_eq!(
-            parse_const_value("#{foo: answer}", &env, &BTreeSet::new()).expect("parse"),
+            parse_const_value(
+                "#{foo: lib.math.zero}",
+                &local_env,
+                &mut visible,
+                &BTreeSet::new()
+            )
+            .expect("parse"),
             ConstValue::Object(BTreeMap::from([(
                 "foo".to_string(),
-                ConstValue::Integer(42)
+                ConstValue::Integer(0)
             )]))
         );
     }
@@ -417,20 +601,33 @@ mod tests {
     #[test]
     fn parse_const_value_rejects_forward_refs_and_unsupported_shapes() {
         let blocked = BTreeSet::from(["later".to_string()]);
+        let mut visible = visible();
+
         assert!(
-            parse_const_value("later", &BTreeMap::new(), &blocked)
+            parse_const_value("later", &BTreeMap::new(), &mut visible, &blocked)
                 .expect_err("forward ref")
                 .to_string()
                 .contains("cannot be referenced before it is defined")
         );
         assert!(
-            parse_const_value("call()", &BTreeMap::new(), &BTreeSet::new())
+            parse_const_value("call()", &BTreeMap::new(), &mut visible, &BTreeSet::new())
                 .expect_err("call")
                 .to_string()
                 .contains("unsupported const reference `call`")
         );
         assert!(
-            parse_const_value("1.5", &BTreeMap::new(), &BTreeSet::new())
+            parse_const_value(
+                "hidden.zero",
+                &BTreeMap::new(),
+                &mut visible,
+                &BTreeSet::new()
+            )
+            .expect_err("hidden")
+            .to_string()
+            .contains("module `hidden` is not imported")
+        );
+        assert!(
+            parse_const_value("1.5", &BTreeMap::new(), &mut visible, &BTreeSet::new())
                 .expect_err("float")
                 .to_string()
                 .contains("float const literals are not supported")
@@ -438,38 +635,63 @@ mod tests {
     }
 
     #[test]
-    fn rewrite_helpers_replace_only_identifier_refs() {
-        let env = BTreeMap::from([
-            ("answer".to_string(), ConstValue::Integer(42)),
-            ("name".to_string(), ConstValue::String("neo".to_string())),
-        ]);
+    fn rewrite_helpers_replace_only_visible_const_refs() {
+        let local_env =
+            BTreeMap::from([("name".to_string(), ConstValue::String("neo".to_string()))]);
+        let mut visible = visible();
         let rewritten = rewrite_expr_with_consts(
-            r##"answer + answer_more + obj.answer + "#{answer}" + #{answer: answer} + name"##,
-            &env,
+            r##"answer + answer_more + obj.answer + lib.math.zero + "#{answer}" + #{answer: answer} + name + hidden.zero"##,
+            &local_env,
+            &mut visible,
+            &BTreeSet::new(),
+            &BTreeSet::new(),
+        )
+        .expect_err("hidden module should fail");
+        assert!(
+            rewritten
+                .to_string()
+                .contains("module `hidden` is not imported")
+        );
+
+        let rewritten = rewrite_expr_with_consts(
+            r##"answer + answer_more + obj.answer + lib.math.zero + "#{answer}" + #{answer: answer} + name"##,
+            &local_env,
+            &mut visible,
             &BTreeSet::new(),
             &BTreeSet::new(),
         )
         .expect("rewrite");
         assert_eq!(
             rewritten,
-            r##"42 + answer_more + obj.answer + "#{answer}" + #{answer: 42} + "neo""##
+            r##"42 + answer_more + obj.answer + 0 + "#{answer}" + #{answer: 42} + "neo""##
         );
 
         let template = rewrite_template_with_consts(
             TextTemplate {
                 segments: vec![
                     TextSegment::Literal("x=".to_string()),
-                    TextSegment::Expr("answer".to_string()),
+                    TextSegment::Expr("lib.math.zero".to_string()),
                 ],
             },
-            &env,
+            &BTreeMap::new(),
+            &mut visible,
             &BTreeSet::new(),
             &BTreeSet::new(),
         )
         .expect("template");
         assert!(matches!(
             &template.segments[1],
-            TextSegment::Expr(expr) if expr == "42"
+            TextSegment::Expr(expr) if expr == "0"
         ));
+
+        let untouched = rewrite_expr_with_consts(
+            "obj.answer",
+            &BTreeMap::new(),
+            &mut visible,
+            &BTreeSet::new(),
+            &BTreeSet::new(),
+        )
+        .expect("property access");
+        assert_eq!(untouched, "obj.answer");
     }
 }

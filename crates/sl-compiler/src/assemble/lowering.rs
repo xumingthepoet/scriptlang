@@ -17,7 +17,7 @@ impl ProgramAssembler {
         for module in modules {
             for script in &module.scripts {
                 let mut draft = self.scripts[script_index].clone();
-                lower_script(&self.script_refs, &mut draft, &module.name, script)?;
+                lower_script(&self.script_refs, &mut draft, script)?;
                 self.scripts[script_index] = draft;
                 script_index += 1;
             }
@@ -29,10 +29,9 @@ impl ProgramAssembler {
 pub(crate) fn lower_script(
     script_refs: &std::collections::BTreeMap<String, ScriptId>,
     draft: &mut ScriptDraft,
-    module_name: &str,
     script: &SemanticScript,
 ) -> Result<(), ScriptLangError> {
-    lower_block(script_refs, draft, &script.body, module_name)?;
+    lower_block(script_refs, draft, &script.body)?;
     if !matches!(
         draft.instructions.last(),
         Some(Instruction::End | Instruction::JumpScript { .. })
@@ -46,7 +45,6 @@ fn lower_block(
     script_refs: &std::collections::BTreeMap<String, ScriptId>,
     draft: &mut ScriptDraft,
     body: &[SemanticStmt],
-    module_name: &str,
 ) -> Result<(), ScriptLangError> {
     for stmt in body {
         match stmt {
@@ -76,17 +74,17 @@ fn lower_block(
                 draft
                     .instructions
                     .push(Instruction::JumpIfFalse { target_pc: 0 });
-                lower_block(script_refs, draft, body, module_name)?;
+                lower_block(script_refs, draft, body)?;
                 let after_body = draft.instructions.len();
                 draft.instructions[jump_index] = Instruction::JumpIfFalse {
                     target_pc: after_body,
                 };
             }
             SemanticStmt::Choice { prompt, options } => {
-                lower_choice(script_refs, draft, module_name, prompt.as_ref(), options)?;
+                lower_choice(script_refs, draft, prompt.as_ref(), options)?;
             }
-            SemanticStmt::Goto { target_script_ref } => {
-                let resolved = resolve_script_ref(module_name, target_script_ref);
+            SemanticStmt::Goto { target } => {
+                let resolved = target.qualified_name();
                 let target_script_id = script_refs.get(&resolved).copied().ok_or_else(|| {
                     ScriptLangError::message(format!(
                         "script `{resolved}` referenced by <goto> does not exist"
@@ -105,7 +103,6 @@ fn lower_block(
 fn lower_choice(
     script_refs: &std::collections::BTreeMap<String, ScriptId>,
     draft: &mut ScriptDraft,
-    module_name: &str,
     prompt: Option<&sl_core::TextTemplate>,
     options: &[SemanticChoiceOption],
 ) -> Result<(), ScriptLangError> {
@@ -123,7 +120,7 @@ fn lower_choice(
             text: lower_text_template(&option.text),
             target_pc,
         });
-        lower_block(script_refs, draft, &option.body, module_name)?;
+        lower_block(script_refs, draft, &option.body)?;
         let jump_index = draft.instructions.len();
         draft.instructions.push(Instruction::Jump { target_pc: 0 });
         branch_jump_indices.push(jump_index);
@@ -164,15 +161,6 @@ fn assign_local_id(draft: &mut ScriptDraft, name: &str) -> LocalId {
     }
 }
 
-fn resolve_script_ref(module_name: &str, raw: &str) -> String {
-    let raw = raw.strip_prefix('@').unwrap_or(raw);
-    if raw.contains('.') {
-        raw.to_string()
-    } else {
-        format!("{module_name}.{raw}")
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::{BTreeMap, HashMap};
@@ -180,6 +168,7 @@ mod tests {
     use sl_core::{CompiledTextPart, Instruction, TextSegment, TextTemplate};
 
     use crate::assemble::ScriptDraft;
+    use crate::semantic::types::ResolvedRef;
     use crate::semantic::{SemanticChoiceOption, SemanticScript, SemanticStmt};
 
     use super::{lower_script, lower_text_template};
@@ -213,14 +202,14 @@ mod tests {
                             segments: vec![TextSegment::Literal("left".to_string())],
                         },
                         body: vec![SemanticStmt::Goto {
-                            target_script_ref: "target".to_string(),
+                            target: ResolvedRef::script("main", "target"),
                         }],
                     }],
                 },
             ],
         };
 
-        lower_script(&script_refs, &mut draft, "main", &script).expect("lower");
+        lower_script(&script_refs, &mut draft, &script).expect("lower");
 
         assert!(matches!(
             &draft.instructions[0],
@@ -243,11 +232,55 @@ mod tests {
         let error = lower_script(
             &BTreeMap::new(),
             &mut draft,
-            "main",
             &SemanticScript {
                 name: "entry".to_string(),
                 body: vec![SemanticStmt::Goto {
-                    target_script_ref: "missing".to_string(),
+                    target: ResolvedRef::script("main", "missing"),
+                }],
+            },
+        )
+        .expect_err("missing target should fail");
+
+        assert!(
+            error
+                .to_string()
+                .contains("script `main.missing` referenced by <goto> does not exist")
+        );
+    }
+
+    #[test]
+    fn lower_script_uses_resolved_goto_targets() {
+        let mut draft = draft();
+        let script_refs = BTreeMap::from([
+            ("main.entry".to_string(), 0usize),
+            ("m1.shared".to_string(), 1usize),
+            ("m2.shared".to_string(), 2usize),
+        ]);
+        let script = SemanticScript {
+            name: "entry".to_string(),
+            body: vec![SemanticStmt::Goto {
+                target: ResolvedRef::script("m2", "shared"),
+            }],
+        };
+
+        lower_script(&script_refs, &mut draft, &script).expect("lower");
+
+        assert!(matches!(
+            &draft.instructions[0],
+            Instruction::JumpScript { target_script_id } if *target_script_id == 2
+        ));
+    }
+
+    #[test]
+    fn lower_script_reports_missing_resolved_targets() {
+        let mut draft = draft();
+        let error = lower_script(
+            &BTreeMap::from([("other.entry".to_string(), 1usize)]),
+            &mut draft,
+            &SemanticScript {
+                name: "entry".to_string(),
+                body: vec![SemanticStmt::Goto {
+                    target: ResolvedRef::script("main", "missing"),
                 }],
             },
         )

@@ -1,0 +1,9 @@
+<module name="main">
+  <import name="m1"/>
+  <import name="m2"/>
+  <var name="value">base + m1.base + zero</var>
+  <script name="main">
+    <text>${value}</text>
+    <goto script="target"/>
+  </script>
+</module>

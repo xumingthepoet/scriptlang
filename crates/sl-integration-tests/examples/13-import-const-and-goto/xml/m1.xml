@@ -1,0 +1,7 @@
+<module name="m1">
+  <const name="base">1</const>
+  <script name="target">
+    <text>m1</text>
+    <end/>
+  </script>
+</module>

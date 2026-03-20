@@ -62,6 +62,7 @@ pub(crate) fn assemble_artifact(
 mod tests {
     use sl_core::{Instruction, TextSegment, TextTemplate};
 
+    use crate::semantic::types::ResolvedRef;
     use crate::semantic::types::SemanticVar;
     use crate::semantic::{
         SemanticChoiceOption, SemanticModule, SemanticProgram, SemanticScript, SemanticStmt,
@@ -111,7 +112,7 @@ mod tests {
                                         segments: vec![TextSegment::Literal("left".to_string())],
                                     },
                                     body: vec![SemanticStmt::Goto {
-                                        target_script_ref: "target".to_string(),
+                                        target: ResolvedRef::script("main", "target"),
                                     }],
                                 },
                                 SemanticChoiceOption {

@@ -1,5 +1,4 @@
 <module name="main">
-  <import name="other"/>
   <script name="main">
     <goto script="@other.endcap"/>
   </script>
