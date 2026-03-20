@@ -19,7 +19,6 @@ impl ProgramAssembler {
                     global_id: self.globals.len(),
                     runtime_name: global_runtime_name(&qualified_name),
                     qualified_name,
-                    short_name: var.name.clone(),
                     initializer: var.expr.clone(),
                 });
             }

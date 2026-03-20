@@ -305,7 +305,6 @@ mod tests {
             vec![GlobalVar {
                 global_id: 0,
                 qualified_name: "main.answer".to_string(),
-                short_name: "answer".to_string(),
                 runtime_name: "answer".to_string(),
                 initializer: "40 + 2".to_string(),
             }],
@@ -722,7 +721,6 @@ mod tests {
             vec![GlobalVar {
                 global_id: 0,
                 qualified_name: "main.answer".to_string(),
-                short_name: "answer".to_string(),
                 runtime_name: "answer".to_string(),
                 initializer: "1".to_string(),
             }],
