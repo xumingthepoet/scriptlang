@@ -1,4 +1,7 @@
-use sl_core::{ChoiceBranch, Instruction, LocalId, ScriptId, ScriptLangError};
+use sl_core::{
+    ChoiceBranch, CompiledText, CompiledTextPart, Instruction, LocalId, ScriptId, ScriptLangError,
+    TextSegment, TextTemplate,
+};
 
 use crate::assemble::ScriptDraft;
 use crate::semantic::{SemanticChoiceOption, SemanticScript, SemanticStmt};
@@ -41,7 +44,7 @@ fn lower_block(
             }
             SemanticStmt::Text { template, tag } => {
                 draft.instructions.push(Instruction::EmitText {
-                    text: crate::text::lower_text_template(template),
+                    text: lower_text_template(template),
                     tag: tag.clone(),
                 });
             }
@@ -88,7 +91,7 @@ fn lower_choice(
 ) -> Result<(), ScriptLangError> {
     let build_index = draft.instructions.len();
     draft.instructions.push(Instruction::BuildChoice {
-        prompt: prompt.map(crate::text::lower_text_template),
+        prompt: prompt.map(lower_text_template),
         options: Vec::new(),
     });
     let mut branches = Vec::with_capacity(options.len());
@@ -97,7 +100,7 @@ fn lower_choice(
     for option in options {
         let target_pc = draft.instructions.len();
         branches.push(ChoiceBranch {
-            text: crate::text::lower_text_template(&option.text),
+            text: lower_text_template(&option.text),
             target_pc,
         });
         lower_block(script_refs, draft, &option.body, module_name)?;
@@ -111,10 +114,23 @@ fn lower_choice(
         draft.instructions[jump_index] = Instruction::Jump { target_pc: join_pc };
     }
     draft.instructions[build_index] = Instruction::BuildChoice {
-        prompt: prompt.map(crate::text::lower_text_template),
+        prompt: prompt.map(lower_text_template),
         options: branches,
     };
     Ok(())
+}
+
+fn lower_text_template(template: &TextTemplate) -> CompiledText {
+    CompiledText {
+        parts: template
+            .segments
+            .iter()
+            .map(|segment| match segment {
+                TextSegment::Literal(text) => CompiledTextPart::Literal(text.clone()),
+                TextSegment::Expr(expr) => CompiledTextPart::Expr(expr.clone()),
+            })
+            .collect(),
+    }
 }
 
 fn assign_local_id(draft: &mut ScriptDraft, name: &str) -> LocalId {
@@ -141,12 +157,12 @@ fn resolve_script_ref(module_name: &str, raw: &str) -> String {
 mod tests {
     use std::collections::{BTreeMap, HashMap};
 
-    use sl_core::{Instruction, TextSegment, TextTemplate};
+    use sl_core::{CompiledTextPart, Instruction, TextSegment, TextTemplate};
 
     use crate::assemble::ScriptDraft;
     use crate::semantic::{SemanticChoiceOption, SemanticScript, SemanticStmt};
 
-    use super::lower_script;
+    use super::{lower_script, lower_text_template};
 
     fn draft() -> ScriptDraft {
         ScriptDraft {
@@ -222,5 +238,21 @@ mod tests {
                 .to_string()
                 .contains("script `main.missing` referenced by <goto> does not exist")
         );
+    }
+
+    #[test]
+    fn lower_text_template_preserves_literal_and_expression_segments() {
+        let lowered = lower_text_template(&TextTemplate {
+            segments: vec![
+                TextSegment::Literal("hello ".to_string()),
+                TextSegment::Expr("name".to_string()),
+            ],
+        });
+
+        assert!(matches!(
+            lowered.parts.as_slice(),
+            [CompiledTextPart::Literal(text), CompiledTextPart::Expr(expr)]
+                if text == "hello " && expr == "name"
+        ));
     }
 }

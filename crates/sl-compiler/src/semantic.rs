@@ -1,13 +1,11 @@
 use std::collections::BTreeSet;
 
-use sl_core::{Form, ScriptLangError, TextTemplate};
+use sl_core::{Form, ScriptLangError, TextSegment, TextTemplate};
 
 use crate::const_eval::{
     ConstEnv, ConstValue, parse_const_value, rewrite_expr_with_consts, rewrite_template_with_consts,
 };
 use crate::form::{attr, child_forms, error_at, required_attr, trimmed_text_items};
-use crate::text::parse_text_template;
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SemanticProgram {
     pub(crate) modules: Vec<SemanticModule>,
@@ -288,13 +286,50 @@ fn analyze_stmt(
     }
 }
 
+fn parse_text_template(source: &str) -> TextTemplate {
+    let mut segments = Vec::new();
+    let mut cursor = 0usize;
+
+    while let Some(start_offset) = source[cursor..].find("${") {
+        let start = cursor + start_offset;
+        if start > cursor {
+            segments.push(TextSegment::Literal(source[cursor..start].to_string()));
+        }
+
+        let expr_start = start + 2;
+        let Some(end_offset) = source[expr_start..].find('}') else {
+            if let Some(TextSegment::Literal(prefix)) = segments.last_mut() {
+                prefix.push_str(&source[start..]);
+            } else {
+                segments.push(TextSegment::Literal(source[start..].to_string()));
+            }
+            cursor = source.len();
+            break;
+        };
+        let expr_end = expr_start + end_offset;
+        segments.push(TextSegment::Expr(
+            source[expr_start..expr_end].trim().to_string(),
+        ));
+        cursor = expr_end + 1;
+    }
+
+    if cursor < source.len() {
+        segments.push(TextSegment::Literal(source[cursor..].to_string()));
+    }
+    if segments.is_empty() {
+        segments.push(TextSegment::Literal(source.to_string()));
+    }
+
+    TextTemplate { segments }
+}
+
 #[cfg(test)]
 mod tests {
     use sl_core::{Form, FormField, FormItem, FormMeta, FormValue, SourcePosition, TextSegment};
 
     use crate::const_eval::ConstValue;
 
-    use super::{SemanticStmt, analyze_forms};
+    use super::{SemanticStmt, analyze_forms, parse_text_template};
 
     fn meta() -> FormMeta {
         FormMeta {
@@ -510,5 +545,31 @@ mod tests {
                 .to_string()
                 .contains("unsupported const reference `call`")
         );
+    }
+
+    #[test]
+    fn parse_text_template_covers_literal_and_expression_shapes() {
+        let empty = parse_text_template("");
+        assert_eq!(empty.segments.len(), 1);
+        assert!(matches!(&empty.segments[0], TextSegment::Literal(text) if text.is_empty()));
+
+        let literal = parse_text_template("hello");
+        assert!(matches!(&literal.segments[..], [TextSegment::Literal(text)] if text == "hello"));
+
+        let expr_only = parse_text_template("${ value }");
+        assert!(matches!(&expr_only.segments[..], [TextSegment::Expr(text)] if text == "value"));
+
+        let unclosed = parse_text_template("hello ${name");
+        assert!(
+            matches!(&unclosed.segments[..], [TextSegment::Literal(text)] if text == "hello ${name")
+        );
+
+        let mixed = parse_text_template("a ${left} b ${ } c");
+        assert_eq!(mixed.segments.len(), 5);
+        assert!(matches!(&mixed.segments[0], TextSegment::Literal(text) if text == "a "));
+        assert!(matches!(&mixed.segments[1], TextSegment::Expr(text) if text == "left"));
+        assert!(matches!(&mixed.segments[2], TextSegment::Literal(text) if text == " b "));
+        assert!(matches!(&mixed.segments[3], TextSegment::Expr(text) if text.is_empty()));
+        assert!(matches!(&mixed.segments[4], TextSegment::Literal(text) if text == " c"));
     }
 }
