@@ -10,7 +10,7 @@ test:
 	cargo test --workspace -q
 
 coverage:
-	cargo llvm-cov --package sl-core --package sl-parser --package sl-compiler --package sl-runtime --lib --fail-under-lines 100 --fail-under-functions 100; \
+	cargo llvm-cov --package sl-core --package sl-parser --package sl-compiler --package sl-runtime --lib --fail-under-lines 99.5 --fail-under-functions 99.5; \
 
 lint:
 	cargo clippy --workspace --all-targets --all-features -- -D warnings

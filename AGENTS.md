@@ -2,6 +2,8 @@
 
 当前已经实现的代码状态、crate 划分、MVP 支持范围和测试格式见 [`IMPLEMENTATION.md`](./IMPLEMENTATION.md)。
 
+`IMPLEMENTATION.md` 必须随着功能迭代立即同步更新。只要功能、分层、crate 职责、编译流程、测试结构或支持范围发生变化，就要在同一轮改动里更新该文档，并确保文档内容始终反映仓库当前真实实现状态。
+
 `scriptlang-new` 是对 `scriptlang-rust` 的全盘重写，目标不是复刻既有表层语法，而是建立一套可长期演进的语言架构。
 
 本项目的核心原则是：
