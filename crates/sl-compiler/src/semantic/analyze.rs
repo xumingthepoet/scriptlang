@@ -3,11 +3,11 @@ use std::collections::BTreeSet;
 use sl_core::{Form, ScriptLangError, TextSegment, TextTemplate};
 
 use super::const_eval::{
-    ConstEnv, parse_const_value, rewrite_expr_with_consts, rewrite_template_with_consts,
+    ConstEnv, ConstValue, parse_const_value, rewrite_expr_with_consts, rewrite_template_with_consts,
 };
 use super::types::{
-    SemanticChoiceOption, SemanticConst, SemanticModule, SemanticProgram, SemanticScript,
-    SemanticStmt, SemanticVar,
+    SemanticChoiceOption, SemanticModule, SemanticProgram, SemanticScript, SemanticStmt,
+    SemanticVar,
 };
 use crate::form_util::{attr, child_forms, error_at, required_attr, trimmed_text_items};
 
@@ -37,17 +37,15 @@ fn analyze_module(form: &Form) -> Result<SemanticModule, ScriptLangError> {
 
     let mut remaining_const_names = future_const_names;
     let mut const_env = ConstEnv::new();
-    let mut consts = Vec::new();
     let mut vars = Vec::new();
     let mut scripts = Vec::new();
 
     for child in module_children {
         match child.head.as_str() {
             "const" => {
-                let semantic_const = analyze_const(child, &const_env, &remaining_const_names)?;
-                remaining_const_names.remove(&semantic_const.name);
-                const_env.insert(semantic_const.name.clone(), semantic_const.value.clone());
-                consts.push(semantic_const);
+                let (name, value) = analyze_const(child, &const_env, &remaining_const_names)?;
+                remaining_const_names.remove(&name);
+                const_env.insert(name, value);
             }
             "var" => vars.push(SemanticVar {
                 name: required_attr(child, "name")?.to_string(),
@@ -70,7 +68,6 @@ fn analyze_module(form: &Form) -> Result<SemanticModule, ScriptLangError> {
 
     Ok(SemanticModule {
         name,
-        consts,
         vars,
         scripts,
     })
@@ -80,13 +77,13 @@ fn analyze_const(
     form: &Form,
     env: &ConstEnv,
     remaining_const_names: &BTreeSet<String>,
-) -> Result<SemanticConst, ScriptLangError> {
+) -> Result<(String, ConstValue), ScriptLangError> {
     let name = required_attr(form, "name")?.to_string();
     let raw = trimmed_text_items(form)?;
     let mut blocked = remaining_const_names.clone();
     blocked.remove(&name);
     let value = parse_const_value(&raw, env, &blocked)?;
-    Ok(SemanticConst { name, value })
+    Ok((name, value))
 }
 
 fn analyze_script(
@@ -268,7 +265,6 @@ fn parse_text_template(source: &str) -> TextTemplate {
 mod tests {
     use sl_core::{Form, FormField, FormItem, FormMeta, FormValue, SourcePosition, TextSegment};
 
-    use super::super::const_eval::ConstValue;
     use super::{SemanticStmt, analyze_forms, parse_text_template};
 
     fn meta() -> FormMeta {
@@ -358,9 +354,6 @@ mod tests {
         .expect("analyze");
 
         assert_eq!(program.modules.len(), 1);
-        assert_eq!(program.modules[0].consts.len(), 1);
-        assert_eq!(program.modules[0].consts[0].name, "bonus");
-        assert_eq!(program.modules[0].consts[0].value, ConstValue::Integer(41));
         assert_eq!(program.modules[0].vars[0].expr, "41 + 1");
         assert!(matches!(
             &program.modules[0].scripts[0].body[0],
@@ -399,13 +392,7 @@ mod tests {
         )])
         .expect("analyze");
 
-        assert_eq!(
-            program.modules[0].consts[1].value,
-            ConstValue::Object(std::collections::BTreeMap::from([(
-                "value".to_string(),
-                ConstValue::Integer(1)
-            )]))
-        );
+        assert_eq!(program.modules[0].vars.len(), 0);
         assert!(matches!(
             &program.modules[0].scripts[0].body[1],
             SemanticStmt::Code { code } if code == "answer += 1;"

@@ -1,7 +1,5 @@
 use sl_core::TextTemplate;
 
-use super::const_eval::ConstValue;
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SemanticProgram {
     pub(crate) modules: Vec<SemanticModule>,
@@ -10,15 +8,8 @@ pub(crate) struct SemanticProgram {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SemanticModule {
     pub(crate) name: String,
-    pub(crate) consts: Vec<SemanticConst>,
     pub(crate) vars: Vec<SemanticVar>,
     pub(crate) scripts: Vec<SemanticScript>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct SemanticConst {
-    pub(crate) name: String,
-    pub(crate) value: ConstValue,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

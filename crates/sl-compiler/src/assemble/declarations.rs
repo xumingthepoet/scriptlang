@@ -12,7 +12,6 @@ impl ProgramAssembler {
         let mut global_short_names = std::collections::HashMap::<String, String>::new();
 
         for module in modules {
-            let _ = &module.consts;
             for var in &module.vars {
                 let qualified_name = format!("{}.{}", module.name, var.name);
                 if let Some(existing) =
