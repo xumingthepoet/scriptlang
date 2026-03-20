@@ -1,0 +1,3 @@
+<module name="kernel">
+  <const name="zero" type="int">0</const>
+</module>

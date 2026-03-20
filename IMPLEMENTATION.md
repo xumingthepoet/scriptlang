@@ -21,6 +21,7 @@
   - 只依赖 `sl-core`
 - `sl-api`
   - 负责组合 parser / compiler / runtime
+  - 自动把 crate 内置 `lib/*.xml` 加入高层编译入口
   - 提供较方便的一体化入口
 - `sl-integration-tests`
   - 独立的集成测试 crate
@@ -139,6 +140,8 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 - `create_engine_from_xml_map`
 
 其中 `parse_modules_from_sources` / `parse_module_xml` 返回 `Form`，而不是旧的 `ParsedModule`。
+
+当前 `sl-api` 会在这些高层入口里自动加载内置库 XML。现阶段内置库只提供 `crates/sl-api/lib/kernel.xml`，并把其中的模块级 `<const>` 注入到每个用户 module，使用户代码可以直接使用例如 `zero` 这样的内置常量。
 
 这是当前最推荐的对外入口。
 
