@@ -1,0 +1,13 @@
+<module name="main">
+  <const name="base">1</const>
+  <const name="bonus">[base, 2]</const>
+  <script name="main">
+    <temp name="x">bonus[0] + bonus[1]</temp>
+    <text tag="line">${base} ${x}</text>
+    <choice text="pick ${base}">
+      <option text="go ${bonus[1]}">
+        <end/>
+      </option>
+    </choice>
+  </script>
+</module>

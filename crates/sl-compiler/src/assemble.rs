@@ -73,6 +73,7 @@ impl ProgramAssembler {
         let mut global_short_names = HashMap::<String, String>::new();
 
         for module in modules {
+            let _ = &module.consts;
             for var in &module.vars {
                 let qualified_name = format!("{}.{}", module.name, var.name);
                 if let Some(existing) =
@@ -152,7 +153,7 @@ mod tests {
         SemanticVar,
     };
 
-    use super::{assemble_artifact, ProgramAssembler};
+    use super::{ProgramAssembler, assemble_artifact};
 
     fn program(modules: Vec<SemanticModule>) -> SemanticProgram {
         SemanticProgram { modules }
@@ -162,6 +163,7 @@ mod tests {
     fn assemble_artifact_requires_at_least_one_script() {
         let error = assemble_artifact(&program(vec![SemanticModule {
             name: "main".to_string(),
+            consts: Vec::new(),
             vars: Vec::new(),
             scripts: Vec::new(),
         }]))
@@ -174,6 +176,7 @@ mod tests {
     fn assemble_artifact_collects_globals_and_lowers_scripts() {
         let artifact = assemble_artifact(&program(vec![SemanticModule {
             name: "main".to_string(),
+            consts: Vec::new(),
             vars: vec![SemanticVar {
                 name: "answer".to_string(),
                 expr: "40 + 2".to_string(),
@@ -235,6 +238,7 @@ mod tests {
     fn assemble_artifact_rejects_duplicate_script_refs_and_ambiguous_globals() {
         let duplicate_script = assemble_artifact(&program(vec![SemanticModule {
             name: "main".to_string(),
+            consts: Vec::new(),
             vars: Vec::new(),
             scripts: vec![
                 SemanticScript {
@@ -256,6 +260,7 @@ mod tests {
         let ambiguous_global = assemble_artifact(&program(vec![
             SemanticModule {
                 name: "a".to_string(),
+                consts: Vec::new(),
                 vars: vec![SemanticVar {
                     name: "name".to_string(),
                     expr: "1".to_string(),
@@ -267,6 +272,7 @@ mod tests {
             },
             SemanticModule {
                 name: "b".to_string(),
+                consts: Vec::new(),
                 vars: vec![SemanticVar {
                     name: "name".to_string(),
                     expr: "2".to_string(),

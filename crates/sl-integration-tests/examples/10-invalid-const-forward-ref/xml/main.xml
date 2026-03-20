@@ -1,0 +1,7 @@
+<module name="main">
+  <const name="first">later</const>
+  <const name="later">1</const>
+  <script name="main">
+    <end/>
+  </script>
+</module>

@@ -1,0 +1,10 @@
+<module name="main">
+  <const name="bonus">41</const>
+  <var name="score">bonus + 1</var>
+  <script name="main">
+    <temp name="hp">bonus</temp>
+    <code>hp += score;</code>
+    <text>${hp}</text>
+    <end/>
+  </script>
+</module>

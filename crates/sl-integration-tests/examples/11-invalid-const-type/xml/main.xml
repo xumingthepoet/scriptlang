@@ -1,0 +1,6 @@
+<module name="main">
+  <const name="bad">call()</const>
+  <script name="main">
+    <end/>
+  </script>
+</module>
