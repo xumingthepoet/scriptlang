@@ -74,11 +74,13 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 
 `sl-compiler` 负责：
 
-- 从 `Form` 中读取 module / script / stmt 结构
-- 收集 module 级 `<var>` 声明
-- 为 script 分配全局唯一 `script_id`
-- 校验当前 MVP 支持的标签和结构
-- 将编译前表示 lower 成线性 IR
+- 以显式 pipeline 执行编译：
+  - `Form -> macro expansion`
+  - `expanded Form -> module/script/var/stmt 语义结构`
+  - `semantic program -> runtime IR`
+- 当前 macro expansion 阶段已经独立成单独步骤，但仍是 no-op passthrough
+- 在 form semantics 阶段完成 MVP 标签校验、属性校验和结构下沉
+- 在 lowering 阶段收集 module 级 `<var>` 声明、为 script 分配全局唯一 `script_id`
 - 构造 `CompiledArtifact`
 - 生成 boot script，先执行全局初始化，再跳转到默认入口
 
