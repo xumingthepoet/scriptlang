@@ -18,6 +18,8 @@
 - runtime 只保留控制流、状态、宿主交互、挂起恢复等不可替代职责
 - 语言设计思路会大量参考 Elixir，重点吸收其在表达力、宏、模块组织和开发体验上的设计经验
 
+本地工作区中存在软链接 [`elixir`](./elixir) -> `/Users/xuming/github/elixir`，这是 Elixir 项目的本地源码地址。涉及 compiler、macro、module system、name resolution、lowering 或其他语言架构设计时，agent 应优先参考 `elixir/lib/elixir/src` 下的实现与分层思路，再结合本仓库目标做取舍，而不是只做表层语法模仿。
+
 整体分层如下：
 
 1. 输入层：负责把源码转换为结构化表示，不直接承载复杂语义。
