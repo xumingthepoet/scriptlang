@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 
-use rhai::Dynamic;
 use sl_core::{CompiledArtifact, Form, ScriptLangError};
 
 pub use sl_compiler::compile_artifact;
@@ -30,7 +29,7 @@ pub fn create_engine_from_xml_map(
 ) -> Result<Engine, ScriptLangError> {
     let artifact = compile_artifact_from_xml_map(sources)?;
     let mut engine = sl_runtime::Engine::new(artifact);
-    engine.start(entry_script_ref, None::<BTreeMap<String, Dynamic>>)?;
+    engine.start(entry_script_ref)?;
     Ok(engine)
 }
 

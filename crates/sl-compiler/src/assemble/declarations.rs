@@ -1,9 +1,12 @@
 use sl_core::ScriptLangError;
 
+use crate::names::{qualified_member_name, runtime_global_name};
 use crate::semantic::SemanticModule;
-use crate::semantic::types::runtime_global_name;
 
-use super::{ProgramAssembler, types::ScriptDraft};
+use super::{
+    ProgramAssembler,
+    types::{GlobalDecl, ScriptDraft},
+};
 
 const DEFAULT_ENTRY_SCRIPT_REF: &str = "main.main";
 
@@ -14,17 +17,18 @@ impl ProgramAssembler {
     ) -> Result<(), ScriptLangError> {
         for module in modules {
             for var in &module.vars {
-                let qualified_name = format!("{}.{}", module.name, var.name);
-                self.globals.push(sl_core::GlobalVar {
-                    global_id: self.globals.len(),
-                    runtime_name: global_runtime_name(&qualified_name),
-                    qualified_name,
+                let qualified_name = qualified_member_name(&module.name, &var.name);
+                self.globals.push(GlobalDecl {
+                    global: sl_core::GlobalVar {
+                        global_id: self.globals.len(),
+                        runtime_name: runtime_global_name(&qualified_name),
+                    },
                     initializer: var.expr.clone(),
                 });
             }
 
             for script in &module.scripts {
-                let script_ref = format!("{}.{}", module.name, script.name);
+                let script_ref = qualified_member_name(&module.name, &script.name);
                 if self.script_refs.contains_key(&script_ref) {
                     return Err(ScriptLangError::message(format!(
                         "duplicate script declaration `{script_ref}`"
@@ -36,7 +40,6 @@ impl ProgramAssembler {
                     self.default_entry_script_id = Some(script_id);
                 }
                 self.scripts.push(ScriptDraft {
-                    script_ref,
                     local_names: Vec::new(),
                     local_lookup: std::collections::HashMap::new(),
                     instructions: Vec::new(),
@@ -46,8 +49,4 @@ impl ProgramAssembler {
 
         Ok(())
     }
-}
-
-fn global_runtime_name(qualified_name: &str) -> String {
-    runtime_global_name(qualified_name)
 }

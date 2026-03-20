@@ -41,14 +41,12 @@ pub(crate) fn assemble_artifact(
         .enumerate()
         .map(|(script_id, draft)| CompiledScript {
             script_id,
-            script_ref: draft.script_ref,
             local_names: draft.local_names,
             instructions: draft.instructions,
         })
         .collect::<Vec<_>>();
     scripts.push(CompiledScript {
         script_id: boot_script_id,
-        script_ref: "__boot__".to_string(),
         local_names: Vec::new(),
         instructions: boot_script,
     });
@@ -58,7 +56,11 @@ pub(crate) fn assemble_artifact(
         boot_script_id,
         script_refs: assembler.script_refs,
         scripts,
-        globals: assembler.globals,
+        globals: assembler
+            .globals
+            .into_iter()
+            .map(|decl| decl.global)
+            .collect(),
     })
 }
 
@@ -157,7 +159,6 @@ mod tests {
 
         assert_eq!(artifact.default_entry_script_id, 0);
         assert_eq!(artifact.boot_script_id, 2);
-        assert_eq!(artifact.globals[0].qualified_name, "main.answer");
         assert_eq!(artifact.globals[0].runtime_name, "__sl_globalmain_answer");
         assert!(matches!(
             &artifact.scripts[0].instructions[0],
@@ -171,7 +172,7 @@ mod tests {
     }
 
     #[test]
-    fn assemble_artifact_rejects_duplicate_script_refs_and_allows_same_short_globals() {
+    fn assemble_artifact_rejects_duplicate_script_refs_and_allows_same_named_globals() {
         let duplicate_script = assemble_artifact(&program(vec![SemanticModule {
             name: "main".to_string(),
             vars: Vec::new(),

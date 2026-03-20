@@ -96,6 +96,7 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 - semantic 当前会先建立 module 导出目录和作用域，再把 const / goto 等名字解析成规范目标
 - semantic 当前会区分“module 内声明存在”和“对 import 暴露的导出成员”；`private="true"` 会从导出目录中隐藏该声明
 - `assemble` 不再消费 import / scope / context 信息；它只消费已经解析好的语义结果
+- semantic 中的 var 引用当前会先重写成“已解析变量占位符”；真正的 runtime global 命名只在 assemble 阶段生成
 - `const_eval` 当前只负责 builtin 常量求值、稳定字面量回写和表达式 / 模板替换，不再自己实现 import 可见性规则
 - 在 assemble 阶段收集 module 级 `<var>` 声明、为 script 分配全局唯一 `script_id`
 - 构造 `CompiledArtifact`
@@ -103,7 +104,7 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 - 默认入口当前固定为 `main.main`；若不存在则编译报错
 - `<const>` 当前只支持 module 级，且只支持 builtin 常量值与对前面已定义 const 的引用
 - `<const>` 在 compiler 内消解为源码替换，不进入 runtime，也不会出现在 `CompiledArtifact.globals`
-- `<var>` 当前支持跨 module 引用；compiler 会把可见 var 名字重写成内部 runtime global 名，而不是把 import 可见性规则泄漏到 runtime
+- `<var>` 当前支持跨 module 引用；semantic 先把可见 var 引用解析成规范占位符，assemble 再统一 lower 成 runtime global 名，而不是把 import 可见性规则泄漏到 runtime
 - const 名字解析当前支持：
   - 当前 module 的短名 const
   - imported module 的短名 const
@@ -146,7 +147,7 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 
 - 执行 `CompiledArtifact`
 - 用 `script_id + pc` 作为唯一执行定位
-- 提供 `start / step / choose / snapshot / resume`
+- 提供 `start(entry_script_ref) / step / choose / snapshot / resume`
 - 使用 Rhai 执行表达式和代码块
 - 首次执行某段 Rhai 源码时编译 AST，并在 runtime 内缓存
 

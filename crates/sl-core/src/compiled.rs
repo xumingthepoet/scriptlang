@@ -14,7 +14,6 @@ pub struct CompiledArtifact {
 #[derive(Clone, Debug)]
 pub struct CompiledScript {
     pub script_id: ScriptId,
-    pub script_ref: String,
     pub local_names: Vec<String>,
     pub instructions: Vec<Instruction>,
 }
@@ -22,9 +21,7 @@ pub struct CompiledScript {
 #[derive(Clone, Debug)]
 pub struct GlobalVar {
     pub global_id: GlobalId,
-    pub qualified_name: String,
     pub runtime_name: String,
-    pub initializer: String,
 }
 
 #[derive(Clone, Debug)]
@@ -140,36 +137,29 @@ mod tests {
             scripts: vec![
                 CompiledScript {
                     script_id: 0,
-                    script_ref: "main.entry".to_string(),
                     local_names: vec!["x".to_string()],
                     instructions: instructions.clone(),
                 },
                 CompiledScript {
                     script_id: 1,
-                    script_ref: "__boot__".to_string(),
                     local_names: Vec::new(),
                     instructions: vec![Instruction::End],
                 },
             ],
             globals: vec![GlobalVar {
                 global_id: 0,
-                qualified_name: "main.answer".to_string(),
                 runtime_name: "__sl_global__main__answer".to_string(),
-                initializer: "42".to_string(),
             }],
         };
 
         assert_eq!(artifact.default_entry_script_id, 0);
         assert_eq!(artifact.boot_script_id, 1);
         assert_eq!(artifact.scripts[0].script_id, 0);
-        assert_eq!(artifact.scripts[0].script_ref, "main.entry");
         assert_eq!(artifact.scripts[0].local_names, vec!["x".to_string()]);
-        assert_eq!(artifact.globals[0].qualified_name, "main.answer");
         assert_eq!(
             artifact.globals[0].runtime_name,
             "__sl_global__main__answer"
         );
-        assert_eq!(artifact.globals[0].initializer, "42");
         assert_eq!(artifact.script_refs["main.entry"], 0);
 
         assert!(matches!(

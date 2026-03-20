@@ -5,7 +5,7 @@ use super::{Engine, PendingChoiceOption, PendingChoiceState, dynamic_to_bool};
 impl Engine {
     pub fn step(&mut self) -> Result<StepResult, ScriptLangError> {
         if !self.state.started {
-            self.start(None, None)?;
+            self.start(None)?;
         }
         if self.state.halted {
             return Ok(StepResult::Completed(Completion::End));

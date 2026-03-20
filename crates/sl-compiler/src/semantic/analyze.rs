@@ -355,7 +355,8 @@ mod tests {
     use sl_core::{Form, FormField, FormItem, FormMeta, FormValue, SourcePosition, TextSegment};
 
     use super::{SemanticStmt, analyze_forms, parse_text_template};
-    use crate::semantic::types::{ResolvedRef, runtime_global_name};
+    use crate::names::resolved_var_placeholder;
+    use crate::semantic::types::ResolvedRef;
 
     fn meta() -> FormMeta {
         FormMeta {
@@ -584,7 +585,7 @@ mod tests {
     }
 
     #[test]
-    fn analyze_forms_rewrites_visible_var_refs_to_runtime_global_names() {
+    fn analyze_forms_rewrites_visible_var_refs_to_resolved_placeholders() {
         let program = analyze_forms(&[
             node(
                 "module",
@@ -632,9 +633,9 @@ mod tests {
         ])
         .expect("analyze");
 
-        let local = runtime_global_name("main.local");
-        let imported = runtime_global_name("m2.shared");
-        let explicit = runtime_global_name("m1.shared");
+        let local = resolved_var_placeholder("main.local");
+        let imported = resolved_var_placeholder("m2.shared");
+        let explicit = resolved_var_placeholder("m1.shared");
         assert!(matches!(
             &program.modules[2].scripts[0].body[0],
             SemanticStmt::Code { code }
@@ -698,7 +699,7 @@ mod tests {
         )])
         .expect("analyze");
 
-        let hidden_var = runtime_global_name("main.hidden_var");
+        let hidden_var = resolved_var_placeholder("main.hidden_var");
         assert!(matches!(
             &program.modules[0].scripts[1].body[0],
             SemanticStmt::Temp { expr, .. } if expr == "1 + 1"

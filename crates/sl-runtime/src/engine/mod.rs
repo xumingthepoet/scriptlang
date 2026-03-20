@@ -1,7 +1,7 @@
 mod execute;
 mod state;
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use rhai::{AST, Dynamic, Engine as RhaiEngine, Scope};
@@ -31,11 +31,7 @@ impl Engine {
         }
     }
 
-    pub fn start(
-        &mut self,
-        entry_script_ref: Option<&str>,
-        _args: Option<BTreeMap<String, Dynamic>>,
-    ) -> Result<(), ScriptLangError> {
+    pub fn start(&mut self, entry_script_ref: Option<&str>) -> Result<(), ScriptLangError> {
         let entry_override = match entry_script_ref {
             Some(script_ref) => Some(self.resolve_script_id(script_ref)?),
             None => None,
@@ -266,24 +262,23 @@ mod tests {
     }
 
     fn artifact_with_scripts(
-        scripts: Vec<CompiledScript>,
+        scripts: Vec<(String, CompiledScript)>,
         globals: Vec<GlobalVar>,
         default_entry_script_id: usize,
         boot_instructions: Vec<Instruction>,
     ) -> CompiledArtifact {
         let boot_script_id = scripts.len();
-        let mut all_scripts = scripts;
+        let mut script_refs = BTreeMap::from([("__boot__".to_string(), boot_script_id)]);
+        let mut all_scripts = Vec::with_capacity(boot_script_id + 1);
+        for (script_ref, script) in scripts {
+            script_refs.insert(script_ref, script.script_id);
+            all_scripts.push(script);
+        }
         all_scripts.push(CompiledScript {
             script_id: boot_script_id,
-            script_ref: "__boot__".to_string(),
             local_names: Vec::new(),
             instructions: boot_instructions,
         });
-
-        let mut script_refs = BTreeMap::new();
-        for script in &all_scripts {
-            script_refs.insert(script.script_ref.clone(), script.script_id);
-        }
 
         CompiledArtifact {
             default_entry_script_id,
@@ -296,17 +291,17 @@ mod tests {
 
     fn simple_engine(instructions: Vec<Instruction>) -> Engine {
         Engine::new(artifact_with_scripts(
-            vec![CompiledScript {
-                script_id: 0,
-                script_ref: "main.entry".to_string(),
-                local_names: vec!["name".to_string(), "x".to_string()],
-                instructions,
-            }],
+            vec![(
+                "main.entry".to_string(),
+                CompiledScript {
+                    script_id: 0,
+                    local_names: vec!["name".to_string(), "x".to_string()],
+                    instructions,
+                },
+            )],
             vec![GlobalVar {
                 global_id: 0,
-                qualified_name: "main.answer".to_string(),
                 runtime_name: "answer".to_string(),
-                initializer: "40 + 2".to_string(),
             }],
             0,
             vec![
@@ -325,18 +320,22 @@ mod tests {
     fn new_uses_boot_state_and_start_can_override_entry() {
         let mut engine = Engine::new(artifact_with_scripts(
             vec![
-                CompiledScript {
-                    script_id: 0,
-                    script_ref: "main.entry".to_string(),
-                    local_names: Vec::new(),
-                    instructions: vec![Instruction::End],
-                },
-                CompiledScript {
-                    script_id: 1,
-                    script_ref: "main.alt".to_string(),
-                    local_names: Vec::new(),
-                    instructions: vec![Instruction::End],
-                },
+                (
+                    "main.entry".to_string(),
+                    CompiledScript {
+                        script_id: 0,
+                        local_names: Vec::new(),
+                        instructions: vec![Instruction::End],
+                    },
+                ),
+                (
+                    "main.alt".to_string(),
+                    CompiledScript {
+                        script_id: 1,
+                        local_names: Vec::new(),
+                        instructions: vec![Instruction::End],
+                    },
+                ),
             ],
             Vec::new(),
             0,
@@ -349,9 +348,7 @@ mod tests {
         assert_eq!(engine.current_pc(), 0);
         assert!(!engine.state.started);
 
-        engine
-            .start(Some("main.alt"), None)
-            .expect("start should work");
+        engine.start(Some("main.alt")).expect("start should work");
         assert_eq!(engine.current_script_id(), 2);
         assert_eq!(engine.state.entry_override, Some(1));
         assert!(engine.state.started);
@@ -361,9 +358,7 @@ mod tests {
     fn start_rejects_unknown_entry_script() {
         let mut engine = simple_engine(vec![Instruction::End]);
 
-        let error = engine
-            .start(Some("missing"), None)
-            .expect_err("should fail");
+        let error = engine.start(Some("missing")).expect_err("should fail");
 
         assert_eq!(error.to_string(), "unknown script `missing`");
     }
@@ -400,9 +395,7 @@ mod tests {
         ));
 
         let mut exhausted_engine = simple_engine(vec![Instruction::End]);
-        exhausted_engine
-            .start(None, None)
-            .expect("start should work");
+        exhausted_engine.start(None).expect("start should work");
         exhausted_engine.state.script_id = 0;
         exhausted_engine.state.pc = 1;
         assert!(matches!(
@@ -442,7 +435,7 @@ mod tests {
             },
         ]);
 
-        engine.start(None, None).expect("start should work");
+        engine.start(None).expect("start should work");
         engine.state.script_id = 0;
         engine.state.pc = 0;
         engine.state.locals = vec![Dynamic::UNIT, Dynamic::UNIT];
@@ -505,7 +498,7 @@ mod tests {
             Instruction::End,
         ]);
 
-        engine.start(None, None).expect("start should work");
+        engine.start(None).expect("start should work");
         engine.state.script_id = 0;
         engine.state.pc = 0;
         engine.state.locals = vec![Dynamic::UNIT, Dynamic::UNIT];
@@ -542,7 +535,7 @@ mod tests {
             ],
         }]);
 
-        engine.start(None, None).expect("start should work");
+        engine.start(None).expect("start should work");
         engine.state.script_id = 0;
         engine.state.pc = 0;
 
@@ -585,7 +578,7 @@ mod tests {
             Instruction::JumpIfFalse { target_pc: 2 },
         ]);
 
-        engine.start(None, None).expect("start should work");
+        engine.start(None).expect("start should work");
         engine.state.script_id = 0;
         engine.state.pc = 0;
         engine.state.locals = vec![Dynamic::UNIT, Dynamic::UNIT];
@@ -621,7 +614,7 @@ mod tests {
     #[test]
     fn snapshot_and_resume_cover_success_and_error_paths() {
         let mut engine = simple_engine(vec![Instruction::End]);
-        engine.start(None, None).expect("start should work");
+        engine.start(None).expect("start should work");
         engine.state.script_id = 0;
         engine.state.pc = 0;
         engine.state.locals = vec![Dynamic::from("Ada"), Dynamic::from(1_i64)];
@@ -697,7 +690,7 @@ mod tests {
     #[test]
     fn helper_methods_cover_scope_cache_and_conversion_logic() {
         let mut engine = simple_engine(vec![Instruction::End]);
-        engine.start(None, None).expect("start should work");
+        engine.start(None).expect("start should work");
         engine.state.script_id = 0;
         engine.state.globals = vec![Dynamic::from(10_i64)];
         engine.state.locals = vec![Dynamic::from(3_i64), Dynamic::from(0_i64)];
@@ -708,21 +701,16 @@ mod tests {
                 .expect("should resolve"),
             0
         );
-        assert_eq!(engine.current_script().script_ref, "main.entry");
-
         let script = CompiledScript {
             script_id: 0,
-            script_ref: "main.shadow".to_string(),
             local_names: vec!["answer".to_string()],
             instructions: vec![Instruction::End],
         };
         let artifact = artifact_with_scripts(
-            vec![script],
+            vec![("main.shadow".to_string(), script)],
             vec![GlobalVar {
                 global_id: 0,
-                qualified_name: "main.answer".to_string(),
                 runtime_name: "answer".to_string(),
-                initializer: "1".to_string(),
             }],
             0,
             vec![Instruction::JumpScript {
@@ -730,7 +718,7 @@ mod tests {
             }],
         );
         let mut shadow_engine = Engine::new(artifact);
-        shadow_engine.start(None, None).expect("start should work");
+        shadow_engine.start(None).expect("start should work");
         shadow_engine.state.script_id = 0;
         shadow_engine.state.locals = vec![Dynamic::from(7_i64)];
         shadow_engine.state.globals = vec![Dynamic::from(11_i64)];

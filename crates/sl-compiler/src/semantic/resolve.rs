@@ -3,8 +3,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use sl_core::{Form, ScriptLangError, TextSegment, TextTemplate};
 
 use super::const_eval::{ConstEnv, ConstLookup, ConstValue, parse_const_value};
-use super::types::{ModulePath, ResolvedRef, runtime_global_name};
+use super::types::{ModulePath, ResolvedRef};
 use crate::form_util::{attr, child_forms, error_at, required_attr, trimmed_text_items};
+use crate::names::resolved_var_placeholder;
 
 pub(crate) const DEFAULT_KERNEL_MODULE: &str = "kernel";
 
@@ -536,7 +537,7 @@ pub(crate) fn rewrite_expr_with_vars(
                 if is_map_key(source, end) {
                     rewritten.push_str(raw);
                 } else {
-                    rewritten.push_str(&runtime_global_name(&target.qualified_name()));
+                    rewritten.push_str(&resolved_var_placeholder(&target.qualified_name()));
                 }
             } else {
                 rewritten.push_str(raw);

@@ -1,5 +1,7 @@
 use sl_core::{Instruction, ScriptId};
 
+use crate::names::lower_resolved_vars_to_runtime_names;
+
 use super::ProgramAssembler;
 
 impl ProgramAssembler {
@@ -7,8 +9,8 @@ impl ProgramAssembler {
         let mut instructions = Vec::with_capacity(self.globals.len() + 2);
         for global in &self.globals {
             instructions.push(Instruction::EvalGlobalInit {
-                global_id: global.global_id,
-                expr: global.initializer.clone(),
+                global_id: global.global.global_id,
+                expr: lower_resolved_vars_to_runtime_names(&global.initializer),
             });
         }
         instructions.push(Instruction::JumpScript {

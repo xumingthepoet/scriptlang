@@ -4,6 +4,7 @@ use sl_core::{
 };
 
 use crate::assemble::ScriptDraft;
+use crate::names::lower_resolved_vars_to_runtime_names;
 use crate::semantic::{SemanticChoiceOption, SemanticModule, SemanticScript, SemanticStmt};
 
 use super::ProgramAssembler;
@@ -52,13 +53,13 @@ fn lower_block(
                 let local_id = assign_local_id(draft, name);
                 draft.instructions.push(Instruction::EvalTemp {
                     local_id,
-                    expr: expr.clone(),
+                    expr: lower_resolved_vars_to_runtime_names(expr),
                 });
             }
             SemanticStmt::Code { code } => {
-                draft
-                    .instructions
-                    .push(Instruction::ExecCode { code: code.clone() });
+                draft.instructions.push(Instruction::ExecCode {
+                    code: lower_resolved_vars_to_runtime_names(code),
+                });
             }
             SemanticStmt::Text { template, tag } => {
                 draft.instructions.push(Instruction::EmitText {
@@ -67,9 +68,9 @@ fn lower_block(
                 });
             }
             SemanticStmt::If { when, body } => {
-                draft
-                    .instructions
-                    .push(Instruction::EvalCond { expr: when.clone() });
+                draft.instructions.push(Instruction::EvalCond {
+                    expr: lower_resolved_vars_to_runtime_names(when),
+                });
                 let jump_index = draft.instructions.len();
                 draft
                     .instructions
@@ -144,7 +145,9 @@ fn lower_text_template(template: &TextTemplate) -> CompiledText {
             .iter()
             .map(|segment| match segment {
                 TextSegment::Literal(text) => CompiledTextPart::Literal(text.clone()),
-                TextSegment::Expr(expr) => CompiledTextPart::Expr(expr.clone()),
+                TextSegment::Expr(expr) => {
+                    CompiledTextPart::Expr(lower_resolved_vars_to_runtime_names(expr))
+                }
             })
             .collect(),
     }
@@ -175,7 +178,6 @@ mod tests {
 
     fn draft() -> ScriptDraft {
         ScriptDraft {
-            script_ref: "main.entry".to_string(),
             local_names: Vec::new(),
             local_lookup: HashMap::new(),
             instructions: Vec::new(),

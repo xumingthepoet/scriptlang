@@ -56,18 +56,6 @@ impl ResolvedRef {
     }
 }
 
-pub(crate) fn runtime_global_name(qualified_name: &str) -> String {
-    let mut runtime_name = String::from("__sl_global");
-    for ch in qualified_name.chars() {
-        if ch.is_ascii_alphanumeric() || ch == '_' {
-            runtime_name.push(ch);
-        } else {
-            runtime_name.push('_');
-        }
-    }
-    runtime_name
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SemanticScript {
     pub(crate) name: String,
