@@ -1,18 +1,18 @@
-use sl_core::{ChoiceBranch, Instruction, ScriptId, ScriptLangError, XmlForm};
+use sl_core::{ChoiceBranch, Form, Instruction, ScriptId, ScriptLangError};
 
 use crate::builder::{ArtifactBuilder, ScriptDraft};
+use crate::form::{attr, child_forms, error_at, required_attr, trimmed_text_items};
 use crate::text::{lower_text_template, parse_text_template};
-use crate::xml::{attr, child_elements, error_at, required_attr, trimmed_text_content};
 
 pub(crate) fn lower_script(
     builder: &mut ArtifactBuilder,
     script_id: ScriptId,
     module_name: &str,
-    script: &XmlForm,
+    script: &Form,
 ) -> Result<(), ScriptLangError> {
     let mut draft = builder.scripts[script_id].clone();
     draft.module_name = module_name.to_string();
-    lower_block(builder, &mut draft, &child_elements(script)?, module_name)?;
+    lower_block(builder, &mut draft, &child_forms(script)?, module_name)?;
     if !matches!(
         draft.instructions.last(),
         Some(Instruction::End | Instruction::JumpScript { .. })
@@ -26,14 +26,14 @@ pub(crate) fn lower_script(
 fn lower_block(
     builder: &ArtifactBuilder,
     draft: &mut ScriptDraft,
-    body: &[&XmlForm],
+    body: &[&Form],
     module_name: &str,
 ) -> Result<(), ScriptLangError> {
     for stmt in body {
-        match stmt.tag.as_str() {
+        match stmt.head.as_str() {
             "temp" => {
                 let name = required_attr(stmt, "name")?;
-                let expr = trimmed_text_content(stmt)?;
+                let expr = trimmed_text_items(stmt)?;
                 let local_id = if let Some(local_id) = draft.local_lookup.get(name) {
                     *local_id
                 } else {
@@ -48,12 +48,12 @@ fn lower_block(
             }
             "code" => {
                 draft.instructions.push(Instruction::ExecCode {
-                    code: trimmed_text_content(stmt)?,
+                    code: trimmed_text_items(stmt)?,
                 });
             }
             "text" => {
                 draft.instructions.push(Instruction::EmitText {
-                    text: lower_text_template(&parse_text_template(&trimmed_text_content(stmt)?)),
+                    text: lower_text_template(&parse_text_template(&trimmed_text_items(stmt)?)),
                     tag: attr(stmt, "tag").map(str::to_string),
                 });
             }
@@ -65,7 +65,7 @@ fn lower_block(
                 draft
                     .instructions
                     .push(Instruction::JumpIfFalse { target_pc: 0 });
-                let body = child_elements(stmt)?;
+                let body = child_forms(stmt)?;
                 lower_block(builder, draft, &body, module_name)?;
                 let after_body = draft.instructions.len();
                 draft.instructions[jump_index] = Instruction::JumpIfFalse {
@@ -81,13 +81,13 @@ fn lower_block(
                 });
                 let mut branches = Vec::new();
                 let mut branch_jump_indices = Vec::new();
-                for option in child_elements(stmt)? {
-                    if option.tag != "option" {
+                for option in child_forms(stmt)? {
+                    if option.head != "option" {
                         return Err(error_at(
                             option,
                             format!(
                                 "<choice> only supports <option> children in MVP, got <{}>",
-                                option.tag
+                                option.head
                             ),
                         ));
                     }
@@ -98,7 +98,7 @@ fn lower_block(
                         )?)),
                         target_pc,
                     });
-                    let body = child_elements(option)?;
+                    let body = child_forms(option)?;
                     lower_block(builder, draft, &body, module_name)?;
                     let jump_index = draft.instructions.len();
                     draft.instructions.push(Instruction::Jump { target_pc: 0 });

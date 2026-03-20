@@ -1,25 +1,27 @@
 use std::collections::BTreeMap;
 
 use roxmltree::{Document, Node, NodeType};
-use sl_core::{ScriptLangError, XmlContentItem, XmlField, XmlForm, XmlMeta, XmlPosition, XmlValue};
+use sl_core::{Form, FormField, FormItem, FormMeta, FormValue, ScriptLangError, SourcePosition};
+
+const CHILDREN_FIELD: &str = "children";
 
 pub fn parse_modules_from_xml_map(
     sources: &BTreeMap<String, String>,
-) -> Result<Vec<XmlForm>, ScriptLangError> {
+) -> Result<Vec<Form>, ScriptLangError> {
     sources
         .iter()
         .map(|(source_name, xml)| parse_module_xml_with_source(xml, Some(source_name.as_str())))
         .collect::<Result<Vec<_>, _>>()
 }
 
-pub fn parse_module_xml(xml: &str) -> Result<XmlForm, ScriptLangError> {
+pub fn parse_module_xml(xml: &str) -> Result<Form, ScriptLangError> {
     parse_module_xml_with_source(xml, None)
 }
 
 fn parse_module_xml_with_source(
     xml: &str,
     source_name: Option<&str>,
-) -> Result<XmlForm, ScriptLangError> {
+) -> Result<Form, ScriptLangError> {
     let doc = Document::parse(xml)?;
     let root = doc.root_element();
     if root.tag_name().name() != "module" {
@@ -28,31 +30,31 @@ fn parse_module_xml_with_source(
     Ok(parse_form(&doc, root, source_name))
 }
 
-fn parse_form(doc: &Document<'_>, node: Node<'_, '_>, source_name: Option<&str>) -> XmlForm {
+fn parse_form(doc: &Document<'_>, node: Node<'_, '_>, source_name: Option<&str>) -> Form {
     let range = node.range();
     let start = doc.text_pos_at(range.start);
     let end = doc.text_pos_at(range.end);
     let mut fields = node
         .attributes()
-        .map(|attr| XmlField {
+        .map(|attr| FormField {
             name: attr.name().to_string(),
-            value: XmlValue::String(attr.value().to_string()),
+            value: FormValue::String(attr.value().to_string()),
         })
         .collect::<Vec<_>>();
-    fields.push(XmlField {
-        name: "content".to_string(),
-        value: XmlValue::Content(parse_content(doc, node, source_name)),
+    fields.push(FormField {
+        name: CHILDREN_FIELD.to_string(),
+        value: FormValue::Sequence(parse_items(doc, node, source_name)),
     });
 
-    XmlForm {
-        tag: node.tag_name().name().to_string(),
-        meta: XmlMeta {
+    Form {
+        head: node.tag_name().name().to_string(),
+        meta: FormMeta {
             source_name: source_name.map(str::to_string),
-            start: XmlPosition {
+            start: SourcePosition {
                 row: start.row,
                 column: start.col,
             },
-            end: XmlPosition {
+            end: SourcePosition {
                 row: end.row,
                 column: end.col,
             },
@@ -63,20 +65,14 @@ fn parse_form(doc: &Document<'_>, node: Node<'_, '_>, source_name: Option<&str>)
     }
 }
 
-fn parse_content(
-    doc: &Document<'_>,
-    node: Node<'_, '_>,
-    source_name: Option<&str>,
-) -> Vec<XmlContentItem> {
+fn parse_items(doc: &Document<'_>, node: Node<'_, '_>, source_name: Option<&str>) -> Vec<FormItem> {
     let mut items = Vec::new();
     for child in node.children() {
         match child.node_type() {
-            NodeType::Element => {
-                items.push(XmlContentItem::Node(parse_form(doc, child, source_name)));
-            }
+            NodeType::Element => items.push(FormItem::Form(parse_form(doc, child, source_name))),
             NodeType::Text => {
                 if let Some(text) = child.text() {
-                    items.push(XmlContentItem::Text(text.to_string()));
+                    items.push(FormItem::Text(text.to_string()));
                 }
             }
             _ => {}
@@ -89,42 +85,42 @@ fn parse_content(
 mod tests {
     use std::collections::BTreeMap;
 
-    use sl_core::{XmlContentItem, XmlField, XmlForm, XmlValue};
+    use sl_core::{Form, FormField, FormItem, FormValue};
 
-    use super::{parse_module_xml, parse_modules_from_xml_map};
+    use super::{CHILDREN_FIELD, parse_module_xml, parse_modules_from_xml_map};
 
-    fn field<'a>(form: &'a XmlForm, name: &str) -> &'a XmlField {
+    fn field<'a>(form: &'a Form, name: &str) -> &'a FormField {
         form.fields
             .iter()
             .find(|field| field.name == name)
             .unwrap_or_else(|| panic!("missing field `{name}`"))
     }
 
-    fn content(form: &XmlForm) -> &[XmlContentItem] {
-        match &field(form, "content").value {
-            XmlValue::Content(items) => items,
-            other => panic!("expected content field, got {other:?}"),
+    fn children(form: &Form) -> &[FormItem] {
+        match &field(form, CHILDREN_FIELD).value {
+            FormValue::Sequence(items) => items,
+            other => panic!("expected children field, got {other:?}"),
         }
     }
 
-    fn string_field<'a>(form: &'a XmlForm, name: &str) -> &'a str {
+    fn string_field<'a>(form: &'a Form, name: &str) -> &'a str {
         match &field(form, name).value {
-            XmlValue::String(value) => value,
+            FormValue::String(value) => value,
             other => panic!("expected string field, got {other:?}"),
         }
     }
 
-    fn text_item(item: &XmlContentItem) -> &str {
+    fn text_item(item: &FormItem) -> &str {
         match item {
-            XmlContentItem::Text(text) => text,
+            FormItem::Text(text) => text,
             other => panic!("expected text item, got {other:?}"),
         }
     }
 
-    fn node_item(item: &XmlContentItem) -> &XmlForm {
+    fn form_item(item: &FormItem) -> &Form {
         match item {
-            XmlContentItem::Node(node) => node,
-            other => panic!("expected node item, got {other:?}"),
+            FormItem::Form(form) => form,
+            other => panic!("expected form item, got {other:?}"),
         }
     }
 
@@ -136,7 +132,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_module_xml_builds_xml_form_with_ordered_fields_and_meta() {
+    fn parse_module_xml_builds_form_with_ordered_fields_and_meta() {
         let module = parse_module_xml(
             r#"
             <module name="main" flavor="demo">
@@ -148,33 +144,33 @@ mod tests {
         )
         .expect("module should parse");
 
-        assert_eq!(module.tag, "module");
+        assert_eq!(module.head, "module");
         assert_eq!(module.fields.len(), 3);
         assert_eq!(module.fields[0].name, "name");
         assert_eq!(module.fields[1].name, "flavor");
-        assert_eq!(module.fields[2].name, "content");
+        assert_eq!(module.fields[2].name, CHILDREN_FIELD);
         assert_eq!(string_field(&module, "name"), "main");
         assert_eq!(string_field(&module, "flavor"), "demo");
         assert_eq!(module.meta.start_byte, 13);
         assert!(module.meta.end_byte > module.meta.start_byte);
 
-        let items = content(&module);
+        let items = children(&module);
         assert_eq!(text_item(&items[0]).trim(), "before");
-        assert_eq!(node_item(&items[1]).tag, "script");
+        assert_eq!(form_item(&items[1]).head, "script");
         assert_eq!(text_item(&items[2]).trim(), "after");
     }
 
     #[test]
-    fn parse_module_xml_preserves_nested_content_sequence() {
+    fn parse_module_xml_preserves_nested_item_sequence() {
         let module = parse_module_xml(
             r#"<module name="main"><script name="entry">left<text>tag</text>right</script></module>"#,
         )
         .expect("module should parse");
-        let script = node_item(&content(&module)[0]);
-        let items = content(script);
+        let script = form_item(&children(&module)[0]);
+        let items = children(script);
 
         assert_eq!(text_item(&items[0]), "left");
-        assert_eq!(node_item(&items[1]).tag, "text");
+        assert_eq!(form_item(&items[1]).head, "text");
         assert_eq!(text_item(&items[2]), "right");
     }
 
@@ -184,11 +180,11 @@ mod tests {
             r#"<module name="main"><script name="entry"><end /></script></module>"#,
         )
         .expect("module should parse");
-        let script = node_item(&content(&module)[0]);
-        let end = node_item(&content(script)[0]);
+        let script = form_item(&children(&module)[0]);
+        let end = form_item(&children(script)[0]);
 
-        assert_eq!(end.tag, "end");
-        assert!(content(end).is_empty());
+        assert_eq!(end.head, "end");
+        assert!(children(end).is_empty());
     }
 
     #[test]

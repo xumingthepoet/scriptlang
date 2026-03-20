@@ -15,5 +15,5 @@ pub use runtime::{
     Suspension,
 };
 pub use syntax::{
-    TextSegment, TextTemplate, XmlContentItem, XmlField, XmlForm, XmlMeta, XmlPosition, XmlValue,
+    Form, FormField, FormItem, FormMeta, FormValue, SourcePosition, TextSegment, TextTemplate,
 };

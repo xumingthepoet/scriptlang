@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use rhai::Dynamic;
-use sl_core::{CompiledArtifact, ScriptLangError, XmlForm};
+use sl_core::{CompiledArtifact, Form, ScriptLangError};
 
 pub use sl_compiler::compile_artifact;
 pub use sl_core;
@@ -10,7 +10,7 @@ pub use sl_runtime::Engine;
 
 pub fn parse_modules_from_sources(
     sources: &BTreeMap<String, String>,
-) -> Result<Vec<XmlForm>, ScriptLangError> {
+) -> Result<Vec<Form>, ScriptLangError> {
     sl_parser::parse_modules_from_xml_map(sources)
 }
 

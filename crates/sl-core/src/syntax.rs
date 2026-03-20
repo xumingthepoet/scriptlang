@@ -1,41 +1,41 @@
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct XmlForm {
-    pub tag: String,
-    pub meta: XmlMeta,
-    pub fields: Vec<XmlField>,
+pub struct Form {
+    pub head: String,
+    pub meta: FormMeta,
+    pub fields: Vec<FormField>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct XmlMeta {
+pub struct FormMeta {
     pub source_name: Option<String>,
-    pub start: XmlPosition,
-    pub end: XmlPosition,
+    pub start: SourcePosition,
+    pub end: SourcePosition,
     pub start_byte: usize,
     pub end_byte: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct XmlPosition {
+pub struct SourcePosition {
     pub row: u32,
     pub column: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct XmlField {
+pub struct FormField {
     pub name: String,
-    pub value: XmlValue,
+    pub value: FormValue,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum XmlValue {
+pub enum FormValue {
     String(String),
-    Content(Vec<XmlContentItem>),
+    Sequence(Vec<FormItem>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum XmlContentItem {
+pub enum FormItem {
     Text(String),
-    Node(XmlForm),
+    Form(Form),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -52,46 +52,45 @@ pub enum TextSegment {
 #[cfg(test)]
 mod tests {
     use super::{
-        TextSegment, TextTemplate, XmlContentItem, XmlField, XmlForm, XmlMeta, XmlPosition,
-        XmlValue,
+        Form, FormField, FormItem, FormMeta, FormValue, SourcePosition, TextSegment, TextTemplate,
     };
 
     #[test]
-    fn syntax_types_cover_public_xml_and_template_shapes() {
-        let child = XmlForm {
-            tag: "text".to_string(),
-            meta: XmlMeta {
+    fn syntax_types_cover_public_form_and_template_shapes() {
+        let child = Form {
+            head: "text".to_string(),
+            meta: FormMeta {
                 source_name: Some("main.xml".to_string()),
-                start: XmlPosition { row: 3, column: 5 },
-                end: XmlPosition { row: 3, column: 22 },
+                start: SourcePosition { row: 3, column: 5 },
+                end: SourcePosition { row: 3, column: 22 },
                 start_byte: 16,
                 end_byte: 33,
             },
-            fields: vec![XmlField {
-                name: "content".to_string(),
-                value: XmlValue::Content(vec![XmlContentItem::Text("hello".to_string())]),
+            fields: vec![FormField {
+                name: "children".to_string(),
+                value: FormValue::Sequence(vec![FormItem::Text("hello".to_string())]),
             }],
         };
-        let form = XmlForm {
-            tag: "module".to_string(),
-            meta: XmlMeta {
+        let form = Form {
+            head: "module".to_string(),
+            meta: FormMeta {
                 source_name: Some("main.xml".to_string()),
-                start: XmlPosition { row: 1, column: 1 },
-                end: XmlPosition { row: 5, column: 10 },
+                start: SourcePosition { row: 1, column: 1 },
+                end: SourcePosition { row: 5, column: 10 },
                 start_byte: 0,
                 end_byte: 64,
             },
             fields: vec![
-                XmlField {
+                FormField {
                     name: "name".to_string(),
-                    value: XmlValue::String("main".to_string()),
+                    value: FormValue::String("main".to_string()),
                 },
-                XmlField {
-                    name: "content".to_string(),
-                    value: XmlValue::Content(vec![
-                        XmlContentItem::Text("\n  ".to_string()),
-                        XmlContentItem::Node(child.clone()),
-                        XmlContentItem::Text("\n".to_string()),
+                FormField {
+                    name: "children".to_string(),
+                    value: FormValue::Sequence(vec![
+                        FormItem::Text("\n  ".to_string()),
+                        FormItem::Form(child.clone()),
+                        FormItem::Text("\n".to_string()),
                     ]),
                 },
             ],
@@ -103,17 +102,17 @@ mod tests {
             ],
         };
 
-        assert_eq!(form.tag, "module");
+        assert_eq!(form.head, "module");
         assert!(matches!(
             &form.fields[0],
-            XmlField { name, value: XmlValue::String(value) }
+            FormField { name, value: FormValue::String(value) }
                 if name == "name" && value == "main"
         ));
         assert!(matches!(
             &form.fields[1],
-            XmlField { name, value: XmlValue::Content(items) }
-                if name == "content"
-                    && matches!(&items[1], XmlContentItem::Node(node) if node.tag == child.tag)
+            FormField { name, value: FormValue::Sequence(items) }
+                if name == "children"
+                    && matches!(&items[1], FormItem::Form(node) if node.head == child.head)
         ));
         assert!(matches!(
             &template.segments[..],

@@ -11,10 +11,10 @@
   - 包括错误类型、parser 产物类型、编译产物类型、IR、runtime step 结果、snapshot
   - 不依赖任何其他本地 crate
 - `sl-parser`
-  - 负责 `XML -> XmlForm`
+  - 负责 `XML -> Form`
   - 只依赖 `sl-core`
 - `sl-compiler`
-  - 负责 `XmlForm -> CompiledArtifact`
+  - 负责 `Form -> CompiledArtifact`
   - 只依赖 `sl-core`
 - `sl-runtime`
   - 负责执行 `CompiledArtifact`
@@ -64,21 +64,21 @@
 
 - 读取 XML
 - 校验根节点必须为 `<module>`
-- 生成通用 XML 前表示 `XmlForm { tag, meta, fields }`
-- 保留属性顺序，并在 `fields` 末尾固定追加 `content`
-- 在 `content` 中递归保留文本节点和子元素节点顺序
+- 生成宿主无关的编译前表示 `Form { head, meta, fields }`
+- 保留属性顺序，并在 `fields` 末尾固定追加 `children`
+- 在 `children` 中递归保留文本项和子 form 的顺序
 
-parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 XML 结构化成可供宏和编译层消费的前表示。
+parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 XML 结构化成可供宏和编译层消费的宿主无关前表示。
 
 ### Compiler
 
 `sl-compiler` 负责：
 
-- 从 `XmlForm` 中读取 module / script / stmt 结构
+- 从 `Form` 中读取 module / script / stmt 结构
 - 收集 module 级 `<var>` 声明
 - 为 script 分配全局唯一 `script_id`
 - 校验当前 MVP 支持的标签和结构
-- 将 XML 前表示 lower 成线性 IR
+- 将编译前表示 lower 成线性 IR
 - 构造 `CompiledArtifact`
 - 生成 boot script，先执行全局初始化，再跳转到默认入口
 
@@ -127,7 +127,7 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 - `compile_artifact_from_xml_map`
 - `create_engine_from_xml_map`
 
-其中 `parse_modules_from_sources` / `parse_module_xml` 返回 `XmlForm`，而不是旧的 `ParsedModule`。
+其中 `parse_modules_from_sources` / `parse_module_xml` 返回 `Form`，而不是旧的 `ParsedModule`。
 
 这是当前最推荐的对外入口。
 

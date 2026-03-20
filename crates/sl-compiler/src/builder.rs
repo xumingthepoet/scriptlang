@@ -1,18 +1,18 @@
 use std::collections::{BTreeMap, HashMap};
 
 use sl_core::{
-    CompiledArtifact, CompiledScript, GlobalVar, Instruction, LocalId, ScriptId, ScriptLangError,
-    XmlForm,
+    CompiledArtifact, CompiledScript, Form, GlobalVar, Instruction, LocalId, ScriptId,
+    ScriptLangError,
 };
 
+use crate::form::{child_forms, error_at, required_attr, trimmed_text_items};
 use crate::lower::lower_script;
-use crate::xml::{child_elements, error_at, required_attr, trimmed_text_content};
 
-pub fn compile_artifact(forms: &[XmlForm]) -> Result<CompiledArtifact, ScriptLangError> {
+pub fn compile_artifact(forms: &[Form]) -> Result<CompiledArtifact, ScriptLangError> {
     compile_modules(forms)
 }
 
-pub(crate) fn compile_modules(forms: &[XmlForm]) -> Result<CompiledArtifact, ScriptLangError> {
+pub(crate) fn compile_modules(forms: &[Form]) -> Result<CompiledArtifact, ScriptLangError> {
     let mut builder = ArtifactBuilder {
         scripts: Vec::new(),
         script_refs: BTreeMap::new(),
@@ -73,13 +73,13 @@ pub(crate) struct ScriptDraft {
 }
 
 impl ArtifactBuilder {
-    fn collect_declarations(&mut self, modules: &[XmlForm]) -> Result<(), ScriptLangError> {
+    fn collect_declarations(&mut self, modules: &[Form]) -> Result<(), ScriptLangError> {
         let mut global_short_names = HashMap::<String, String>::new();
 
         for module in modules {
             let module_name = required_attr(module, "name")?;
-            for child in child_elements(module)? {
-                match child.tag.as_str() {
+            for child in child_forms(module)? {
+                match child.head.as_str() {
                     "var" => {
                         let var_name = required_attr(child, "name")?;
                         let qualified_name = format!("{module_name}.{var_name}");
@@ -95,7 +95,7 @@ impl ArtifactBuilder {
                             global_id: self.globals.len(),
                             qualified_name,
                             short_name: var_name.to_string(),
-                            initializer: trimmed_text_content(child)?,
+                            initializer: trimmed_text_items(child)?,
                         });
                     }
                     "script" => {
@@ -132,12 +132,12 @@ impl ArtifactBuilder {
         Ok(())
     }
 
-    fn lower_modules(&mut self, modules: &[XmlForm]) -> Result<(), ScriptLangError> {
+    fn lower_modules(&mut self, modules: &[Form]) -> Result<(), ScriptLangError> {
         let mut script_index = 0;
         for module in modules {
             let module_name = required_attr(module, "name")?.to_string();
-            for child in child_elements(module)? {
-                if child.tag != "script" {
+            for child in child_forms(module)? {
+                if child.head != "script" {
                     continue;
                 }
                 lower_script(self, script_index, &module_name, child)?;
@@ -165,17 +165,15 @@ impl ArtifactBuilder {
 #[cfg(test)]
 mod tests {
     use super::{ArtifactBuilder, Instruction, compile_artifact, compile_modules};
-
     use sl_core::{
-        TextSegment, TextTemplate, XmlContentItem, XmlField, XmlForm, XmlMeta, XmlPosition,
-        XmlValue,
+        Form, FormField, FormItem, FormMeta, FormValue, SourcePosition, TextSegment, TextTemplate,
     };
 
-    fn meta() -> XmlMeta {
-        XmlMeta {
+    fn meta() -> FormMeta {
+        FormMeta {
             source_name: Some("main.xml".to_string()),
-            start: XmlPosition { row: 1, column: 1 },
-            end: XmlPosition {
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition {
                 row: 1,
                 column: 100,
             },
@@ -184,46 +182,46 @@ mod tests {
         }
     }
 
-    fn form(tag: &str, fields: Vec<XmlField>) -> XmlForm {
-        XmlForm {
-            tag: tag.to_string(),
+    fn form(head: &str, fields: Vec<FormField>) -> Form {
+        Form {
+            head: head.to_string(),
             meta: meta(),
             fields,
         }
     }
 
-    fn attr(name: &str, value: &str) -> XmlField {
-        XmlField {
+    fn attr(name: &str, value: &str) -> FormField {
+        FormField {
             name: name.to_string(),
-            value: XmlValue::String(value.to_string()),
+            value: FormValue::String(value.to_string()),
         }
     }
 
-    fn content(items: Vec<XmlContentItem>) -> XmlField {
-        XmlField {
-            name: "content".to_string(),
-            value: XmlValue::Content(items),
+    fn children(items: Vec<FormItem>) -> FormField {
+        FormField {
+            name: "children".to_string(),
+            value: FormValue::Sequence(items),
         }
     }
 
-    fn node(tag: &str, attrs: Vec<(&str, &str)>, items: Vec<XmlContentItem>) -> XmlForm {
+    fn node(head: &str, attrs: Vec<(&str, &str)>, items: Vec<FormItem>) -> Form {
         let mut fields = attrs
             .into_iter()
             .map(|(k, v)| attr(k, v))
             .collect::<Vec<_>>();
-        fields.push(content(items));
-        form(tag, fields)
+        fields.push(children(items));
+        form(head, fields)
     }
 
-    fn text(text: &str) -> XmlContentItem {
-        XmlContentItem::Text(text.to_string())
+    fn text(text: &str) -> FormItem {
+        FormItem::Text(text.to_string())
     }
 
-    fn child(node: XmlForm) -> XmlContentItem {
-        XmlContentItem::Node(node)
+    fn child(form: Form) -> FormItem {
+        FormItem::Form(form)
     }
 
-    fn module(name: &str, vars: Vec<(&str, &str)>, scripts: Vec<(&str, Vec<XmlForm>)>) -> XmlForm {
+    fn module(name: &str, vars: Vec<(&str, &str)>, scripts: Vec<(&str, Vec<Form>)>) -> Form {
         let mut items = vars
             .into_iter()
             .map(|(var_name, expr)| child(node("var", vec![("name", var_name)], vec![text(expr)])))
@@ -238,8 +236,8 @@ mod tests {
         node("module", vec![("name", name)], items)
     }
 
-    fn stmt(tag: &str, attrs: Vec<(&str, &str)>, items: Vec<XmlContentItem>) -> XmlForm {
-        node(tag, attrs, items)
+    fn stmt(head: &str, attrs: Vec<(&str, &str)>, items: Vec<FormItem>) -> Form {
+        node(head, attrs, items)
     }
 
     fn text_template() -> TextTemplate {
@@ -254,7 +252,6 @@ mod tests {
     #[test]
     fn compile_artifact_requires_at_least_one_script() {
         let error = compile_artifact(&[module("main", vec![], vec![])]).expect_err("should fail");
-
         assert_eq!(error.to_string(), "no <script> declarations found");
     }
 
@@ -491,7 +488,7 @@ mod tests {
     }
 
     #[test]
-    fn compile_artifact_rejects_invalid_mvp_structure_from_xml_forms() {
+    fn compile_artifact_rejects_invalid_mvp_structure_from_forms() {
         let unsupported = compile_artifact(&[module(
             "main",
             vec![],
