@@ -15,6 +15,5 @@ pub use runtime::{
     Suspension,
 };
 pub use syntax::{
-    ParsedChoiceOption, ParsedModule, ParsedScript, ParsedStmt, ParsedVar, TextSegment,
-    TextTemplate,
+    TextSegment, TextTemplate, XmlContentItem, XmlField, XmlForm, XmlMeta, XmlPosition, XmlValue,
 };

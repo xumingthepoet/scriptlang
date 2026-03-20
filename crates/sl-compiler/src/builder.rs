@@ -1,21 +1,18 @@
 use std::collections::{BTreeMap, HashMap};
 
 use sl_core::{
-    CompiledArtifact, CompiledScript, GlobalVar, Instruction, LocalId, ParsedModule, ScriptId,
-    ScriptLangError,
+    CompiledArtifact, CompiledScript, GlobalVar, Instruction, LocalId, ScriptId, ScriptLangError,
+    XmlForm,
 };
 
 use crate::lower::lower_script;
+use crate::xml::{child_elements, error_at, required_attr, trimmed_text_content};
 
-pub fn compile_artifact(
-    parsed_modules: &[ParsedModule],
-) -> Result<CompiledArtifact, ScriptLangError> {
-    compile_modules(parsed_modules)
+pub fn compile_artifact(forms: &[XmlForm]) -> Result<CompiledArtifact, ScriptLangError> {
+    compile_modules(forms)
 }
 
-pub(crate) fn compile_modules(
-    parsed_modules: &[ParsedModule],
-) -> Result<CompiledArtifact, ScriptLangError> {
+pub(crate) fn compile_modules(forms: &[XmlForm]) -> Result<CompiledArtifact, ScriptLangError> {
     let mut builder = ArtifactBuilder {
         scripts: Vec::new(),
         script_refs: BTreeMap::new(),
@@ -23,8 +20,8 @@ pub(crate) fn compile_modules(
         default_entry_script_id: None,
     };
 
-    builder.collect_declarations(parsed_modules)?;
-    builder.lower_modules(parsed_modules)?;
+    builder.collect_declarations(forms)?;
+    builder.lower_modules(forms)?;
 
     let default_entry_script_id = builder
         .default_entry_script_id
@@ -76,58 +73,74 @@ pub(crate) struct ScriptDraft {
 }
 
 impl ArtifactBuilder {
-    fn collect_declarations(&mut self, modules: &[ParsedModule]) -> Result<(), ScriptLangError> {
+    fn collect_declarations(&mut self, modules: &[XmlForm]) -> Result<(), ScriptLangError> {
         let mut global_short_names = HashMap::<String, String>::new();
 
         for module in modules {
-            for var in &module.vars {
-                let qualified_name = format!("{}.{}", module.name, var.name);
-                if let Some(existing) =
-                    global_short_names.insert(var.name.clone(), qualified_name.clone())
-                {
-                    return Err(ScriptLangError::message(format!(
-                        "global short name `{}` is ambiguous between `{existing}` and `{qualified_name}`",
-                        var.name
-                    )));
+            let module_name = required_attr(module, "name")?;
+            for child in child_elements(module)? {
+                match child.tag.as_str() {
+                    "var" => {
+                        let var_name = required_attr(child, "name")?;
+                        let qualified_name = format!("{module_name}.{var_name}");
+                        if let Some(existing) =
+                            global_short_names.insert(var_name.to_string(), qualified_name.clone())
+                        {
+                            return Err(ScriptLangError::message(format!(
+                                "global short name `{}` is ambiguous between `{existing}` and `{qualified_name}`",
+                                var_name
+                            )));
+                        }
+                        self.globals.push(GlobalVar {
+                            global_id: self.globals.len(),
+                            qualified_name,
+                            short_name: var_name.to_string(),
+                            initializer: trimmed_text_content(child)?,
+                        });
+                    }
+                    "script" => {
+                        let script_name = required_attr(child, "name")?;
+                        let script_ref = format!("{module_name}.{script_name}");
+                        if self.script_refs.contains_key(&script_ref) {
+                            return Err(ScriptLangError::message(format!(
+                                "duplicate script declaration `{script_ref}`"
+                            )));
+                        }
+                        let script_id = self.scripts.len();
+                        self.script_refs.insert(script_ref.clone(), script_id);
+                        if self.default_entry_script_id.is_none() {
+                            self.default_entry_script_id = Some(script_id);
+                        }
+                        self.scripts.push(ScriptDraft {
+                            script_ref,
+                            module_name: module_name.to_string(),
+                            local_names: Vec::new(),
+                            local_lookup: HashMap::new(),
+                            instructions: Vec::new(),
+                        });
+                    }
+                    other => {
+                        return Err(error_at(
+                            child,
+                            format!("unsupported <module> child <{other}> in MVP"),
+                        ));
+                    }
                 }
-                self.globals.push(GlobalVar {
-                    global_id: self.globals.len(),
-                    qualified_name,
-                    short_name: var.name.clone(),
-                    initializer: var.expr.clone(),
-                });
-            }
-
-            for script in &module.scripts {
-                let script_ref = format!("{}.{}", module.name, script.name);
-                if self.script_refs.contains_key(&script_ref) {
-                    return Err(ScriptLangError::message(format!(
-                        "duplicate script declaration `{script_ref}`"
-                    )));
-                }
-                let script_id = self.scripts.len();
-                self.script_refs.insert(script_ref.clone(), script_id);
-                if self.default_entry_script_id.is_none() {
-                    self.default_entry_script_id = Some(script_id);
-                }
-                self.scripts.push(ScriptDraft {
-                    script_ref,
-                    module_name: module.name.clone(),
-                    local_names: Vec::new(),
-                    local_lookup: HashMap::new(),
-                    instructions: Vec::new(),
-                });
             }
         }
 
         Ok(())
     }
 
-    fn lower_modules(&mut self, modules: &[ParsedModule]) -> Result<(), ScriptLangError> {
+    fn lower_modules(&mut self, modules: &[XmlForm]) -> Result<(), ScriptLangError> {
         let mut script_index = 0;
         for module in modules {
-            for script in &module.scripts {
-                lower_script(self, script_index, &module.name, script)?;
+            let module_name = required_attr(module, "name")?.to_string();
+            for child in child_elements(module)? {
+                if child.tag != "script" {
+                    continue;
+                }
+                lower_script(self, script_index, &module_name, child)?;
                 script_index += 1;
             }
         }
@@ -151,32 +164,82 @@ impl ArtifactBuilder {
 
 #[cfg(test)]
 mod tests {
-    use sl_core::{ParsedScript, ParsedStmt, ParsedVar, TextSegment, TextTemplate};
-
     use super::{ArtifactBuilder, Instruction, compile_artifact, compile_modules};
 
-    fn module(
-        name: &str,
-        vars: Vec<(&str, &str)>,
-        scripts: Vec<(&str, Vec<ParsedStmt>)>,
-    ) -> sl_core::ParsedModule {
-        sl_core::ParsedModule {
-            name: name.to_string(),
-            vars: vars
-                .into_iter()
-                .map(|(name, expr)| ParsedVar {
-                    name: name.to_string(),
-                    expr: expr.to_string(),
-                })
-                .collect(),
-            scripts: scripts
-                .into_iter()
-                .map(|(name, body)| ParsedScript {
-                    name: name.to_string(),
-                    body,
-                })
-                .collect(),
+    use sl_core::{
+        TextSegment, TextTemplate, XmlContentItem, XmlField, XmlForm, XmlMeta, XmlPosition,
+        XmlValue,
+    };
+
+    fn meta() -> XmlMeta {
+        XmlMeta {
+            source_name: Some("main.xml".to_string()),
+            start: XmlPosition { row: 1, column: 1 },
+            end: XmlPosition {
+                row: 1,
+                column: 100,
+            },
+            start_byte: 0,
+            end_byte: 100,
         }
+    }
+
+    fn form(tag: &str, fields: Vec<XmlField>) -> XmlForm {
+        XmlForm {
+            tag: tag.to_string(),
+            meta: meta(),
+            fields,
+        }
+    }
+
+    fn attr(name: &str, value: &str) -> XmlField {
+        XmlField {
+            name: name.to_string(),
+            value: XmlValue::String(value.to_string()),
+        }
+    }
+
+    fn content(items: Vec<XmlContentItem>) -> XmlField {
+        XmlField {
+            name: "content".to_string(),
+            value: XmlValue::Content(items),
+        }
+    }
+
+    fn node(tag: &str, attrs: Vec<(&str, &str)>, items: Vec<XmlContentItem>) -> XmlForm {
+        let mut fields = attrs
+            .into_iter()
+            .map(|(k, v)| attr(k, v))
+            .collect::<Vec<_>>();
+        fields.push(content(items));
+        form(tag, fields)
+    }
+
+    fn text(text: &str) -> XmlContentItem {
+        XmlContentItem::Text(text.to_string())
+    }
+
+    fn child(node: XmlForm) -> XmlContentItem {
+        XmlContentItem::Node(node)
+    }
+
+    fn module(name: &str, vars: Vec<(&str, &str)>, scripts: Vec<(&str, Vec<XmlForm>)>) -> XmlForm {
+        let mut items = vars
+            .into_iter()
+            .map(|(var_name, expr)| child(node("var", vec![("name", var_name)], vec![text(expr)])))
+            .collect::<Vec<_>>();
+        items.extend(scripts.into_iter().map(|(script_name, body)| {
+            child(node(
+                "script",
+                vec![("name", script_name)],
+                body.into_iter().map(child).collect(),
+            ))
+        }));
+        node("module", vec![("name", name)], items)
+    }
+
+    fn stmt(tag: &str, attrs: Vec<(&str, &str)>, items: Vec<XmlContentItem>) -> XmlForm {
+        node(tag, attrs, items)
     }
 
     fn text_template() -> TextTemplate {
@@ -201,12 +264,12 @@ mod tests {
             module(
                 "a",
                 vec![("name", "1")],
-                vec![("entry", vec![ParsedStmt::End])],
+                vec![("entry", vec![stmt("end", vec![], vec![])])],
             ),
             module(
                 "b",
                 vec![("name", "2")],
-                vec![("entry", vec![ParsedStmt::End])],
+                vec![("entry", vec![stmt("end", vec![], vec![])])],
             ),
         ])
         .expect_err("should fail");
@@ -223,8 +286,8 @@ mod tests {
             "main",
             vec![],
             vec![
-                ("entry", vec![ParsedStmt::End]),
-                ("entry", vec![ParsedStmt::End]),
+                ("entry", vec![stmt("end", vec![], vec![])]),
+                ("entry", vec![stmt("end", vec![], vec![])]),
             ],
         )])
         .expect_err("should fail");
@@ -241,8 +304,8 @@ mod tests {
             "main",
             vec![("answer", "40 + 2")],
             vec![
-                ("entry", vec![ParsedStmt::End]),
-                ("other", vec![ParsedStmt::End]),
+                ("entry", vec![stmt("end", vec![], vec![])]),
+                ("other", vec![stmt("end", vec![], vec![])]),
             ],
         )])
         .expect("artifact should compile");
@@ -271,67 +334,49 @@ mod tests {
                     (
                         "entry",
                         vec![
-                            ParsedStmt::Temp {
-                                name: "x".to_string(),
-                                expr: "1".to_string(),
-                            },
-                            ParsedStmt::Temp {
-                                name: "x".to_string(),
-                                expr: "2".to_string(),
-                            },
-                            ParsedStmt::Code {
-                                code: "x += 1;".to_string(),
-                            },
-                            ParsedStmt::Text {
-                                template: text_template(),
-                                tag: Some("line".to_string()),
-                            },
-                            ParsedStmt::If {
-                                when: "x > 0".to_string(),
-                                body: vec![ParsedStmt::Text {
-                                    template: TextTemplate {
-                                        segments: vec![TextSegment::Literal("inside".to_string())],
-                                    },
-                                    tag: None,
-                                }],
-                            },
-                            ParsedStmt::Choice {
-                                prompt: Some(TextTemplate {
-                                    segments: vec![TextSegment::Literal("pick".to_string())],
-                                }),
-                                options: vec![
-                                    sl_core::ParsedChoiceOption {
-                                        text: TextTemplate {
-                                            segments: vec![TextSegment::Literal(
-                                                "left".to_string(),
-                                            )],
-                                        },
-                                        body: vec![ParsedStmt::Goto {
-                                            target_script_ref: "target".to_string(),
-                                        }],
-                                    },
-                                    sl_core::ParsedChoiceOption {
-                                        text: TextTemplate {
-                                            segments: vec![TextSegment::Literal(
-                                                "right".to_string(),
-                                            )],
-                                        },
-                                        body: vec![ParsedStmt::End],
-                                    },
+                            stmt("temp", vec![("name", "x")], vec![text("1")]),
+                            stmt("temp", vec![("name", "x")], vec![text("2")]),
+                            stmt("code", vec![], vec![text("x += 1;")]),
+                            stmt("text", vec![("tag", "line")], vec![text("hello ${name}")]),
+                            stmt(
+                                "if",
+                                vec![("when", "x > 0")],
+                                vec![child(stmt("text", vec![], vec![text("inside")]))],
+                            ),
+                            stmt(
+                                "choice",
+                                vec![("text", "pick")],
+                                vec![
+                                    child(stmt(
+                                        "option",
+                                        vec![("text", "left")],
+                                        vec![child(stmt(
+                                            "goto",
+                                            vec![("script", "target")],
+                                            vec![],
+                                        ))],
+                                    )),
+                                    child(stmt(
+                                        "option",
+                                        vec![("text", "right")],
+                                        vec![child(stmt("end", vec![], vec![]))],
+                                    )),
                                 ],
-                            },
+                            ),
                         ],
                     ),
-                    ("target", vec![ParsedStmt::End]),
+                    ("target", vec![stmt("end", vec![], vec![])]),
                     (
                         "jump_end",
-                        vec![ParsedStmt::Goto {
-                            target_script_ref: "main.target".to_string(),
-                        }],
+                        vec![stmt("goto", vec![("script", "main.target")], vec![])],
                     ),
                 ],
             ),
-            module("other", vec![], vec![("remote", vec![ParsedStmt::End])]),
+            module(
+                "other",
+                vec![],
+                vec![("remote", vec![stmt("end", vec![], vec![])])],
+            ),
         ])
         .expect("artifact should compile");
 
@@ -401,21 +446,19 @@ mod tests {
                     (
                         "entry",
                         vec![
-                            ParsedStmt::Goto {
-                                target_script_ref: "next".to_string(),
-                            },
-                            ParsedStmt::Goto {
-                                target_script_ref: "@next".to_string(),
-                            },
-                            ParsedStmt::Goto {
-                                target_script_ref: "other.remote".to_string(),
-                            },
+                            stmt("goto", vec![("script", "next")], vec![]),
+                            stmt("goto", vec![("script", "@next")], vec![]),
+                            stmt("goto", vec![("script", "other.remote")], vec![]),
                         ],
                     ),
-                    ("next", vec![ParsedStmt::End]),
+                    ("next", vec![stmt("end", vec![], vec![])]),
                 ],
             ),
-            module("other", vec![], vec![("remote", vec![ParsedStmt::End])]),
+            module(
+                "other",
+                vec![],
+                vec![("remote", vec![stmt("end", vec![], vec![])])],
+            ),
         ])
         .expect("artifact should compile");
         let target_next = artifact.script_refs["main.next"];
@@ -435,16 +478,65 @@ mod tests {
             vec![],
             vec![(
                 "entry",
-                vec![ParsedStmt::Goto {
-                    target_script_ref: "missing".to_string(),
-                }],
+                vec![stmt("goto", vec![("script", "missing")], vec![])],
             )],
         )])
         .expect_err("should fail");
 
-        assert_eq!(
-            error.to_string(),
-            "script `main.missing` referenced by <goto> does not exist"
+        assert!(
+            error
+                .to_string()
+                .contains("script `main.missing` referenced by <goto> does not exist")
+        );
+    }
+
+    #[test]
+    fn compile_artifact_rejects_invalid_mvp_structure_from_xml_forms() {
+        let unsupported = compile_artifact(&[module(
+            "main",
+            vec![],
+            vec![("entry", vec![stmt("while", vec![], vec![])])],
+        )])
+        .expect_err("should fail");
+        assert!(
+            unsupported
+                .to_string()
+                .contains("unsupported statement <while> in MVP")
+        );
+
+        let missing_attr = compile_artifact(&[node(
+            "module",
+            vec![],
+            vec![child(node(
+                "script",
+                vec![],
+                vec![child(stmt("end", vec![], vec![]))],
+            ))],
+        )])
+        .expect_err("should fail");
+        assert!(
+            missing_attr
+                .to_string()
+                .contains("<module> requires `name`")
+        );
+
+        let bad_choice = compile_artifact(&[module(
+            "main",
+            vec![],
+            vec![(
+                "entry",
+                vec![stmt(
+                    "choice",
+                    vec![],
+                    vec![child(stmt("text", vec![], vec![text("bad")]))],
+                )],
+            )],
+        )])
+        .expect_err("should fail");
+        assert!(
+            bad_choice
+                .to_string()
+                .contains("<choice> only supports <option> children in MVP")
         );
     }
 
@@ -460,6 +552,15 @@ mod tests {
         assert!(matches!(
             builder.build_boot_script(3).as_slice(),
             [Instruction::JumpScript { target_script_id }] if *target_script_id == 3
+        ));
+    }
+
+    #[test]
+    fn helper_text_template_fixture_is_well_formed() {
+        assert!(matches!(
+            text_template().segments.as_slice(),
+            [TextSegment::Literal(text), TextSegment::Expr(expr)]
+                if text == "hello " && expr == "name"
         ));
     }
 }
