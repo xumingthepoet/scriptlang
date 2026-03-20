@@ -2,73 +2,14 @@ use std::collections::BTreeSet;
 
 use sl_core::{Form, ScriptLangError, TextSegment, TextTemplate};
 
-use crate::const_eval::{
-    ConstEnv, ConstValue, parse_const_value, rewrite_expr_with_consts, rewrite_template_with_consts,
+use super::const_eval::{
+    ConstEnv, parse_const_value, rewrite_expr_with_consts, rewrite_template_with_consts,
 };
-use crate::form::{attr, child_forms, error_at, required_attr, trimmed_text_items};
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct SemanticProgram {
-    pub(crate) modules: Vec<SemanticModule>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct SemanticModule {
-    pub(crate) name: String,
-    pub(crate) consts: Vec<SemanticConst>,
-    pub(crate) vars: Vec<SemanticVar>,
-    pub(crate) scripts: Vec<SemanticScript>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct SemanticConst {
-    pub(crate) name: String,
-    pub(crate) value: ConstValue,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct SemanticVar {
-    pub(crate) name: String,
-    pub(crate) expr: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct SemanticScript {
-    pub(crate) name: String,
-    pub(crate) body: Vec<SemanticStmt>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum SemanticStmt {
-    Temp {
-        name: String,
-        expr: String,
-    },
-    Code {
-        code: String,
-    },
-    Text {
-        template: TextTemplate,
-        tag: Option<String>,
-    },
-    If {
-        when: String,
-        body: Vec<SemanticStmt>,
-    },
-    Choice {
-        prompt: Option<TextTemplate>,
-        options: Vec<SemanticChoiceOption>,
-    },
-    Goto {
-        target_script_ref: String,
-    },
-    End,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct SemanticChoiceOption {
-    pub(crate) text: TextTemplate,
-    pub(crate) body: Vec<SemanticStmt>,
-}
+use super::types::{
+    SemanticChoiceOption, SemanticConst, SemanticModule, SemanticProgram, SemanticScript,
+    SemanticStmt, SemanticVar,
+};
+use crate::form_util::{attr, child_forms, error_at, required_attr, trimmed_text_items};
 
 pub(crate) fn analyze_forms(forms: &[Form]) -> Result<SemanticProgram, ScriptLangError> {
     let modules = forms
@@ -327,8 +268,7 @@ fn parse_text_template(source: &str) -> TextTemplate {
 mod tests {
     use sl_core::{Form, FormField, FormItem, FormMeta, FormValue, SourcePosition, TextSegment};
 
-    use crate::const_eval::ConstValue;
-
+    use super::super::const_eval::ConstValue;
     use super::{SemanticStmt, analyze_forms, parse_text_template};
 
     fn meta() -> FormMeta {

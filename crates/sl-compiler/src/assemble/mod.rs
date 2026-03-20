@@ -62,9 +62,9 @@ pub(crate) fn assemble_artifact(
 mod tests {
     use sl_core::{Instruction, TextSegment, TextTemplate};
 
+    use crate::semantic::types::SemanticVar;
     use crate::semantic::{
         SemanticChoiceOption, SemanticModule, SemanticProgram, SemanticScript, SemanticStmt,
-        SemanticVar,
     };
 
     use super::{ProgramAssembler, assemble_artifact};
