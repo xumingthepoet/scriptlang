@@ -5,6 +5,8 @@ use crate::semantic::types::runtime_global_name;
 
 use super::{ProgramAssembler, types::ScriptDraft};
 
+const DEFAULT_ENTRY_SCRIPT_REF: &str = "main.main";
+
 impl ProgramAssembler {
     pub(super) fn collect_declarations(
         &mut self,
@@ -31,7 +33,7 @@ impl ProgramAssembler {
                 }
                 let script_id = self.scripts.len();
                 self.script_refs.insert(script_ref.clone(), script_id);
-                if self.default_entry_script_id.is_none() {
+                if script_ref == DEFAULT_ENTRY_SCRIPT_REF {
                     self.default_entry_script_id = Some(script_id);
                 }
                 self.scripts.push(ScriptDraft {

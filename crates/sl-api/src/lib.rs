@@ -56,7 +56,7 @@ mod tests {
     fn parse_modules_from_sources_includes_bundled_library_modules() {
         let modules = parse_modules_from_sources(&BTreeMap::from([(
             "main.xml".to_string(),
-            "<module name=\"main\"><script name=\"entry\"><end/></script></module>".to_string(),
+            "<module name=\"main\"><script name=\"main\"><end/></script></module>".to_string(),
         )]))
         .expect("parse");
 
@@ -75,7 +75,7 @@ mod tests {
             r#"
             <module name="main">
               <var name="answer">zero + 1</var>
-              <script name="entry">
+              <script name="main">
                 <text>${answer}</text>
                 <end/>
               </script>

@@ -97,6 +97,7 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 - 在 assemble 阶段收集 module 级 `<var>` 声明、为 script 分配全局唯一 `script_id`
 - 构造 `CompiledArtifact`
 - 生成 boot script，先执行全局初始化，再跳转到默认入口
+- 默认入口当前固定为 `main.main`；若不存在则编译报错
 - `<const>` 当前只支持 module 级，且只支持 builtin 常量值与对前面已定义 const 的引用
 - `<const>` 在 compiler 内消解为源码替换，不进入 runtime，也不会出现在 `CompiledArtifact.globals`
 - `<var>` 当前支持跨 module 引用；compiler 会把可见 var 名字重写成内部 runtime global 名，而不是把 import 可见性规则泄漏到 runtime

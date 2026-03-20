@@ -25,9 +25,13 @@ pub(crate) fn assemble_artifact(
     assembler.collect_declarations(&program.modules)?;
     assembler.lower_modules(&program.modules)?;
 
-    let default_entry_script_id = assembler
-        .default_entry_script_id
-        .ok_or_else(|| ScriptLangError::message("no <script> declarations found"))?;
+    let default_entry_script_id = assembler.default_entry_script_id.ok_or_else(|| {
+        if assembler.scripts.is_empty() {
+            ScriptLangError::message("no <script> declarations found")
+        } else {
+            ScriptLangError::message("default entry script `main.main` does not exist")
+        }
+    })?;
 
     let boot_script_id = assembler.scripts.len();
     let boot_script = assembler.build_boot_script(default_entry_script_id);
@@ -87,6 +91,24 @@ mod tests {
     }
 
     #[test]
+    fn assemble_artifact_requires_main_main_as_default_entry() {
+        let error = assemble_artifact(&program(vec![SemanticModule {
+            name: "main".to_string(),
+            vars: Vec::new(),
+            scripts: vec![SemanticScript {
+                name: "entry".to_string(),
+                body: vec![SemanticStmt::End],
+            }],
+        }]))
+        .expect_err("missing main.main should fail");
+
+        assert_eq!(
+            error.to_string(),
+            "default entry script `main.main` does not exist"
+        );
+    }
+
+    #[test]
     fn assemble_artifact_collects_globals_and_lowers_scripts() {
         let artifact = assemble_artifact(&program(vec![SemanticModule {
             name: "main".to_string(),
@@ -96,7 +118,7 @@ mod tests {
             }],
             scripts: vec![
                 SemanticScript {
-                    name: "entry".to_string(),
+                    name: "main".to_string(),
                     body: vec![
                         SemanticStmt::Temp {
                             name: "x".to_string(),
@@ -155,11 +177,11 @@ mod tests {
             vars: Vec::new(),
             scripts: vec![
                 SemanticScript {
-                    name: "entry".to_string(),
+                    name: "main".to_string(),
                     body: vec![SemanticStmt::End],
                 },
                 SemanticScript {
-                    name: "entry".to_string(),
+                    name: "main".to_string(),
                     body: vec![SemanticStmt::End],
                 },
             ],
@@ -167,18 +189,18 @@ mod tests {
         .expect_err("duplicate script should fail");
         assert_eq!(
             duplicate_script.to_string(),
-            "duplicate script declaration `main.entry`"
+            "duplicate script declaration `main.main`"
         );
 
         let artifact = assemble_artifact(&program(vec![
             SemanticModule {
-                name: "a".to_string(),
+                name: "main".to_string(),
                 vars: vec![SemanticVar {
                     name: "name".to_string(),
                     expr: "1".to_string(),
                 }],
                 scripts: vec![SemanticScript {
-                    name: "entry".to_string(),
+                    name: "main".to_string(),
                     body: vec![SemanticStmt::End],
                 }],
             },
@@ -189,14 +211,14 @@ mod tests {
                     expr: "2".to_string(),
                 }],
                 scripts: vec![SemanticScript {
-                    name: "entry".to_string(),
+                    name: "main".to_string(),
                     body: vec![SemanticStmt::End],
                 }],
             },
         ]))
         .expect("same short globals should be allowed");
         assert_eq!(artifact.globals.len(), 2);
-        assert_eq!(artifact.globals[0].runtime_name, "__sl_globala_name");
+        assert_eq!(artifact.globals[0].runtime_name, "__sl_globalmain_name");
         assert_eq!(artifact.globals[1].runtime_name, "__sl_globalb_name");
     }
 
