@@ -4,7 +4,27 @@ use sl_core::{
 };
 
 use crate::assemble::ScriptDraft;
-use crate::semantic::{SemanticChoiceOption, SemanticScript, SemanticStmt};
+use crate::semantic::{SemanticChoiceOption, SemanticModule, SemanticScript, SemanticStmt};
+
+use super::ProgramAssembler;
+
+impl ProgramAssembler {
+    pub(super) fn lower_modules(
+        &mut self,
+        modules: &[SemanticModule],
+    ) -> Result<(), ScriptLangError> {
+        let mut script_index = 0usize;
+        for module in modules {
+            for script in &module.scripts {
+                let mut draft = self.scripts[script_index].clone();
+                lower_script(&self.script_refs, &mut draft, &module.name, script)?;
+                self.scripts[script_index] = draft;
+                script_index += 1;
+            }
+        }
+        Ok(())
+    }
+}
 
 pub(crate) fn lower_script(
     script_refs: &std::collections::BTreeMap<String, ScriptId>,
