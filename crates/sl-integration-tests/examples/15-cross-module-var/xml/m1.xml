@@ -1,0 +1,6 @@
+<module name="m1">
+  <var name="shared">1</var>
+  <script name="entry">
+    <end/>
+  </script>
+</module>

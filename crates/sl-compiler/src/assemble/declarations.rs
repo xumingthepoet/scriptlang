@@ -1,6 +1,7 @@
 use sl_core::ScriptLangError;
 
 use crate::semantic::SemanticModule;
+use crate::semantic::types::runtime_global_name;
 
 use super::{ProgramAssembler, types::ScriptDraft};
 
@@ -9,21 +10,12 @@ impl ProgramAssembler {
         &mut self,
         modules: &[SemanticModule],
     ) -> Result<(), ScriptLangError> {
-        let mut global_short_names = std::collections::HashMap::<String, String>::new();
-
         for module in modules {
             for var in &module.vars {
                 let qualified_name = format!("{}.{}", module.name, var.name);
-                if let Some(existing) =
-                    global_short_names.insert(var.name.clone(), qualified_name.clone())
-                {
-                    return Err(ScriptLangError::message(format!(
-                        "global short name `{}` is ambiguous between `{existing}` and `{qualified_name}`",
-                        var.name
-                    )));
-                }
                 self.globals.push(sl_core::GlobalVar {
                     global_id: self.globals.len(),
+                    runtime_name: global_runtime_name(&qualified_name),
                     qualified_name,
                     short_name: var.name.clone(),
                     initializer: var.expr.clone(),
@@ -53,4 +45,8 @@ impl ProgramAssembler {
 
         Ok(())
     }
+}
+
+fn global_runtime_name(qualified_name: &str) -> String {
+    runtime_global_name(qualified_name)
 }

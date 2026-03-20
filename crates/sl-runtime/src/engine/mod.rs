@@ -196,11 +196,11 @@ impl Engine {
         }
 
         for global in &self.artifact.globals {
-            if shadowed_globals.contains_key(global.short_name.as_str()) {
+            if shadowed_globals.contains_key(global.runtime_name.as_str()) {
                 continue;
             }
             scope.push_dynamic(
-                global.short_name.clone(),
+                global.runtime_name.clone(),
                 self.state.globals[global.global_id].clone(),
             );
         }
@@ -220,11 +220,11 @@ impl Engine {
             if script
                 .local_names
                 .iter()
-                .any(|local| local == &global.short_name)
+                .any(|local| local == &global.runtime_name)
             {
                 continue;
             }
-            if let Some(value) = scope.get_value::<Dynamic>(&global.short_name) {
+            if let Some(value) = scope.get_value::<Dynamic>(&global.runtime_name) {
                 self.state.globals[global.global_id] = value;
             }
         }
@@ -306,6 +306,7 @@ mod tests {
                 global_id: 0,
                 qualified_name: "main.answer".to_string(),
                 short_name: "answer".to_string(),
+                runtime_name: "answer".to_string(),
                 initializer: "40 + 2".to_string(),
             }],
             0,
@@ -722,6 +723,7 @@ mod tests {
                 global_id: 0,
                 qualified_name: "main.answer".to_string(),
                 short_name: "answer".to_string(),
+                runtime_name: "answer".to_string(),
                 initializer: "1".to_string(),
             }],
             0,

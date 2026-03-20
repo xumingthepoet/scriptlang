@@ -136,6 +136,7 @@ mod tests {
         assert_eq!(artifact.default_entry_script_id, 0);
         assert_eq!(artifact.boot_script_id, 2);
         assert_eq!(artifact.globals[0].qualified_name, "main.answer");
+        assert_eq!(artifact.globals[0].runtime_name, "__sl_globalmain_answer");
         assert!(matches!(
             &artifact.scripts[0].instructions[0],
             Instruction::EvalTemp { local_id, expr } if *local_id == 0 && expr == "1"
@@ -148,7 +149,7 @@ mod tests {
     }
 
     #[test]
-    fn assemble_artifact_rejects_duplicate_script_refs_and_ambiguous_globals() {
+    fn assemble_artifact_rejects_duplicate_script_refs_and_allows_same_short_globals() {
         let duplicate_script = assemble_artifact(&program(vec![SemanticModule {
             name: "main".to_string(),
             vars: Vec::new(),
@@ -169,7 +170,7 @@ mod tests {
             "duplicate script declaration `main.entry`"
         );
 
-        let ambiguous_global = assemble_artifact(&program(vec![
+        let artifact = assemble_artifact(&program(vec![
             SemanticModule {
                 name: "a".to_string(),
                 vars: vec![SemanticVar {
@@ -193,11 +194,10 @@ mod tests {
                 }],
             },
         ]))
-        .expect_err("ambiguous globals should fail");
-        assert_eq!(
-            ambiguous_global.to_string(),
-            "global short name `name` is ambiguous between `a.name` and `b.name`"
-        );
+        .expect("same short globals should be allowed");
+        assert_eq!(artifact.globals.len(), 2);
+        assert_eq!(artifact.globals[0].runtime_name, "__sl_globala_name");
+        assert_eq!(artifact.globals[1].runtime_name, "__sl_globalb_name");
     }
 
     #[test]

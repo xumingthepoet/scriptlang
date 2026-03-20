@@ -24,6 +24,7 @@ pub struct GlobalVar {
     pub global_id: GlobalId,
     pub qualified_name: String,
     pub short_name: String,
+    pub runtime_name: String,
     pub initializer: String,
 }
 
@@ -155,6 +156,7 @@ mod tests {
                 global_id: 0,
                 qualified_name: "main.answer".to_string(),
                 short_name: "answer".to_string(),
+                runtime_name: "__sl_global__main__answer".to_string(),
                 initializer: "42".to_string(),
             }],
         };
@@ -166,6 +168,10 @@ mod tests {
         assert_eq!(artifact.scripts[0].local_names, vec!["x".to_string()]);
         assert_eq!(artifact.globals[0].qualified_name, "main.answer");
         assert_eq!(artifact.globals[0].short_name, "answer");
+        assert_eq!(
+            artifact.globals[0].runtime_name,
+            "__sl_global__main__answer"
+        );
         assert_eq!(artifact.globals[0].initializer, "42");
         assert_eq!(artifact.script_refs["main.entry"], 0);
 

@@ -1,0 +1,10 @@
+<module name="main">
+  <var name="local">3</var>
+  <import name="m1"/>
+  <import name="m2"/>
+  <script name="main">
+    <code>local += shared + m1.shared;</code>
+    <text>${local}:${shared}:${m1.shared}</text>
+    <end/>
+  </script>
+</module>

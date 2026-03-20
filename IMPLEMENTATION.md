@@ -99,10 +99,15 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 - 生成 boot script，先执行全局初始化，再跳转到默认入口
 - `<const>` 当前只支持 module 级，且只支持 builtin 常量值与对前面已定义 const 的引用
 - `<const>` 在 compiler 内消解为源码替换，不进入 runtime，也不会出现在 `CompiledArtifact.globals`
+- `<var>` 当前支持跨 module 引用；compiler 会把可见 var 名字重写成内部 runtime global 名，而不是把 import 可见性规则泄漏到 runtime
 - const 名字解析当前支持：
   - 当前 module 的短名 const
   - imported module 的短名 const
   - `m1.zero` 形式的显式模块限定 const
+- var 名字解析当前支持：
+  - 当前 module 的短名 var
+  - imported module 的短名 var
+  - `m1.value` 形式的显式模块限定 var
 - `<goto>` 当前支持：
   - 当前 module 短名 script
   - imported module 的短名 script
@@ -144,6 +149,7 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 - module 语义处理
 - AST 节点解释执行
 - 宏展开
+- `import` / module var 可见性处理
 
 ## API
 

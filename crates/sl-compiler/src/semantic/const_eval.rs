@@ -100,29 +100,16 @@ pub(crate) fn rewrite_expr_with_consts<R: ConstLookup>(
                     if let Some(value) = local_env.get(name) {
                         rewritten.push_str(&value.to_rhai_literal());
                     } else {
-                        return Err(ScriptLangError::message(format!(
-                            "module `{module_path}` does not export const `{name}`"
-                        )));
+                        rewritten.push_str(raw);
                     }
                 } else {
                     match resolver.resolve_qualified_const(&module_path, name)? {
                         QualifiedConstLookup::Value(value) => {
                             rewritten.push_str(&value.to_rhai_literal());
                         }
-                        QualifiedConstLookup::HiddenModule => {
-                            return Err(ScriptLangError::message(format!(
-                                "module `{module_path}` is not imported into `{}`",
-                                resolver.current_module()
-                            )));
-                        }
-                        QualifiedConstLookup::UnknownConst => {
-                            return Err(ScriptLangError::message(format!(
-                                "module `{module_path}` does not export const `{name}`"
-                            )));
-                        }
-                        QualifiedConstLookup::NotModulePath => {
-                            rewritten.push_str(raw);
-                        }
+                        QualifiedConstLookup::HiddenModule
+                        | QualifiedConstLookup::UnknownConst
+                        | QualifiedConstLookup::NotModulePath => rewritten.push_str(raw),
                     }
                 }
             }
@@ -646,24 +633,10 @@ mod tests {
             &BTreeSet::new(),
             &BTreeSet::new(),
         )
-        .expect_err("hidden module should fail");
-        assert!(
-            rewritten
-                .to_string()
-                .contains("module `hidden` is not imported")
-        );
-
-        let rewritten = rewrite_expr_with_consts(
-            r##"answer + answer_more + obj.answer + lib.math.zero + "#{answer}" + #{answer: answer} + name"##,
-            &local_env,
-            &mut visible,
-            &BTreeSet::new(),
-            &BTreeSet::new(),
-        )
         .expect("rewrite");
         assert_eq!(
             rewritten,
-            r##"42 + answer_more + obj.answer + 0 + "#{answer}" + #{answer: 42} + "neo""##
+            r##"42 + answer_more + obj.answer + 0 + "#{answer}" + #{answer: 42} + "neo" + hidden.zero"##
         );
 
         let template = rewrite_template_with_consts(

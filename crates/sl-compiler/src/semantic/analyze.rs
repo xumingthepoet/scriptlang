@@ -6,7 +6,8 @@ use super::const_eval::{
     ConstEnv, ConstValue, parse_const_value, rewrite_expr_with_consts, rewrite_template_with_consts,
 };
 use super::resolve::{
-    ConstCatalog, ModuleCatalog, ModuleScope, NameResolver, ScopeResolver, validate_import_target,
+    ConstCatalog, ModuleCatalog, ModuleScope, NameResolver, ScopeResolver, rewrite_expr_with_vars,
+    rewrite_template_with_vars, validate_import_target,
 };
 use super::types::{
     SemanticChoiceOption, SemanticModule, SemanticProgram, SemanticScript, SemanticStmt,
@@ -68,7 +69,7 @@ fn analyze_module<'a>(
                 let mut visible = ScopeResolver::new(catalog, const_catalog, &scope);
                 vars.push(SemanticVar {
                     name: required_attr(child, "name")?.to_string(),
-                    expr: rewrite_expr_with_consts(
+                    expr: rewrite_var_expr(
                         &trimmed_text_items(child)?,
                         &const_env,
                         &mut visible,
@@ -140,7 +141,7 @@ fn analyze_script<'a>(
 fn analyze_block(
     forms: &[&Form],
     const_env: &ConstEnv,
-    resolver: &mut impl NameResolver,
+    resolver: &mut ScopeResolver<'_, '_>,
     remaining_const_names: &BTreeSet<String>,
     shadowed_names: &mut BTreeSet<String>,
 ) -> Result<Vec<SemanticStmt>, ScriptLangError> {
@@ -164,7 +165,7 @@ fn analyze_block(
 fn analyze_stmt(
     form: &Form,
     const_env: &ConstEnv,
-    resolver: &mut impl NameResolver,
+    resolver: &mut ScopeResolver<'_, '_>,
     remaining_const_names: &BTreeSet<String>,
     shadowed_names: &mut BTreeSet<String>,
 ) -> Result<SemanticStmt, ScriptLangError> {
@@ -179,7 +180,7 @@ fn analyze_stmt(
         )),
         "temp" => Ok(SemanticStmt::Temp {
             name: required_attr(form, "name")?.to_string(),
-            expr: rewrite_expr_with_consts(
+            expr: rewrite_var_expr(
                 &trimmed_text_items(form)?,
                 const_env,
                 resolver,
@@ -188,7 +189,7 @@ fn analyze_stmt(
             )?,
         }),
         "code" => Ok(SemanticStmt::Code {
-            code: rewrite_expr_with_consts(
+            code: rewrite_var_expr(
                 &trimmed_text_items(form)?,
                 const_env,
                 resolver,
@@ -197,7 +198,7 @@ fn analyze_stmt(
             )?,
         }),
         "text" => Ok(SemanticStmt::Text {
-            template: rewrite_template_with_consts(
+            template: rewrite_var_template(
                 parse_text_template(&trimmed_text_items(form)?),
                 const_env,
                 resolver,
@@ -207,7 +208,7 @@ fn analyze_stmt(
             tag: attr(form, "tag").map(str::to_string),
         }),
         "if" => Ok(SemanticStmt::If {
-            when: rewrite_expr_with_consts(
+            when: rewrite_var_expr(
                 required_attr(form, "when")?,
                 const_env,
                 resolver,
@@ -235,7 +236,7 @@ fn analyze_stmt(
                     ));
                 }
                 options.push(SemanticChoiceOption {
-                    text: rewrite_template_with_consts(
+                    text: rewrite_var_template(
                         parse_text_template(required_attr(option, "text")?),
                         const_env,
                         resolver,
@@ -255,7 +256,7 @@ fn analyze_stmt(
                 prompt: attr(form, "text")
                     .map(parse_text_template)
                     .map(|template| {
-                        rewrite_template_with_consts(
+                        rewrite_var_template(
                             template,
                             const_env,
                             resolver,
@@ -276,6 +277,40 @@ fn analyze_stmt(
             format!("unsupported statement <{other}> in MVP"),
         )),
     }
+}
+
+fn rewrite_var_expr(
+    source: &str,
+    const_env: &ConstEnv,
+    resolver: &mut ScopeResolver<'_, '_>,
+    remaining_const_names: &BTreeSet<String>,
+    shadowed_names: &BTreeSet<String>,
+) -> Result<String, ScriptLangError> {
+    let rewritten = rewrite_expr_with_consts(
+        source,
+        const_env,
+        resolver,
+        remaining_const_names,
+        shadowed_names,
+    )?;
+    rewrite_expr_with_vars(&rewritten, resolver, shadowed_names)
+}
+
+fn rewrite_var_template(
+    template: TextTemplate,
+    const_env: &ConstEnv,
+    resolver: &mut ScopeResolver<'_, '_>,
+    remaining_const_names: &BTreeSet<String>,
+    shadowed_names: &BTreeSet<String>,
+) -> Result<TextTemplate, ScriptLangError> {
+    let rewritten = rewrite_template_with_consts(
+        template,
+        const_env,
+        resolver,
+        remaining_const_names,
+        shadowed_names,
+    )?;
+    rewrite_template_with_vars(rewritten, resolver, shadowed_names)
 }
 
 fn parse_text_template(source: &str) -> TextTemplate {
@@ -320,7 +355,7 @@ mod tests {
     use sl_core::{Form, FormField, FormItem, FormMeta, FormValue, SourcePosition, TextSegment};
 
     use super::{SemanticStmt, analyze_forms, parse_text_template};
-    use crate::semantic::types::ResolvedRef;
+    use crate::semantic::types::{ResolvedRef, runtime_global_name};
 
     fn meta() -> FormMeta {
         FormMeta {
@@ -545,6 +580,79 @@ mod tests {
         assert!(matches!(
             &main.scripts[0].body[0],
             SemanticStmt::Temp { expr, .. } if expr == "2"
+        ));
+    }
+
+    #[test]
+    fn analyze_forms_rewrites_visible_var_refs_to_runtime_global_names() {
+        let program = analyze_forms(&[
+            node(
+                "module",
+                vec![("name", "m1")],
+                vec![child(node(
+                    "var",
+                    vec![("name", "shared")],
+                    vec![text("1")],
+                ))],
+            ),
+            node(
+                "module",
+                vec![("name", "m2")],
+                vec![child(node(
+                    "var",
+                    vec![("name", "shared")],
+                    vec![text("2")],
+                ))],
+            ),
+            node(
+                "module",
+                vec![("name", "main")],
+                vec![
+                    child(node("var", vec![("name", "local")], vec![text("3")])),
+                    child(node("import", vec![("name", "m1")], vec![])),
+                    child(node("import", vec![("name", "m2")], vec![])),
+                    child(node(
+                        "script",
+                        vec![("name", "entry")],
+                        vec![
+                            child(node(
+                                "code",
+                                vec![],
+                                vec![text("local += shared + m1.shared;")],
+                            )),
+                            child(node(
+                                "text",
+                                vec![],
+                                vec![text("${local}:${shared}:${m1.shared}")],
+                            )),
+                        ],
+                    )),
+                ],
+            ),
+        ])
+        .expect("analyze");
+
+        let local = runtime_global_name("main.local");
+        let imported = runtime_global_name("m2.shared");
+        let explicit = runtime_global_name("m1.shared");
+        assert!(matches!(
+            &program.modules[2].scripts[0].body[0],
+            SemanticStmt::Code { code }
+                if code == &format!("{local} += {imported} + {explicit};")
+        ));
+        assert!(matches!(
+            &program.modules[2].scripts[0].body[1],
+            SemanticStmt::Text { template, .. }
+                if matches!(
+                    &template.segments[..],
+                    [
+                        TextSegment::Expr(a),
+                        TextSegment::Literal(sep1),
+                        TextSegment::Expr(b),
+                        TextSegment::Literal(sep2),
+                        TextSegment::Expr(c)
+                    ] if a == &local && sep1 == ":" && b == &imported && sep2 == ":" && c == &explicit
+                )
         ));
     }
 

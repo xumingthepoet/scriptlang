@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use sl_core::{Form, ScriptLangError};
+use sl_core::{Form, ScriptLangError, TextSegment, TextTemplate};
 
 use super::const_eval::{ConstEnv, ConstLookup, ConstValue, parse_const_value};
-use super::types::{ModulePath, ResolvedRef};
+use super::types::{ModulePath, ResolvedRef, runtime_global_name};
 use crate::form_util::{child_forms, error_at, required_attr, trimmed_text_items};
 
 pub(crate) const DEFAULT_KERNEL_MODULE: &str = "kernel";
@@ -25,6 +25,7 @@ pub(crate) struct ModuleScope {
 pub(crate) struct ModuleExports {
     pub(crate) consts: BTreeSet<String>,
     pub(crate) scripts: BTreeSet<String>,
+    pub(crate) vars: BTreeSet<String>,
 }
 
 pub(crate) struct ModuleCatalog<'a> {
@@ -124,9 +125,22 @@ impl<'a> ModuleCatalog<'a> {
                         }
                     }
                     "script" => {
-                        exports
-                            .scripts
-                            .insert(required_attr(child, "name")?.to_string());
+                        let script_name = required_attr(child, "name")?.to_string();
+                        if !exports.scripts.insert(script_name.clone()) {
+                            return Err(error_at(
+                                child,
+                                format!("duplicate script declaration `{name}.{script_name}`"),
+                            ));
+                        }
+                    }
+                    "var" => {
+                        let var_name = required_attr(child, "name")?.to_string();
+                        if !exports.vars.insert(var_name.clone()) {
+                            return Err(error_at(
+                                child,
+                                format!("duplicate var declaration `{name}.{var_name}`"),
+                            ));
+                        }
                     }
                     "import" => {
                         let _ = required_attr(child, "name")?;
@@ -305,6 +319,58 @@ impl<'a, 'b> ScopeResolver<'a, 'b> {
 
         Ok(ResolvedRef::script(self.scope.current_module(), raw))
     }
+
+    fn resolve_short_var_ref(&self, name: &str) -> Result<Option<ResolvedRef>, ScriptLangError> {
+        if self
+            .modules
+            .exports(self.scope.current_module())?
+            .vars
+            .contains(name)
+        {
+            return Ok(Some(ResolvedRef::new(
+                self.scope.current_module(),
+                name,
+                super::types::MemberKind::Var,
+            )));
+        }
+        for import in self.scope.imports().iter().rev() {
+            if self.modules.exports(import.as_str())?.vars.contains(name) {
+                return Ok(Some(ResolvedRef::new(
+                    import.as_str(),
+                    name,
+                    super::types::MemberKind::Var,
+                )));
+            }
+        }
+        Ok(None)
+    }
+
+    fn resolve_qualified_var_ref(
+        &self,
+        module_path: &str,
+        name: &str,
+    ) -> Result<Option<ResolvedRef>, ScriptLangError> {
+        if !self.modules.contains(module_path) {
+            return Ok(None);
+        }
+        if !self.scope.can_access_module(module_path) {
+            return Err(ScriptLangError::message(format!(
+                "module `{module_path}` is not imported into `{}`",
+                self.scope.current_module()
+            )));
+        }
+        if self.modules.exports(module_path)?.vars.contains(name) {
+            Ok(Some(ResolvedRef::new(
+                module_path,
+                name,
+                super::types::MemberKind::Var,
+            )))
+        } else {
+            Err(ScriptLangError::message(format!(
+                "module `{module_path}` does not export var `{name}`"
+            )))
+        }
+    }
 }
 
 impl ConstLookup for ScopeResolver<'_, '_> {
@@ -350,6 +416,151 @@ impl NameResolver for ScopeResolver<'_, '_> {
     fn resolve_script_ref(&self, raw: &str) -> Result<ResolvedRef, ScriptLangError> {
         self.resolve_script_ref_impl(raw)
     }
+}
+
+pub(crate) fn rewrite_expr_with_vars(
+    source: &str,
+    resolver: &ScopeResolver<'_, '_>,
+    shadowed_names: &BTreeSet<String>,
+) -> Result<String, ScriptLangError> {
+    let mut rewritten = String::with_capacity(source.len());
+    let bytes = source.as_bytes();
+    let mut cursor = 0usize;
+
+    while cursor < bytes.len() {
+        let ch = bytes[cursor] as char;
+        if ch == '"' || ch == '\'' {
+            let end = scan_quoted(bytes, cursor)?;
+            rewritten.push_str(&source[cursor..end]);
+            cursor = end;
+            continue;
+        }
+
+        if is_ident_start(ch) {
+            let (end, segments) = scan_reference_path(source, cursor);
+            let raw = &source[cursor..end];
+            let first = segments[0].as_str();
+
+            if shadowed_names.contains(first) || is_property_access(bytes, cursor) {
+                rewritten.push_str(raw);
+                cursor = end;
+                continue;
+            }
+
+            let resolved = if segments.len() == 1 {
+                resolver.resolve_short_var_ref(first)?
+            } else {
+                let module_path = segments[..segments.len() - 1].join(".");
+                let name = segments.last().expect("qualified path");
+                resolver.resolve_qualified_var_ref(&module_path, name)?
+            };
+
+            if let Some(target) = resolved {
+                if is_map_key(source, end) {
+                    rewritten.push_str(raw);
+                } else {
+                    rewritten.push_str(&runtime_global_name(&target.qualified_name()));
+                }
+            } else {
+                rewritten.push_str(raw);
+            }
+            cursor = end;
+            continue;
+        }
+
+        rewritten.push(ch);
+        cursor += ch.len_utf8();
+    }
+
+    Ok(rewritten)
+}
+
+pub(crate) fn rewrite_template_with_vars(
+    template: TextTemplate,
+    resolver: &ScopeResolver<'_, '_>,
+    shadowed_names: &BTreeSet<String>,
+) -> Result<TextTemplate, ScriptLangError> {
+    let segments = template
+        .segments
+        .into_iter()
+        .map(|segment| match segment {
+            TextSegment::Literal(text) => Ok(TextSegment::Literal(text)),
+            TextSegment::Expr(expr) => Ok(TextSegment::Expr(rewrite_expr_with_vars(
+                &expr,
+                resolver,
+                shadowed_names,
+            )?)),
+        })
+        .collect::<Result<Vec<_>, ScriptLangError>>()?;
+    Ok(TextTemplate { segments })
+}
+
+fn scan_quoted(bytes: &[u8], start: usize) -> Result<usize, ScriptLangError> {
+    let quote = bytes[start];
+    let mut cursor = start + 1;
+    while cursor < bytes.len() {
+        match bytes[cursor] {
+            b'\\' => cursor += 2,
+            ch if ch == quote => return Ok(cursor + 1),
+            _ => cursor += 1,
+        }
+    }
+    Err(ScriptLangError::message("unterminated string literal"))
+}
+
+fn scan_reference_path(source: &str, start: usize) -> (usize, Vec<String>) {
+    let mut cursor = start;
+    let mut segments = Vec::new();
+    loop {
+        let ident_start = cursor;
+        cursor += 1;
+        let bytes = source.as_bytes();
+        while cursor < bytes.len() && is_ident_continue(bytes[cursor] as char) {
+            cursor += 1;
+        }
+        segments.push(source[ident_start..cursor].to_string());
+        if cursor >= bytes.len() || bytes[cursor] != b'.' {
+            break;
+        }
+        let next = cursor + 1;
+        if next >= bytes.len() || !is_ident_start(bytes[next] as char) {
+            break;
+        }
+        cursor = next;
+    }
+    (cursor, segments)
+}
+
+fn is_property_access(bytes: &[u8], ident_start: usize) -> bool {
+    let mut cursor = ident_start;
+    while cursor > 0 {
+        cursor -= 1;
+        let ch = bytes[cursor] as char;
+        if ch.is_whitespace() {
+            continue;
+        }
+        return ch == '.';
+    }
+    false
+}
+
+fn is_map_key(source: &str, ident_end: usize) -> bool {
+    let mut chars = source[ident_end..].chars();
+    loop {
+        match chars.next() {
+            Some(ch) if ch.is_whitespace() => continue,
+            Some(':') => return true,
+            _ => return false,
+        }
+    }
+}
+
+fn is_ident_start(ch: char) -> bool {
+    ch == '_' || ch.is_ascii_alphabetic()
+}
+
+fn is_ident_continue(ch: char) -> bool {
+    ch == '_' || ch.is_ascii_alphanumeric()
 }
 
 pub(crate) fn validate_import_target(
