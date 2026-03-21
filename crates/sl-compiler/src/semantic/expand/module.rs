@@ -1,6 +1,6 @@
 use sl_core::{Form, FormField, FormItem, FormValue, ScriptLangError};
 
-use super::consts::expand_const_form;
+use super::declared_types::expand_const_form;
 use super::rules::{ExpandRuleScope, expand_with_rules};
 use super::string_attr;
 use crate::semantic::env::{CompilePhase, ExpandEnv};

@@ -1,5 +1,5 @@
-mod const_values;
-mod consts;
+mod const_eval;
+mod declared_types;
 mod module;
 mod program;
 mod rules;
@@ -10,8 +10,8 @@ use sl_core::{Form, FormField, FormItem, FormValue, ScriptLangError};
 use super::env::{CompilePhase, ExpandEnv, MacroDefinition, MacroScope};
 use super::types::SemanticProgram;
 use crate::semantic::{attr, child_forms, error_at, required_attr};
-pub(crate) use const_values::{ConstEnv, ConstLookup, ConstValue, parse_const_value};
-pub(crate) use consts::parse_declared_type_form;
+pub(crate) use const_eval::{ConstEnv, ConstLookup, ConstValue, parse_const_value};
+pub(crate) use declared_types::parse_declared_type_form;
 use module::expand_module_form;
 pub(crate) use program::analyze_program;
 use rules::{ExpandRuleScope, expand_with_rules};

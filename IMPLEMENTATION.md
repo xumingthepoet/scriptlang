@@ -111,7 +111,7 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 - semantic 当前会区分“module 内声明存在”和“对 import 暴露的导出成员”；`private="true"` 会从导出目录中隐藏该声明
 - `assemble` 不再消费 import / scope / context 信息；它只消费已经解析好的语义结果
 - semantic 中的 var 引用当前会先重写成“已解析变量占位符”；真正的 runtime global 命名只在 assemble 阶段生成
-- `semantic/expand/const_values.rs` 当前负责 builtin 常量求值、稳定字面量回写和表达式 / 模板替换，不再自己实现 import 可见性规则
+- `semantic/expand/const_eval.rs` 当前负责 builtin 常量求值、稳定字面量回写和表达式 / 模板替换，不再自己实现 import 可见性规则
 - 在 assemble 阶段收集 module 级 `<var>` 声明、为 script 分配全局唯一 `script_id`
 - 构造 `CompiledArtifact`
 - 生成 boot script，先执行全局初始化，再跳转到默认入口
