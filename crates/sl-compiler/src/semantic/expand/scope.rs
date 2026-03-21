@@ -1,17 +1,16 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use sl_core::{Form, ScriptLangError};
+use sl_core::ScriptLangError;
 
 use super::{
     ConstEnv, ConstLookup, ConstValue, parse_const_value,
     parse_declared_type_form as parse_declared_type,
 };
-use crate::names::script_literal_key;
-use crate::semantic::env::{ModuleExports, ModuleState, ProgramState};
 use crate::semantic::types::{MemberKind, ModulePath, ResolvedRef};
-use crate::semantic::{body_expr, error_at, required_attr};
+use crate::semantic::{body_expr, required_attr};
 
-pub(crate) const DEFAULT_KERNEL_MODULE: &str = "kernel";
+use super::imports::validate_import_target;
+use super::modules::{DEFAULT_KERNEL_MODULE, ModuleCatalog};
 
 pub(crate) enum QualifiedConstLookup {
     Value(ConstValue),
@@ -24,10 +23,6 @@ pub(crate) enum QualifiedConstLookup {
 pub(crate) struct ModuleScope {
     current_module: ModulePath,
     imports: Vec<ModulePath>,
-}
-
-pub(crate) struct ModuleCatalog<'a> {
-    program: &'a ProgramState,
 }
 
 pub(crate) struct ConstCatalog<'a> {
@@ -78,56 +73,6 @@ impl ModuleScope {
                 .imports
                 .iter()
                 .any(|import| import.as_str() == module_name)
-    }
-}
-
-impl<'a> ModuleCatalog<'a> {
-    pub(crate) fn build(program: &'a ProgramState) -> Result<Self, ScriptLangError> {
-        for module_name in &program.module_order {
-            if !program.modules.contains_key(module_name) {
-                return Err(ScriptLangError::message(format!(
-                    "module `{module_name}` missing expand-time state"
-                )));
-            }
-        }
-        Ok(Self { program })
-    }
-
-    pub(crate) fn contains(&self, module_name: &str) -> bool {
-        self.program.modules.contains_key(module_name)
-    }
-
-    pub(crate) fn exports(&self, module_name: &str) -> Result<&ModuleExports, ScriptLangError> {
-        Ok(&self.module_state(module_name)?.exports)
-    }
-
-    pub(crate) fn resolve_script_literal(
-        &self,
-        current_module: &str,
-        raw: &str,
-    ) -> Result<String, ScriptLangError> {
-        let qualified = script_literal_key(raw, current_module)
-            .ok_or_else(|| ScriptLangError::message(format!("invalid script literal `{raw}`")))?;
-        let (module_name, script_name) = qualified
-            .rsplit_once('.')
-            .expect("qualified script literal must contain module separator");
-        if !self.contains(module_name)
-            || !self
-                .exports(module_name)?
-                .scripts
-                .contains_declared(script_name)
-        {
-            return Err(ScriptLangError::message(format!(
-                "unknown script `{qualified}`"
-            )));
-        }
-        Ok(qualified)
-    }
-
-    fn module_state(&self, module_name: &str) -> Result<&'a ModuleState, ScriptLangError> {
-        self.program.modules.get(module_name).ok_or_else(|| {
-            ScriptLangError::message(format!("module `{module_name}` does not exist"))
-        })
     }
 }
 
@@ -383,33 +328,27 @@ impl ConstLookup for ScopeResolver<'_, '_> {
     }
 }
 
-pub(crate) fn validate_import_target(
-    catalog: &ModuleCatalog<'_>,
-    form: &Form,
-    current_module: &str,
-    import_name: &str,
-) -> Result<(), ScriptLangError> {
-    if import_name == current_module {
-        return Err(error_at(
-            form,
-            format!("module `{current_module}` cannot import itself"),
-        ));
-    }
-    if catalog.contains(import_name) {
-        Ok(())
-    } else {
-        Err(error_at(
-            form,
-            format!("imported module `{import_name}` does not exist"),
-        ))
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use sl_core::{FormField, FormItem, FormMeta, FormValue, SourcePosition};
+    use std::collections::BTreeMap;
+
+    use sl_core::{Form, FormField, FormItem, FormMeta, FormValue, SourcePosition};
 
     use super::*;
+
+    use crate::semantic::env::{ModuleExports, ModuleState, ProgramState};
+
+    fn const_form(name: &str, value: &str) -> Form {
+        form(
+            "const",
+            vec![
+                attr("name", name),
+                attr("type", "int"),
+                children(vec![text(value)]),
+            ],
+        )
+    }
+
     fn meta() -> FormMeta {
         FormMeta {
             source_name: Some("main.xml".to_string()),
@@ -420,8 +359,8 @@ mod tests {
         }
     }
 
-    fn form(head: &str, fields: Vec<FormField>) -> Form {
-        Form {
+    fn form(head: &str, fields: Vec<FormField>) -> sl_core::Form {
+        sl_core::Form {
             head: head.to_string(),
             meta: meta(),
             fields,
@@ -446,21 +385,10 @@ mod tests {
         FormItem::Text(value.to_string())
     }
 
-    fn const_form(name: &str, value: &str) -> Form {
-        form(
-            "const",
-            vec![
-                attr("name", name),
-                attr("type", "int"),
-                children(vec![text(value)]),
-            ],
-        )
-    }
-
     fn module_state_with(
         module_name: &str,
         exports: ModuleExports,
-        children: Vec<Form>,
+        children: Vec<sl_core::Form>,
     ) -> ModuleState {
         ModuleState {
             module_name: Some(module_name.to_string()),
@@ -529,57 +457,6 @@ mod tests {
             ],
             module_macros: BTreeMap::new(),
         }
-    }
-
-    #[test]
-    fn module_catalog_and_scope_cover_basic_lookup_paths() {
-        let program = program_state();
-        let catalog = ModuleCatalog::build(&program).expect("catalog");
-        let scope = ModuleScope::initial(&catalog, "main");
-
-        assert!(catalog.contains("kernel"));
-        assert_eq!(scope.current_module(), "main");
-        assert!(scope.can_access_module("kernel"));
-        assert!(!scope.can_access_module("helper"));
-        assert_eq!(
-            catalog
-                .resolve_script_literal("main", "@main")
-                .expect("script"),
-            "main.main"
-        );
-        assert_eq!(
-            catalog
-                .resolve_script_literal("main", "@helper.entry")
-                .expect("qualified"),
-            "helper.entry"
-        );
-    }
-
-    #[test]
-    fn module_catalog_and_import_validation_report_errors() {
-        let mut broken = program_state();
-        broken.module_order.push("missing".to_string());
-        let build_error = ModuleCatalog::build(&broken).err().expect("missing module");
-        assert!(
-            build_error
-                .to_string()
-                .contains("missing expand-time state")
-        );
-
-        let program = program_state();
-        let catalog = ModuleCatalog::build(&program).expect("catalog");
-        let import_form = form("import", vec![attr("name", "helper"), children(vec![])]);
-        assert!(validate_import_target(&catalog, &import_form, "main", "helper").is_ok());
-        let self_error =
-            validate_import_target(&catalog, &import_form, "main", "main").expect_err("self");
-        assert!(self_error.to_string().contains("cannot import itself"));
-        let missing_error =
-            validate_import_target(&catalog, &import_form, "main", "nope").expect_err("missing");
-        assert!(missing_error.to_string().contains("does not exist"));
-        let script_error = catalog
-            .resolve_script_literal("main", "@helper.nope")
-            .expect_err("unknown script");
-        assert!(script_error.to_string().contains("unknown script"));
     }
 
     #[test]

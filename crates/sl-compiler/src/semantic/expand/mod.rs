@@ -1,9 +1,12 @@
 mod const_eval;
 mod declared_types;
+mod imports;
 mod module;
+mod modules;
 mod program;
 mod rules;
 mod scope;
+mod scripts;
 
 use sl_core::{Form, FormField, FormItem, FormValue, ScriptLangError};
 
@@ -12,13 +15,12 @@ use super::types::SemanticProgram;
 use crate::semantic::{attr, child_forms, error_at, required_attr};
 pub(crate) use const_eval::{ConstEnv, ConstLookup, ConstValue, parse_const_value};
 pub(crate) use declared_types::parse_declared_type_form;
+pub(crate) use imports::validate_import_target;
 use module::expand_module_form;
+pub(crate) use modules::ModuleCatalog;
 pub(crate) use program::analyze_program;
 use rules::{ExpandRuleScope, expand_with_rules};
-pub(crate) use scope::{
-    ConstCatalog, ModuleCatalog, ModuleScope, QualifiedConstLookup, ScopeResolver,
-    validate_import_target,
-};
+pub(crate) use scope::{ConstCatalog, ModuleScope, QualifiedConstLookup, ScopeResolver};
 
 pub(crate) fn expand_forms(forms: &[Form]) -> Result<SemanticProgram, ScriptLangError> {
     let mut env = ExpandEnv::default().with_phase(CompilePhase::Module);

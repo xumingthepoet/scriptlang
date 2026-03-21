@@ -91,10 +91,18 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 - 源码目录当前按阶段分成：
   - 顶层 `pipeline.rs`
   - `semantic/`：名称解析、`<const>` 编译期求值、文本模板解析和语义下沉；当前包含 `env.rs`、`form.rs`、`expand/`、`expr/` 和 `types.rs`
-  - `semantic/expand/`：承载 builtin/module macro expansion、module definition-time state、scope/const/program analysis
+  - `semantic/expand/`：承载 builtin/module macro expansion、module/import definition-time state、module catalog、scope resolution、const evaluation 和 script lowering analysis
   - `assemble/`：声明收集、lowering、boot script、`CompiledArtifact` 装配
 - `semantic/form.rs` 当前统一承载 raw `Form` 的属性、body、children 和错误定位 helper；旧 `classify.rs` 已删除
 - `expand` 入口会直接对 raw `Form` 做 module / import / const / var / script / local temp 的顺序遍历和定义期状态维护；`ExpandEnv` 会累计整份程序的 module 状态快照，包括 module order、children、exports、imports、const declarations 和 macro definitions
+- `semantic/expand/` 当前已经按职责拆分：
+  - [`imports.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/imports.rs)：import 目标校验
+  - [`modules.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/modules.rs)：module catalog 与 script 字面量查找
+  - [`scope.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/scope.rs)：module scope、const catalog 和 var/const 解析
+  - [`program.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/program.rs)：program/module 级语义总调度
+  - [`scripts.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/scripts.rs)：script body 和 statement lowering
+  - [`declared_types.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/declared_types.rs)：声明类型解析与 `<const>` 声明注册
+  - [`const_eval.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/const_eval.rs)：builtin 常量求值与常量替换
 - `semantic/expr/` 统一承载 expr 前端处理；`script literal` 会先经过统一 token 扫描，模板 `${...}` 的洞会先落到 `ExprSource` 外壳后再回到当前 `TextTemplate` 主路径
 - builtin form 的 expand 处理当前已收敛到 [`semantic/expand/rules.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/rules.rs) 的统一 rule 调度，不再分散在多个阶段文件里
 - `ExpandRegistry` 当前已经提供 builtin / macro 共用的统一分发入口；macro 目前支持最小 MVP：
