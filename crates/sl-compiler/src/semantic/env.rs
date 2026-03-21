@@ -73,7 +73,7 @@ pub(crate) struct ExpandEnv {
     pub(crate) source_name: Option<String>,
     pub(crate) program: ProgramState,
     pub(crate) module: ModuleState,
-    pub(crate) macro_invocation_counter: usize,
+    pub(crate) macro_invocation_counters: BTreeMap<String, usize>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -218,8 +218,17 @@ impl ExpandEnv {
     }
 
     pub(crate) fn reserve_macro_invocation_seed(&mut self) -> usize {
-        self.macro_invocation_counter += 1;
-        self.macro_invocation_counter
+        let module_name = self
+            .module
+            .module_name
+            .clone()
+            .unwrap_or_else(|| "<unknown>".to_string());
+        let counter = self
+            .macro_invocation_counters
+            .entry(module_name)
+            .or_insert(0);
+        *counter += 1;
+        *counter
     }
 }
 

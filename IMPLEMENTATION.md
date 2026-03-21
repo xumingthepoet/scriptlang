@@ -77,7 +77,7 @@
 当前语义约束：
 
 - `<if>` 只有单分支，没有 `else`
-- 表层 `<if>` 当前由 `kernel` 宏提供，并展开成基于 `<while>` 的单次执行结构
+- 表层 `<if>` 当前完全由 `kernel` 宏提供，并展开成基于 non-capturing `<while>` 的单次执行结构；compiler 不再保留 builtin `if` 语义节点
 - `<while>` 当前已支持 `break` / `continue`
 - `<goto script="">` 现在是表达式槽位，运行时要求其结果为 script key 字符串
 - `<import>`、`<require>`、`<alias>` 只能出现在 `<module>` 下，并按源码顺序向后影响当前 module 的编译期上下文
@@ -143,7 +143,7 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
   - `get_content` 现在支持 `head="..."`，可按调用点直接子标签筛选 AST 片段
   - `quote` 中的普通字符串属性和文本节点支持 `${local_name}` compile-time splice
   - 现在已经支持最小 hygiene：quote 中引入的 runtime `<temp>` 名会 gensym，并同步改写后续 expr 引用
-  - gensym 当前按“宏调用全局 seed + 调用内局部计数”生成，避免嵌套宏和重复调用撞名
+  - gensym 当前按“当前调用 module 内 seed + 调用内局部计数”生成，既保持确定性，也更接近 Elixir 的 module-scoped counter 思路
   - 当前已有显式 `MacroEnv`
   - 当前 compile-time values 至少覆盖 `string / expr / ast / bool / int`
 - program 级 macro registry 当前按 module 归档定义；expand dispatch 会按“当前 module -> 已 require modules -> 隐式 kernel”顺序解析可见宏
@@ -205,7 +205,7 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
   - 编译期会校验字面量引用的 function 是否存在
 - `<goto>` 当前不再做 script ref 名字解析；它只保留表达式并 lower 成运行时动态跳转
 - `kernel.xml` 当前除常量外，已可声明最小 kernel macro；API 单测和 integration example 已覆盖 required module macro 可见性解析，以及基于 `quote / unquote` 的 `say` / `when_text` / `script_text` / `unless` / `if-else` 标准宏
-- `kernel` 当前还提供标准 `<if>` 宏；它通过 non-capturing `<while>` 结构实现，不再依赖表层 builtin `<if>`
+- `kernel` 当前还提供标准 `<if>` 宏；它通过 non-capturing `<while>` 结构实现，底层已不再保留单独的 builtin `if` lowering
 
 当前 IR 指令包括：
 

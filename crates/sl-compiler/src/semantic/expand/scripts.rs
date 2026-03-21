@@ -105,22 +105,6 @@ fn analyze_stmt(
             )?,
             tag: attr(form, "tag").map(str::to_string),
         }),
-        "if" => Ok(SemanticStmt::If {
-            when: rewrite_var_expr(
-                required_attr(form, "when")?,
-                const_env,
-                resolver,
-                remaining_const_names,
-                shadowed_names,
-            )?,
-            body: analyze_block(
-                &child_forms(form)?,
-                const_env,
-                resolver,
-                remaining_const_names,
-                shadowed_names,
-            )?,
-        }),
         "while" => Ok(SemanticStmt::While {
             when: rewrite_var_expr(
                 required_attr(form, "when")?,
@@ -367,8 +351,8 @@ mod tests {
                                 vec![text("${counter}:${#h.pick}:${@loop}")],
                             )),
                             child(node(
-                                "if",
-                                vec![("when", "counter == 41")],
+                                "while",
+                                vec![("when", "counter == 41"), ("__sl_loop_capture", "false")],
                                 vec![child(node("text", vec![], vec![text("ok")]))],
                             )),
                             child(node(
@@ -436,7 +420,11 @@ mod tests {
         ));
         assert!(matches!(
             &body[3],
-            SemanticStmt::If { when, body }
+            SemanticStmt::While {
+                when,
+                body,
+                captures_loop_control: false
+            }
                 if when == "counter == 41"
                     && matches!(&body[0], SemanticStmt::Text { .. })
         ));

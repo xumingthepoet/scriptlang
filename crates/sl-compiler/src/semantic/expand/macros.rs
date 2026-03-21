@@ -269,9 +269,12 @@ mod tests {
                     "quote",
                     vec![],
                     vec![form_item(
-                        "if",
-                        vec![("when", "${when_expr}")],
-                        vec![form_item("unquote", vec![], vec![text_item("content_ast")])],
+                        "while",
+                        vec![("when", "${when_expr}"), ("__sl_loop_capture", "false")],
+                        vec![
+                            form_item("code", vec![], vec![text_item("flag = false;")]),
+                            form_item("unquote", vec![], vec![text_item("content_ast")]),
+                        ],
                     )],
                 ),
             ],
@@ -290,7 +293,7 @@ mod tests {
         )
         .expect("expand");
 
-        assert_eq!(expanded.head, "if");
+        assert_eq!(expanded.head, "while");
         assert_eq!(attr(&expanded, "when"), Some("flag"));
         let children = expanded
             .fields
@@ -300,7 +303,7 @@ mod tests {
                 _ => None,
             })
             .unwrap_or_default();
-        assert_eq!(children.len(), 1);
+        assert_eq!(children.len(), 2);
     }
 
     #[test]

@@ -33,9 +33,13 @@
       <get-content/>
     </let>
     <quote>
-      <if when="${when_expr}">
+      <temp name="condition" type="bool">
+        <unquote>when_expr</unquote>
+      </temp>
+      <while when="condition" __sl_loop_capture="false">
+        <code>condition = false;</code>
         <unquote>content_ast</unquote>
-      </if>
+      </while>
     </quote>
   </macro>
   <macro name="script_text" attributes="name:string,text:string">
@@ -63,9 +67,10 @@
       <temp name="condition" type="bool">
         <unquote>when_expr</unquote>
       </temp>
-      <if when="!condition">
+      <while when="!condition" __sl_loop_capture="false">
+        <code>condition = true;</code>
         <unquote>content_ast</unquote>
-      </if>
+      </while>
     </quote>
   </macro>
   <macro name="if-else" attributes="when:expr" content="ast">
@@ -82,12 +87,15 @@
       <temp name="condition" type="bool">
         <unquote>when_expr</unquote>
       </temp>
-      <if when="condition">
+      <temp name="else_condition" type="bool">!condition</temp>
+      <while when="condition" __sl_loop_capture="false">
+        <code>condition = false;</code>
         <unquote>do_ast</unquote>
-      </if>
-      <if when="!condition">
+      </while>
+      <while when="else_condition" __sl_loop_capture="false">
+        <code>else_condition = false;</code>
         <unquote>else_ast</unquote>
-      </if>
+      </while>
     </quote>
   </macro>
 </module>

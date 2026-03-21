@@ -83,10 +83,6 @@ pub(crate) enum SemanticStmt {
         template: TextTemplate,
         tag: Option<String>,
     },
-    If {
-        when: String,
-        body: Vec<SemanticStmt>,
-    },
     While {
         when: String,
         body: Vec<SemanticStmt>,

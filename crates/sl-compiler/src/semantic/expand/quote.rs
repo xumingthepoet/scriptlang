@@ -168,10 +168,7 @@ fn is_expr_body_form(head: &str) -> bool {
 }
 
 fn is_expr_attr(head: &str, field_name: &str) -> bool {
-    matches!(
-        (head, field_name),
-        ("if", "when") | ("while", "when") | ("goto", "script")
-    )
+    matches!((head, field_name), ("while", "when") | ("goto", "script"))
 }
 
 fn gensym(runtime: &mut MacroEnv, prefix: &str) -> String {

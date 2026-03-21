@@ -75,20 +75,6 @@ fn lower_block(
                     tag: tag.clone(),
                 });
             }
-            SemanticStmt::If { when, body } => {
-                draft.instructions.push(Instruction::EvalCond {
-                    expr: lower_resolved_vars_to_runtime_names(when),
-                });
-                let jump_index = draft.instructions.len();
-                draft
-                    .instructions
-                    .push(Instruction::JumpIfFalse { target_pc: 0 });
-                lower_block(script_refs, draft, body, loop_stack)?;
-                let after_body = draft.instructions.len();
-                draft.instructions[jump_index] = Instruction::JumpIfFalse {
-                    target_pc: after_body,
-                };
-            }
             SemanticStmt::While {
                 when,
                 body,
@@ -346,8 +332,9 @@ mod tests {
                     },
                     tag: Some("note".to_string()),
                 },
-                SemanticStmt::If {
+                SemanticStmt::While {
                     when: "x > 1".to_string(),
+                    captures_loop_control: false,
                     body: vec![
                         SemanticStmt::Temp {
                             name: "x".to_string(),
@@ -385,13 +372,17 @@ mod tests {
         ));
         assert!(matches!(
             &draft.instructions[4],
-            Instruction::JumpIfFalse { target_pc } if *target_pc == 7
+            Instruction::JumpIfFalse { target_pc } if *target_pc == 8
         ));
         assert!(matches!(
             &draft.instructions[5],
             Instruction::EvalTemp { local_id, expr } if *local_id == 0 && expr == "2"
         ));
         assert!(matches!(&draft.instructions[6], Instruction::End));
+        assert!(matches!(
+            &draft.instructions[7],
+            Instruction::Jump { target_pc } if *target_pc == 3
+        ));
     }
 
     #[test]

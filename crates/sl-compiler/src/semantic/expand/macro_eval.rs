@@ -320,13 +320,12 @@ mod tests {
                         vec![child(node("unquote", vec![], vec![text_item("when_expr")]))],
                     )),
                     child(node(
-                        "if",
-                        vec![("when", "!condition")],
-                        vec![child(node(
-                            "unquote",
-                            vec![],
-                            vec![text_item("content_ast")],
-                        ))],
+                        "while",
+                        vec![("when", "!condition"), ("__sl_loop_capture", "false")],
+                        vec![
+                            child(node("code", vec![], vec![text_item("condition = true;")])),
+                            child(node("unquote", vec![], vec![text_item("content_ast")])),
+                        ],
                     )),
                 ],
             )),
@@ -347,10 +346,10 @@ mod tests {
         assert_eq!(first.head, "temp");
         assert_eq!(attr(first, "name"), Some("__macro_unless_1_condition_1"));
         assert_eq!(raw_body_text(first).as_deref(), Some("flag"));
-        assert_eq!(second.head, "if");
+        assert_eq!(second.head, "while");
         assert_eq!(attr(second, "when"), Some("!__macro_unless_1_condition_1"));
         let second_children = invocation_children(second);
-        assert_eq!(second_children.len(), 1);
+        assert_eq!(second_children.len(), 2);
     }
 
     #[test]

@@ -133,4 +133,26 @@ mod tests {
             "macro `unless` in module `main` (1 imports, 1 requires, 1 aliases)"
         );
     }
+
+    #[test]
+    fn macro_env_gensym_seed_is_scoped_to_current_module() {
+        let mut expand_env = ExpandEnv::default();
+        expand_env
+            .begin_module(Some("main".to_string()), Some("main.xml".to_string()))
+            .expect("main module");
+
+        let first = MacroEnv::from_invocation(&mut expand_env, "unless", BTreeMap::new(), vec![]);
+        let second = MacroEnv::from_invocation(&mut expand_env, "if_else", BTreeMap::new(), vec![]);
+        assert_eq!(first.gensym_seed, 1);
+        assert_eq!(second.gensym_seed, 2);
+
+        expand_env.finish_module();
+        expand_env
+            .begin_module(Some("helper".to_string()), Some("helper.xml".to_string()))
+            .expect("helper module");
+
+        let helper =
+            MacroEnv::from_invocation(&mut expand_env, "surround", BTreeMap::new(), vec![]);
+        assert_eq!(helper.gensym_seed, 1);
+    }
 }
