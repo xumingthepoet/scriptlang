@@ -1,6 +1,4 @@
 mod assemble;
-mod classify;
-mod expand;
 mod names;
 mod pipeline;
 mod semantic;

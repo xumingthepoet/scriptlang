@@ -14,10 +14,7 @@ use super::types::{
     DeclaredType, SemanticChoiceOption, SemanticModule, SemanticProgram, SemanticScript,
     SemanticStmt, SemanticVar,
 };
-use crate::classify::{
-    ClassifiedForm, attr, body_expr, body_template, child_forms, error_at, required_attr,
-};
-
+use super::{ClassifiedForm, attr, body_expr, body_template, child_forms, error_at, required_attr};
 pub(crate) fn analyze_forms(forms: &[ClassifiedForm]) -> Result<SemanticProgram, ScriptLangError> {
     let catalog = ModuleCatalog::build(forms)?;
     let mut const_catalog = ConstCatalog::new(&catalog);
@@ -381,11 +378,11 @@ fn parse_declared_type(form: &ClassifiedForm) -> Result<DeclaredType, ScriptLang
 mod tests {
     use sl_core::{Form, FormField, FormItem, FormMeta, FormValue, SourcePosition};
 
-    use crate::classify::classify_forms;
     use crate::names::resolved_var_placeholder;
     use crate::semantic::types::DeclaredType;
 
     use super::{SemanticStmt, analyze_forms, parse_text_template};
+    use crate::semantic::classify_forms;
 
     fn meta() -> FormMeta {
         FormMeta {

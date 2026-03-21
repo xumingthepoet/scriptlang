@@ -4,7 +4,7 @@ use sl_core::ScriptLangError;
 
 use super::const_eval::{ConstEnv, ConstLookup, ConstValue, parse_const_value};
 use super::types::{DeclaredType, ModulePath, ResolvedRef};
-use crate::classify::{ClassifiedForm, attr, body_expr, child_forms, error_at, required_attr};
+use super::{ClassifiedForm, attr, body_expr, child_forms, error_at, required_attr};
 use crate::names::script_literal_key;
 
 pub(crate) const DEFAULT_KERNEL_MODULE: &str = "kernel";

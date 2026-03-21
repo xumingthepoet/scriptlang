@@ -84,15 +84,13 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 `sl-compiler` 负责：
 
 - 以显式 pipeline 执行编译：
-  - `Form -> macro expansion`
-  - `expanded Form -> slot classification`
+  - `Form -> slot classification`
   - `classified Form -> module/script/var/stmt 语义结构`
   - `semantic program -> runtime IR`
 - 源码目录当前按阶段分成：
-  - 顶层 `expand.rs` / `pipeline.rs` / `classify.rs`
+  - 顶层 `pipeline.rs`
   - `semantic/`：名称解析、`<const>` 编译期求值、文本模板解析、语义下沉
   - `assemble/`：声明收集、lowering、boot script、`CompiledArtifact` 装配
-- 当前 macro expansion 阶段已经独立成单独步骤，但仍是 no-op passthrough
 - `classify` 当前会把开放 `Form` 上的内建槽位标成 `expr / template / plain text / ident / statements`，供后续 semantic 使用；它不是闭合 typed AST
 - 在 form semantics 阶段完成 MVP 标签校验、属性校验、`<import>` 上下文推进、统一名称解析、`<const>` 编译期求值和结构下沉
 - `<const>` 只在 semantic analyze 阶段内存在；进入 `SemanticProgram` 后不再保留 const 声明
