@@ -64,13 +64,13 @@ crates/sl-integration-tests/examples/<example>/
 2. `cargo fmt --all --check`
 3. `cargo test --workspace -q`
 4. `cargo clippy --workspace --all-targets --all-features -- -D warnings`
-5. `cargo llvm-cov --package sl-core --package sl-parser --package sl-compiler --package sl-runtime --lib --fail-under-lines 0 --fail-under-functions 0`
+5. `cargo llvm-cov --package sl-core --package sl-parser --package sl-compiler --package sl-runtime --lib --fail-under-lines 99 --fail-under-functions 100`
 
 这里的标准是硬门禁，不是参考值：
 
 - `fmt` 必须过
 - `clippy -D warnings` 必须过
-- `coverage` 当前临时要求 line/function 都是 `0%`
+- `coverage` 必须达到 line `99%` / function `100%`
 
 ## 3. 新增或修改代码时的测试要求
 
@@ -92,7 +92,6 @@ crates/sl-integration-tests/examples/<example>/
 
 - 用宏、条件编译或包装层跳过真实逻辑执行
 - 新增 `#[ignore]`、`#[allow(...)]`、`#[expect(...)]` 只为压住当前问题
-- 前端重构期间，coverage 阈值已临时放宽为 `0 / 0`；后续重构收敛后需要重新收紧
 - 排除应当被覆盖的代码
 - 故意不跑 `fmt`，让大量逻辑挤在一行，借此规避 line coverage
 - 把复杂逻辑塞进难以追踪的宏展开里，只让表面调用点计数好看

@@ -4,8 +4,6 @@
 
 注意：`sl-compiler` 前端语义层当前正在进行较大重构，目标是向 env-driven expand 结构收敛。本文档描述的是“当前已落地状态”，不是前端最终形态；最终目标、步骤和实时进展见 [`SEMANTIC_REWRITE_PLAN.md`](/Users/xuming/work/scriptlang-new/SEMANTIC_REWRITE_PLAN.md)。
 
-另：当前 `make coverage` / `make gate` 的 coverage 阈值已临时放宽为 `0 / 0`，目的是避免在前端重构期间由 coverage 门槛阻塞结构改造；这不是最终测试目标，后续需要随着重构收敛重新收紧。
-
 ## Workspace Layout
 
 当前项目已经拆成多 crate workspace：
