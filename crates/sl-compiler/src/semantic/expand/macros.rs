@@ -1,155 +1,101 @@
 use sl_core::{Form, FormField, FormItem, FormValue, ScriptLangError};
 
-use super::{map_child_forms, string_attr};
-use crate::semantic::env::{ExpandEnv, MacroDefinition, MacroScope};
-use crate::semantic::form::attr;
+use super::dispatch::{ExpandRuleScope, expand_generated_items, macro_scope};
+use super::macro_eval::{evaluate_macro_items, uses_macro_evaluator};
+use crate::semantic::env::{ExpandEnv, MacroDefinition};
+use crate::semantic::{attr, child_forms, error_at, required_attr};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ExpandRuleScope {
-    ModuleChild,
-    Statement,
+pub(super) fn collect_program_macros(
+    forms: &[Form],
+    env: &mut ExpandEnv,
+) -> Result<(), ScriptLangError> {
+    for form in forms {
+        if form.head != "module" {
+            return Err(error_at(
+                form,
+                format!("top-level <{}> is not supported in MVP", form.head),
+            ));
+        }
+        let module_name = required_attr(form, "name")?.to_string();
+        for child in child_forms(form)? {
+            if child.head != "macro" {
+                continue;
+            }
+            let definition = parse_macro_definition(child, &module_name)?;
+            env.program
+                .register_macro(definition)
+                .map_err(|message| error_at(child, message))?;
+        }
+    }
+    Ok(())
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ExpandDispatch {
-    Builtin,
-    MacroHook,
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-pub(crate) struct ExpandRegistry;
-
-pub(crate) fn expand_with_rules(
+pub(super) fn expand_macro_hook(
     form: &Form,
     env: &mut ExpandEnv,
     scope: ExpandRuleScope,
-) -> Result<Form, ScriptLangError> {
-    ExpandRegistry.expand(form, env, scope)
-}
-
-impl ExpandRegistry {
-    pub(crate) fn expand(
-        self,
-        form: &Form,
-        env: &mut ExpandEnv,
-        scope: ExpandRuleScope,
-    ) -> Result<Form, ScriptLangError> {
-        match self.dispatch(form, env, scope) {
-            ExpandDispatch::Builtin => match scope {
-                ExpandRuleScope::ModuleChild => expand_module_child(form, env),
-                ExpandRuleScope::Statement => expand_statement_child(form, env),
-            },
-            ExpandDispatch::MacroHook => expand_macro_hook(form, env, scope),
-        }
-    }
-
-    fn dispatch(self, form: &Form, env: &ExpandEnv, scope: ExpandRuleScope) -> ExpandDispatch {
-        if self.has_builtin_rule(form, scope) {
-            ExpandDispatch::Builtin
-        } else if env
-            .resolve_macro(&form.head, envless_scope(scope))
-            .is_some()
-        {
-            ExpandDispatch::MacroHook
-        } else {
-            ExpandDispatch::Builtin
-        }
-    }
-
-    fn has_builtin_rule(self, form: &Form, scope: ExpandRuleScope) -> bool {
-        match scope {
-            ExpandRuleScope::ModuleChild => matches!(form.head.as_str(), "script" | "var" | "temp"),
-            ExpandRuleScope::Statement => {
-                matches!(form.head.as_str(), "temp" | "if" | "choice" | "option")
-            }
-        }
-    }
-}
-
-fn expand_module_child(form: &Form, env: &mut ExpandEnv) -> Result<Form, ScriptLangError> {
-    match form.head.as_str() {
-        "script" => {
-            env.begin_script();
-            map_child_forms(form, |child| {
-                expand_with_rules(child, env, ExpandRuleScope::Statement)
-            })
-        }
-        "var" => Ok(form.clone()),
-        "temp" => {
-            if let Some(name) = string_attr(form, "name") {
-                env.add_local(name.to_string());
-            }
-            Ok(form.clone())
-        }
-        _ => Ok(form.clone()),
-    }
-}
-
-fn expand_statement_child(form: &Form, env: &mut ExpandEnv) -> Result<Form, ScriptLangError> {
-    env.enter_statement();
-    match form.head.as_str() {
-        "temp" => {
-            if let Some(name) = string_attr(form, "name") {
-                env.add_local(name.to_string());
-            }
-            Ok(form.clone())
-        }
-        "if" | "choice" | "option" => map_child_forms(form, |child| {
-            expand_with_rules(child, env, ExpandRuleScope::Statement)
-        }),
-        _ => Ok(form.clone()),
-    }
-}
-
-fn expand_macro_hook(
-    form: &Form,
-    env: &mut ExpandEnv,
-    scope: ExpandRuleScope,
-) -> Result<Form, ScriptLangError> {
-    let macro_scope = envless_scope(scope);
+) -> Result<Vec<FormItem>, ScriptLangError> {
+    let macro_scope = macro_scope(scope);
     let definition = env.resolve_macro(&form.head, macro_scope).cloned();
-    match definition {
-        Some(definition) => expand_macro_invocation(&definition, form, env, scope),
-        None => Ok(form.clone()),
-    }
+    let Some(definition) = definition else {
+        return Ok(vec![FormItem::Form(form.clone())]);
+    };
+    expand_macro_invocation(definition, form, env, scope)
 }
 
-fn envless_scope(scope: ExpandRuleScope) -> MacroScope {
-    match scope {
-        ExpandRuleScope::ModuleChild => MacroScope::ModuleChild,
-        ExpandRuleScope::Statement => MacroScope::Statement,
-    }
+fn parse_macro_definition(
+    form: &Form,
+    module_name: &str,
+) -> Result<MacroDefinition, ScriptLangError> {
+    let name = required_attr(form, "name")?.to_string();
+    let scope = match attr(form, "scope") {
+        Some("module") => crate::semantic::env::MacroScope::ModuleChild,
+        None | Some("statement") => crate::semantic::env::MacroScope::Statement,
+        Some(other) => {
+            return Err(error_at(
+                form,
+                format!("unsupported macro scope `{other}` in MVP"),
+            ));
+        }
+    };
+    let body = form
+        .fields
+        .iter()
+        .find_map(|field| match (&field.name[..], &field.value) {
+            ("children", FormValue::Sequence(items)) => Some(items.clone()),
+            _ => None,
+        })
+        .ok_or_else(|| error_at(form, "<macro> requires `children` field"))?;
+    Ok(MacroDefinition {
+        module_name: module_name.to_string(),
+        name,
+        scope,
+        body,
+    })
 }
 
 fn expand_macro_invocation(
-    definition: &MacroDefinition,
+    definition: MacroDefinition,
     invocation: &Form,
     env: &mut ExpandEnv,
     scope: ExpandRuleScope,
-) -> Result<Form, ScriptLangError> {
-    let expanded_items = expand_macro_items(&definition.body, invocation, env, scope)?
+) -> Result<Vec<FormItem>, ScriptLangError> {
+    if uses_macro_evaluator(&definition.body) {
+        let items = evaluate_macro_items(&definition.body, invocation, env, scope)?;
+        return expand_generated_items(&items, env, scope);
+    }
+
+    let expanded_items = expand_template_macro_items(&definition.body, invocation, env, scope)?
         .into_iter()
         .filter(|item| match item {
             FormItem::Text(text) => !text.trim().is_empty(),
             FormItem::Form(_) => true,
         })
         .collect::<Vec<_>>();
-    if expanded_items.len() != 1 {
-        return Err(ScriptLangError::message(format!(
-            "macro `{}` must expand to exactly one root form in MVP",
-            definition.name
-        )));
-    }
-    match expanded_items.into_iter().next().expect("single item") {
-        FormItem::Form(form) => Ok(form),
-        FormItem::Text(_) => Err(ScriptLangError::message(format!(
-            "macro `{}` cannot expand to top-level text item",
-            definition.name
-        ))),
-    }
+    expand_generated_items(&expanded_items, env, scope)
 }
 
-fn expand_macro_items(
+fn expand_template_macro_items(
     items: &[FormItem],
     invocation: &Form,
     env: &mut ExpandEnv,
@@ -166,7 +112,7 @@ fn expand_macro_items(
                 expanded.extend(invocation_children.clone());
             }
             FormItem::Form(node) => {
-                expanded.push(FormItem::Form(expand_macro_form(
+                expanded.push(FormItem::Form(expand_template_macro_form(
                     node, invocation, env, scope,
                 )?));
             }
@@ -175,18 +121,40 @@ fn expand_macro_items(
     Ok(expanded)
 }
 
-fn expand_macro_form(
+fn expand_template_macro_form(
     form: &Form,
     invocation: &Form,
     env: &mut ExpandEnv,
     scope: ExpandRuleScope,
 ) -> Result<Form, ScriptLangError> {
+    let items = expand_template_macro_form_items(form, invocation, env, scope)?;
+    if items.len() != 1 {
+        return Err(ScriptLangError::message(format!(
+            "macro expansion of <{}> must produce exactly one root form in nested position",
+            form.head
+        )));
+    }
+    match items.into_iter().next().expect("single item") {
+        FormItem::Form(form) => Ok(form),
+        FormItem::Text(_) => Err(ScriptLangError::message(format!(
+            "macro expansion of <{}> cannot produce text in nested form position",
+            form.head
+        ))),
+    }
+}
+
+fn expand_template_macro_form_items(
+    form: &Form,
+    invocation: &Form,
+    env: &mut ExpandEnv,
+    scope: ExpandRuleScope,
+) -> Result<Vec<FormItem>, ScriptLangError> {
     let mut fields = Vec::with_capacity(form.fields.len());
     for field in &form.fields {
         let value = match &field.value {
             FormValue::String(text) => FormValue::String(substitute_text(text, invocation)),
             FormValue::Sequence(items) => {
-                FormValue::Sequence(expand_macro_items(items, invocation, env, scope)?)
+                FormValue::Sequence(expand_template_macro_items(items, invocation, env, scope)?)
             }
         };
         fields.push(FormField {
@@ -199,7 +167,7 @@ fn expand_macro_form(
         meta: invocation.meta.clone(),
         fields,
     };
-    expand_with_rules(&expanded, env, scope)
+    expand_generated_items(&[FormItem::Form(expanded)], env, scope)
 }
 
 fn substitute_text(source: &str, invocation: &Form) -> String {
@@ -238,7 +206,8 @@ mod tests {
     use sl_core::{FormMeta, SourcePosition};
 
     use super::*;
-    use crate::semantic::env::{ExpandEnv, MacroDefinition};
+    use crate::semantic::env::{ExpandEnv, MacroScope};
+    use crate::semantic::expand::dispatch::{expand_form_items, expand_with_rules};
 
     fn meta() -> sl_core::FormMeta {
         FormMeta {
@@ -404,13 +373,13 @@ mod tests {
             vec![text_item("just text")],
         );
 
-        let many_error = expand_with_rules(
+        let many_items = expand_form_items(
             &form("many", vec![children_field(vec![])]),
             &mut env,
             ExpandRuleScope::Statement,
         )
-        .expect_err("multi root");
-        assert!(many_error.to_string().contains("exactly one root form"));
+        .expect("multi root");
+        assert_eq!(many_items.len(), 2);
 
         let text_error = expand_with_rules(
             &form("texty", vec![children_field(vec![])]),
@@ -421,7 +390,7 @@ mod tests {
         assert!(
             text_error
                 .to_string()
-                .contains("cannot expand to top-level text")
+                .contains("cannot produce top-level text")
         );
     }
 }

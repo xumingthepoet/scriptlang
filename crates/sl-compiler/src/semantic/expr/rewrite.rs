@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use sl_core::{ScriptLangError, TextSegment, TextTemplate};
 
@@ -205,6 +205,51 @@ pub(crate) fn rewrite_script_literals(
         cursor = token.end;
     }
     rewritten.push_str(&source[cursor..]);
+    Ok(rewritten)
+}
+
+pub(crate) fn rewrite_expr_idents(
+    source: &str,
+    renames: &BTreeMap<String, String>,
+) -> Result<String, ScriptLangError> {
+    if renames.is_empty() {
+        return Ok(source.to_string());
+    }
+
+    let mut rewritten = String::with_capacity(source.len());
+    let bytes = source.as_bytes();
+    let mut cursor = 0usize;
+
+    while cursor < bytes.len() {
+        let ch = bytes[cursor] as char;
+        if ch == '"' || ch == '\'' {
+            let end = scan_quoted(bytes, cursor)?;
+            rewritten.push_str(&source[cursor..end]);
+            cursor = end;
+            continue;
+        }
+
+        if is_ident_start(ch) {
+            let (end, segments) = scan_reference_path(source, cursor);
+            let raw = &source[cursor..end];
+            let first = segments[0].as_str();
+
+            if is_property_access(bytes, cursor) || is_map_key(source, end) || segments.len() > 1 {
+                rewritten.push_str(raw);
+            } else if let Some(replacement) = renames.get(first) {
+                rewritten.push_str(replacement);
+            } else {
+                rewritten.push_str(raw);
+            }
+
+            cursor = end;
+            continue;
+        }
+
+        rewritten.push(ch);
+        cursor += ch.len_utf8();
+    }
+
     Ok(rewritten)
 }
 

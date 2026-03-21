@@ -1,0 +1,11 @@
+<module name="main">
+  <script name="main">
+    <unless when="false">
+      <text>shown</text>
+    </unless>
+    <unless when="true">
+      <text>hidden</text>
+    </unless>
+    <end/>
+  </script>
+</module>

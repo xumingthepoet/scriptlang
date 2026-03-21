@@ -1,29 +1,32 @@
 mod const_eval;
 mod declared_types;
+mod dispatch;
 mod imports;
+mod macro_eval;
+mod macros;
 mod module;
 mod modules;
 mod program;
-mod rules;
+mod quote;
 mod scope;
 mod scripts;
 
-use sl_core::{Form, FormField, FormItem, FormValue, ScriptLangError};
+use sl_core::{Form, FormItem, FormValue, ScriptLangError};
 
-use super::env::{CompilePhase, ExpandEnv, MacroDefinition, MacroScope};
+use super::env::ExpandEnv;
 use super::types::SemanticProgram;
-use crate::semantic::{attr, child_forms, error_at, required_attr};
 pub(crate) use const_eval::{ConstEnv, ConstLookup, ConstValue, parse_const_value};
 pub(crate) use declared_types::parse_declared_type_form;
+use dispatch::{ExpandRuleScope, expand_with_rules};
 pub(crate) use imports::validate_import_target;
+use macros::collect_program_macros;
 use module::expand_module_form;
 pub(crate) use modules::ModuleCatalog;
 pub(crate) use program::analyze_program;
-use rules::{ExpandRuleScope, expand_with_rules};
 pub(crate) use scope::{ConstCatalog, ModuleScope, QualifiedConstLookup, ScopeResolver};
 
 pub(crate) fn expand_forms(forms: &[Form]) -> Result<SemanticProgram, ScriptLangError> {
-    let mut env = ExpandEnv::default().with_phase(CompilePhase::Module);
+    let mut env = ExpandEnv::default().with_phase(super::env::CompilePhase::Module);
     collect_program_macros(forms, &mut env)?;
     let _ = expand_raw_forms(forms, &mut env)?;
     analyze_program(&env.program)
@@ -34,59 +37,6 @@ pub(super) fn expand_raw_forms(
     env: &mut ExpandEnv,
 ) -> Result<Vec<Form>, ScriptLangError> {
     forms.iter().map(|form| expand_form(form, env)).collect()
-}
-
-fn collect_program_macros(forms: &[Form], env: &mut ExpandEnv) -> Result<(), ScriptLangError> {
-    for form in forms {
-        if form.head != "module" {
-            return Err(error_at(
-                form,
-                format!("top-level <{}> is not supported in MVP", form.head),
-            ));
-        }
-        let module_name = required_attr(form, "name")?.to_string();
-        for child in child_forms(form)? {
-            if child.head != "macro" {
-                continue;
-            }
-            let definition = parse_macro_definition(child, &module_name)?;
-            env.program
-                .register_macro(definition)
-                .map_err(|message| error_at(child, message))?;
-        }
-    }
-    Ok(())
-}
-
-fn parse_macro_definition(
-    form: &Form,
-    module_name: &str,
-) -> Result<MacroDefinition, ScriptLangError> {
-    let name = required_attr(form, "name")?.to_string();
-    let scope = match attr(form, "scope") {
-        Some("module") => MacroScope::ModuleChild,
-        None | Some("statement") => MacroScope::Statement,
-        Some(other) => {
-            return Err(error_at(
-                form,
-                format!("unsupported macro scope `{other}` in MVP"),
-            ));
-        }
-    };
-    let body = form
-        .fields
-        .iter()
-        .find_map(|field| match (&field.name[..], &field.value) {
-            ("children", FormValue::Sequence(items)) => Some(items.clone()),
-            _ => None,
-        })
-        .ok_or_else(|| error_at(form, "<macro> requires `children` field"))?;
-    Ok(MacroDefinition {
-        module_name: module_name.to_string(),
-        name,
-        scope,
-        body,
-    })
 }
 
 fn expand_form(form: &Form, env: &mut ExpandEnv) -> Result<Form, ScriptLangError> {
@@ -103,36 +53,6 @@ pub(super) fn string_attr<'a>(form: &'a Form, name: &str) -> Option<&'a str> {
             (field_name, FormValue::String(value)) if field_name == name => Some(value.as_str()),
             _ => None,
         })
-}
-
-pub(super) fn map_child_forms(
-    form: &Form,
-    mut rewrite: impl FnMut(&Form) -> Result<Form, ScriptLangError>,
-) -> Result<Form, ScriptLangError> {
-    let mut fields = Vec::with_capacity(form.fields.len());
-    for field in &form.fields {
-        let mapped = match (&field.name[..], &field.value) {
-            ("children", FormValue::Sequence(items)) => FormField {
-                name: field.name.clone(),
-                value: FormValue::Sequence(
-                    items
-                        .iter()
-                        .map(|item| match item {
-                            FormItem::Text(text) => Ok(FormItem::Text(text.clone())),
-                            FormItem::Form(child) => Ok(FormItem::Form(rewrite(child)?)),
-                        })
-                        .collect::<Result<Vec<_>, ScriptLangError>>()?,
-                ),
-            },
-            _ => field.clone(),
-        };
-        fields.push(mapped);
-    }
-    Ok(Form {
-        head: form.head.clone(),
-        meta: form.meta.clone(),
-        fields,
-    })
 }
 
 pub(super) fn raw_body_text(form: &Form) -> Option<String> {

@@ -1,7 +1,7 @@
 use sl_core::{Form, FormField, FormItem, FormValue, ScriptLangError};
 
 use super::declared_types::expand_const_form;
-use super::rules::{ExpandRuleScope, expand_with_rules};
+use super::dispatch::{ExpandRuleScope, expand_form_items};
 use super::string_attr;
 use crate::semantic::env::{CompilePhase, ExpandEnv};
 use crate::semantic::{attr, child_forms, error_at, required_attr};
@@ -27,14 +27,14 @@ pub(crate) fn expand_module_form(
                             if child.head == "macro" {
                                 continue;
                             }
-                            let child = match child.head.as_str() {
+                            let child_items = match child.head.as_str() {
                                 "import" => {
                                     if let Some(import_name) = string_attr(child, "name") {
                                         env.add_import(import_name.to_string());
                                     }
-                                    child.clone()
+                                    vec![FormItem::Form(child.clone())]
                                 }
-                                "const" => expand_const_form(child, env)?,
+                                "const" => vec![FormItem::Form(expand_const_form(child, env)?)],
                                 "var" => {
                                     let name = required_attr(child, "name")?.to_string();
                                     let exported = !is_private(child)?;
@@ -51,7 +51,7 @@ pub(crate) fn expand_module_form(
                                             ),
                                         ));
                                     }
-                                    expand_with_rules(child, env, ExpandRuleScope::ModuleChild)?
+                                    expand_form_items(child, env, ExpandRuleScope::ModuleChild)?
                                 }
                                 "script" => {
                                     let name = required_attr(child, "name")?.to_string();
@@ -69,11 +69,11 @@ pub(crate) fn expand_module_form(
                                             ),
                                         ));
                                     }
-                                    expand_with_rules(child, env, ExpandRuleScope::ModuleChild)?
+                                    expand_form_items(child, env, ExpandRuleScope::ModuleChild)?
                                 }
-                                _ => expand_with_rules(child, env, ExpandRuleScope::ModuleChild)?,
+                                _ => expand_form_items(child, env, ExpandRuleScope::ModuleChild)?,
                             };
-                            rewritten.push(FormItem::Form(child));
+                            rewritten.extend(child_items);
                         }
                     }
                 }

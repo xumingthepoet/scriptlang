@@ -12,7 +12,7 @@ Last updated: 2026-03-21
 2. builtin form 和 macro 继续共享统一分派入口
 3. 提供 `quote / unquote`
 4. 提供显式的编译期环境、局部变量和编译期逻辑
-5. 为 `unless` 这类标准库宏铺平道路
+5. 为 `unless` / `if-else` 这类标准库宏铺平道路
 6. 为后续在 `kernel` 或普通 module 中持续扩语法提供稳定基线
 
 ## Non-Goals
@@ -171,6 +171,38 @@ Last updated: 2026-03-21
 - `quote` 产出的是高层 `Form` AST
 - `condition` 是 quote 中引入的 runtime temp，需要 hygiene
 
+同一套机制也应足以承载标准 `if-else` 宏：
+
+```xml
+<macro name="if-else" attributes="when:expr" content="ast">
+  <let name="when_expr" type="expr">
+    <get-attribute name="when" />
+  </let>
+
+  <let name="do_ast" type="ast">
+    <get-content head="do" />
+  </let>
+
+  <let name="else_ast" type="ast">
+    <get-content head="else" />
+  </let>
+
+  <quote>
+    <temp name="condition" type="bool">
+      <unquote>when_expr</unquote>
+    </temp>
+    <if when="condition">
+      <unquote>do_ast</unquote>
+    </if>
+    <if when="!condition">
+      <unquote>else_ast</unquote>
+    </if>
+  </quote>
+</macro>
+```
+
+这要求 `get_content` 不只是“取全部 children”，还要支持按直接子标签分槽取 AST。
+
 ## Required Refactors
 
 在正式落地 `quote / unquote` 之前，至少要补这几层。
@@ -234,8 +266,12 @@ Last updated: 2026-03-21
 
 现有文件的角色：
 
-- [`rules.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/rules.rs)
+- [`dispatch.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/dispatch.rs)
   继续做 expand dispatch
+- [`macros.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/macros.rs)
+  承载宏定义收集和宏展开
+- [`quote.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/quote.rs)
+  承载 `quote / unquote` 与最小 hygiene
 - [`scripts.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/scripts.rs)
   继续做 runtime-side script lowering
 - [`expr/`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expr)
@@ -300,6 +336,7 @@ Last updated: 2026-03-21
 
 - 在 `kernel` 中落地 1-2 个真正依赖 `quote/unquote` 的宏
 - 首选 `unless`
+- 再补 `if-else`
 - 可选 `with_temp` / `surround_if`
 
 完成标准：
@@ -319,7 +356,7 @@ Last updated: 2026-03-21
 6. `get_content()` 返回 AST items
 7. imported macro 继续可见
 8. hygiene 至少覆盖 temp 名冲突场景
-9. `unless` 集成测试
+9. `unless` / `if-else` 集成测试
 
 ## Current Status
 
@@ -329,14 +366,22 @@ Last updated: 2026-03-21
 - builtin / macro 共用 `ExpandRegistry`
 - module / imported macro 可见性
 - `semantic/expr/` 统一 expr 前端边界
+- 已有可工作的 compile-time 宏链路：
+  - `<let>`
+  - `<get-attribute>`
+  - `<get-content>`
+  - `<quote>`
+  - `<unquote>`
+  - 最小 temp hygiene
+- `kernel` 中已经可以写出标准 `unless` 和 `if-else` 宏
 
 当前尚未具备：
 
-- `quote / unquote`
-- 显式 `MacroEnv`
-- compile-time `let`
-- compile-time AST / expr values
-- hygiene
+- 完整的显式 `MacroEnv` 公共模型
+- 更完整的 compile-time AST / expr / string value system
+- 更广泛的 quote splice 规则
+- 超出 temp 变量名的更完整 hygiene
+- 用真正宏系统完全替代旧的 `{{...}}` / `<yield/>` 路径
 
 ## Exit Criteria
 
@@ -345,5 +390,5 @@ Last updated: 2026-03-21
 - `quote / unquote` 已进入主路径
 - `MacroEnv` 和 compile-time values 已落地
 - `kernel` 中已有基于 `quote / unquote` 的真实宏
-- 至少一个类似 `unless` 的宏可以稳定工作
+- 至少两个标准宏可以稳定工作：`unless` 和 `if-else`
 - `IMPLEMENTATION.md` 已足够描述这些能力

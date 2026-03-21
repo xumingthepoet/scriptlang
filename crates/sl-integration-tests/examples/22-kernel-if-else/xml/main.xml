@@ -1,0 +1,21 @@
+<module name="main">
+  <script name="main">
+    <if-else when="true">
+      <do>
+        <text>then branch</text>
+      </do>
+      <else>
+        <text>else branch</text>
+      </else>
+    </if-else>
+    <if-else when="false">
+      <do>
+        <text>hidden</text>
+      </do>
+      <else>
+        <text>shown</text>
+      </else>
+    </if-else>
+    <end/>
+  </script>
+</module>
