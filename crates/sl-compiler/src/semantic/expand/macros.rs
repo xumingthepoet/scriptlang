@@ -1,7 +1,7 @@
-use sl_core::{Form, FormField, FormItem, FormValue, ScriptLangError};
+use sl_core::{Form, FormItem, FormValue, ScriptLangError};
 
 use super::dispatch::{ExpandRuleScope, expand_generated_items, macro_scope};
-use super::macro_eval::{evaluate_macro_items, uses_macro_evaluator};
+use super::macro_eval::evaluate_macro_items;
 use crate::semantic::env::{ExpandEnv, MacroDefinition};
 use crate::semantic::{attr, child_forms, error_at, required_attr};
 
@@ -80,12 +80,7 @@ fn expand_macro_invocation(
     env: &mut ExpandEnv,
     scope: ExpandRuleScope,
 ) -> Result<Vec<FormItem>, ScriptLangError> {
-    if uses_macro_evaluator(&definition.body) {
-        let items = evaluate_macro_items(&definition.body, invocation, env, scope)?;
-        return expand_generated_items(&items, env, scope);
-    }
-
-    let expanded_items = expand_template_macro_items(&definition.body, invocation, env, scope)?
+    let expanded_items = evaluate_macro_items(&definition.body, invocation, env, scope)?
         .into_iter()
         .filter(|item| match item {
             FormItem::Text(text) => !text.trim().is_empty(),
@@ -95,115 +90,9 @@ fn expand_macro_invocation(
     expand_generated_items(&expanded_items, env, scope)
 }
 
-fn expand_template_macro_items(
-    items: &[FormItem],
-    invocation: &Form,
-    env: &mut ExpandEnv,
-    scope: ExpandRuleScope,
-) -> Result<Vec<FormItem>, ScriptLangError> {
-    let invocation_children = invocation_children(invocation);
-    let mut expanded = Vec::new();
-    for item in items {
-        match item {
-            FormItem::Text(text) => {
-                expanded.push(FormItem::Text(substitute_text(text, invocation)))
-            }
-            FormItem::Form(node) if node.head == "yield" => {
-                expanded.extend(invocation_children.clone());
-            }
-            FormItem::Form(node) => {
-                expanded.push(FormItem::Form(expand_template_macro_form(
-                    node, invocation, env, scope,
-                )?));
-            }
-        }
-    }
-    Ok(expanded)
-}
-
-fn expand_template_macro_form(
-    form: &Form,
-    invocation: &Form,
-    env: &mut ExpandEnv,
-    scope: ExpandRuleScope,
-) -> Result<Form, ScriptLangError> {
-    let items = expand_template_macro_form_items(form, invocation, env, scope)?;
-    if items.len() != 1 {
-        return Err(ScriptLangError::message(format!(
-            "macro expansion of <{}> must produce exactly one root form in nested position",
-            form.head
-        )));
-    }
-    match items.into_iter().next().expect("single item") {
-        FormItem::Form(form) => Ok(form),
-        FormItem::Text(_) => Err(ScriptLangError::message(format!(
-            "macro expansion of <{}> cannot produce text in nested form position",
-            form.head
-        ))),
-    }
-}
-
-fn expand_template_macro_form_items(
-    form: &Form,
-    invocation: &Form,
-    env: &mut ExpandEnv,
-    scope: ExpandRuleScope,
-) -> Result<Vec<FormItem>, ScriptLangError> {
-    let mut fields = Vec::with_capacity(form.fields.len());
-    for field in &form.fields {
-        let value = match &field.value {
-            FormValue::String(text) => FormValue::String(substitute_text(text, invocation)),
-            FormValue::Sequence(items) => {
-                FormValue::Sequence(expand_template_macro_items(items, invocation, env, scope)?)
-            }
-        };
-        fields.push(FormField {
-            name: field.name.clone(),
-            value,
-        });
-    }
-    let expanded = Form {
-        head: form.head.clone(),
-        meta: invocation.meta.clone(),
-        fields,
-    };
-    expand_generated_items(&[FormItem::Form(expanded)], env, scope)
-}
-
-fn substitute_text(source: &str, invocation: &Form) -> String {
-    let mut output = String::new();
-    let mut cursor = 0usize;
-    while let Some(start) = source[cursor..].find("{{") {
-        let start = cursor + start;
-        output.push_str(&source[cursor..start]);
-        let expr_start = start + 2;
-        let Some(end) = source[expr_start..].find("}}") else {
-            output.push_str(&source[start..]);
-            return output;
-        };
-        let end = expr_start + end;
-        let key = source[expr_start..end].trim();
-        output.push_str(attr(invocation, key).unwrap_or_default());
-        cursor = end + 2;
-    }
-    output.push_str(&source[cursor..]);
-    output
-}
-
-fn invocation_children(invocation: &Form) -> Vec<FormItem> {
-    invocation
-        .fields
-        .iter()
-        .find_map(|field| match (&field.name[..], &field.value) {
-            ("children", FormValue::Sequence(items)) => Some(items.clone()),
-            _ => None,
-        })
-        .unwrap_or_default()
-}
-
 #[cfg(test)]
 mod tests {
-    use sl_core::{FormMeta, SourcePosition};
+    use sl_core::{FormField, FormMeta, SourcePosition};
 
     use super::*;
     use crate::semantic::env::{ExpandEnv, MacroScope};
@@ -282,14 +171,33 @@ mod tests {
             "kernel",
             "dup",
             MacroScope::Statement,
-            vec![form_item("end", vec![], vec![])],
+            vec![form_item(
+                "quote",
+                vec![],
+                vec![form_item("end", vec![], vec![])],
+            )],
         );
         register_macro(
             &mut env,
             "kernel",
             "dup",
             MacroScope::ModuleChild,
-            vec![form_item("script", vec![("name", "{{name}}")], vec![])],
+            vec![
+                form_item(
+                    "let",
+                    vec![("name", "script_name"), ("type", "string")],
+                    vec![form_item("get-attribute", vec![("name", "name")], vec![])],
+                ),
+                form_item(
+                    "quote",
+                    vec![],
+                    vec![form_item(
+                        "script",
+                        vec![("name", "${script_name}")],
+                        vec![],
+                    )],
+                ),
+            ],
         );
 
         let module_expanded = expand_with_rules(
@@ -313,7 +221,7 @@ mod tests {
     }
 
     #[test]
-    fn expand_with_rules_expands_yield_and_attribute_substitution() {
+    fn expand_with_rules_expands_quote_based_attribute_and_content_splice() {
         let mut env = ExpandEnv::default();
         env.begin_module(Some("main".to_string()), None)
             .expect("module");
@@ -323,11 +231,27 @@ mod tests {
             "kernel",
             "wrap",
             MacroScope::Statement,
-            vec![form_item(
-                "if",
-                vec![("when", "{{when}}")],
-                vec![form_item("yield", vec![], vec![])],
-            )],
+            vec![
+                form_item(
+                    "let",
+                    vec![("name", "when_expr"), ("type", "expr")],
+                    vec![form_item("get-attribute", vec![("name", "when")], vec![])],
+                ),
+                form_item(
+                    "let",
+                    vec![("name", "content_ast"), ("type", "ast")],
+                    vec![form_item("get-content", vec![], vec![])],
+                ),
+                form_item(
+                    "quote",
+                    vec![],
+                    vec![form_item(
+                        "if",
+                        vec![("when", "${when_expr}")],
+                        vec![form_item("unquote", vec![], vec![text_item("content_ast")])],
+                    )],
+                ),
+            ],
         );
 
         let expanded = expand_with_rules(
@@ -345,7 +269,14 @@ mod tests {
 
         assert_eq!(expanded.head, "if");
         assert_eq!(attr(&expanded, "when"), Some("flag"));
-        let children = invocation_children(&expanded);
+        let children = expanded
+            .fields
+            .iter()
+            .find_map(|field| match (&field.name[..], &field.value) {
+                ("children", FormValue::Sequence(items)) => Some(items.clone()),
+                _ => None,
+            })
+            .unwrap_or_default();
         assert_eq!(children.len(), 1);
     }
 
@@ -360,17 +291,21 @@ mod tests {
             "kernel",
             "many",
             MacroScope::Statement,
-            vec![
-                form_item("end", vec![], vec![]),
-                form_item("end", vec![], vec![]),
-            ],
+            vec![form_item(
+                "quote",
+                vec![],
+                vec![
+                    form_item("end", vec![], vec![]),
+                    form_item("end", vec![], vec![]),
+                ],
+            )],
         );
         register_macro(
             &mut env,
             "kernel",
             "texty",
             MacroScope::Statement,
-            vec![text_item("just text")],
+            vec![form_item("quote", vec![], vec![text_item("just text")])],
         );
 
         let many_items = expand_form_items(

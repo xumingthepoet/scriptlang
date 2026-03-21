@@ -1,18 +1,39 @@
 <module name="kernel">
   <const name="zero" type="int">0</const>
-  <macro name="say" scope="statement">
-    <text>{{text}}</text>
+  <macro name="say" scope="statement" attributes="text:string">
+    <let name="text_value" type="string">
+      <get-attribute name="text"/>
+    </let>
+    <quote>
+      <text>${text_value}</text>
+    </quote>
   </macro>
-  <macro name="when_text" scope="statement">
-    <if when="{{when}}">
-      <yield/>
-    </if>
+  <macro name="when_text" scope="statement" attributes="when:expr" content="ast">
+    <let name="when_expr" type="expr">
+      <get-attribute name="when"/>
+    </let>
+    <let name="content_ast" type="ast">
+      <get-content/>
+    </let>
+    <quote>
+      <if when="${when_expr}">
+        <unquote>content_ast</unquote>
+      </if>
+    </quote>
   </macro>
-  <macro name="script_text" scope="module">
-    <script name="{{name}}">
-      <text>{{text}}</text>
-      <end/>
-    </script>
+  <macro name="script_text" scope="module" attributes="name:string,text:string">
+    <let name="script_name" type="string">
+      <get-attribute name="name"/>
+    </let>
+    <let name="text_value" type="string">
+      <get-attribute name="text"/>
+    </let>
+    <quote>
+      <script name="${script_name}">
+        <text>${text_value}</text>
+        <end/>
+      </script>
+    </quote>
   </macro>
   <macro name="unless" scope="statement" attributes="when:expr" content="ast">
     <let name="when_expr" type="expr">

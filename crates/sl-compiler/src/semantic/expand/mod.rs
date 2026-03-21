@@ -2,7 +2,9 @@ mod const_eval;
 mod declared_types;
 mod dispatch;
 mod imports;
+mod macro_env;
 mod macro_eval;
+mod macro_values;
 mod macros;
 mod module;
 mod modules;
@@ -316,10 +318,26 @@ mod tests {
                         vec![
                             attr("name", "say"),
                             attr("scope", "statement"),
-                            children(vec![child(form(
-                                "text",
-                                vec![children(vec![text("{{text}}")])],
-                            ))]),
+                            children(vec![
+                                child(form(
+                                    "let",
+                                    vec![
+                                        attr("name", "text_value"),
+                                        attr("type", "string"),
+                                        children(vec![child(form(
+                                            "get-attribute",
+                                            vec![attr("name", "text"), children(vec![])],
+                                        ))]),
+                                    ],
+                                )),
+                                child(form(
+                                    "quote",
+                                    vec![children(vec![child(form(
+                                        "text",
+                                        vec![children(vec![text("${text_value}")])],
+                                    ))])],
+                                )),
+                            ]),
                         ],
                     )),
                     child(form("script", vec![attr("name", "main"), children(vec![])])),
@@ -353,13 +371,32 @@ mod tests {
                         vec![
                             attr("name", "mk"),
                             attr("scope", "module"),
-                            children(vec![child(form(
-                                "script",
-                                vec![
-                                    attr("name", "{{name}}"),
-                                    children(vec![child(form("end", vec![children(vec![])]))]),
-                                ],
-                            ))]),
+                            children(vec![
+                                child(form(
+                                    "let",
+                                    vec![
+                                        attr("name", "script_name"),
+                                        attr("type", "string"),
+                                        children(vec![child(form(
+                                            "get-attribute",
+                                            vec![attr("name", "name"), children(vec![])],
+                                        ))]),
+                                    ],
+                                )),
+                                child(form(
+                                    "quote",
+                                    vec![children(vec![child(form(
+                                        "script",
+                                        vec![
+                                            attr("name", "${script_name}"),
+                                            children(vec![child(form(
+                                                "end",
+                                                vec![children(vec![])],
+                                            ))]),
+                                        ],
+                                    ))])],
+                                )),
+                            ]),
                         ],
                     ))]),
                 ],
@@ -411,13 +448,32 @@ mod tests {
                         vec![
                             attr("name", "dup"),
                             attr("scope", "module"),
-                            children(vec![child(form(
-                                "script",
-                                vec![
-                                    attr("name", "{{name}}"),
-                                    children(vec![child(form("end", vec![children(vec![])]))]),
-                                ],
-                            ))]),
+                            children(vec![
+                                child(form(
+                                    "let",
+                                    vec![
+                                        attr("name", "script_name"),
+                                        attr("type", "string"),
+                                        children(vec![child(form(
+                                            "get-attribute",
+                                            vec![attr("name", "name"), children(vec![])],
+                                        ))]),
+                                    ],
+                                )),
+                                child(form(
+                                    "quote",
+                                    vec![children(vec![child(form(
+                                        "script",
+                                        vec![
+                                            attr("name", "${script_name}"),
+                                            children(vec![child(form(
+                                                "end",
+                                                vec![children(vec![])],
+                                            ))]),
+                                        ],
+                                    ))])],
+                                )),
+                            ]),
                         ],
                     )),
                 ]),

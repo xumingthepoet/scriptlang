@@ -1,8 +1,13 @@
 <module name="helper">
-  <macro name="mk" scope="module">
-    <script name="{{name}}">
-      <text>from-helper-macro</text>
-      <end/>
-    </script>
+  <macro name="mk" scope="module" attributes="name:string">
+    <let name="script_name" type="string">
+      <get-attribute name="name"/>
+    </let>
+    <quote>
+      <script name="${script_name}">
+        <text>from-helper-macro</text>
+        <end/>
+      </script>
+    </quote>
   </macro>
 </module>

@@ -1,32 +1,12 @@
-use std::collections::BTreeMap;
-
 use sl_core::{Form, FormItem, FormValue, ScriptLangError};
 
 use super::dispatch::ExpandRuleScope;
+use super::macro_env::MacroEnv;
+use super::macro_values::MacroValue;
 use super::quote::quote_items;
 use super::raw_body_text;
 use crate::semantic::env::ExpandEnv;
 use crate::semantic::{attr, error_at, required_attr};
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum MacroValue {
-    String(String),
-    Expr(String),
-    AstItems(Vec<FormItem>),
-}
-
-#[derive(Clone, Debug, Default)]
-pub(super) struct MacroRuntimeEnv {
-    pub(super) locals: BTreeMap<String, MacroValue>,
-    pub(super) gensym_counter: usize,
-}
-
-pub(crate) fn uses_macro_evaluator(body: &[FormItem]) -> bool {
-    body.iter().any(|item| match item {
-        FormItem::Text(_) => false,
-        FormItem::Form(form) => matches!(form.head.as_str(), "let" | "quote"),
-    })
-}
 
 pub(crate) fn evaluate_macro_items(
     body: &[FormItem],
@@ -34,7 +14,12 @@ pub(crate) fn evaluate_macro_items(
     env: &mut ExpandEnv,
     scope: ExpandRuleScope,
 ) -> Result<Vec<FormItem>, ScriptLangError> {
-    let mut runtime = MacroRuntimeEnv::default();
+    let mut runtime = MacroEnv::from_invocation(
+        env,
+        &invocation.head,
+        invocation_attributes(invocation),
+        invocation_children(invocation),
+    );
     let forms = meaningful_macro_forms(body)?;
     let mut quoted = None;
 
@@ -76,8 +61,8 @@ fn meaningful_macro_forms(body: &[FormItem]) -> Result<Vec<&Form>, ScriptLangErr
 
 fn eval_let(
     form: &Form,
-    invocation: &Form,
-    runtime: &mut MacroRuntimeEnv,
+    _invocation: &Form,
+    runtime: &mut MacroEnv,
 ) -> Result<(), ScriptLangError> {
     let name = required_attr(form, "name")?.to_string();
     let type_name = required_attr(form, "type")?;
@@ -85,29 +70,65 @@ fn eval_let(
     let value = match (type_name, provider.head.as_str()) {
         ("expr", "get-attribute") => {
             let attr_name = required_attr(provider, "name")?;
-            let value = attr(invocation, attr_name).ok_or_else(|| {
+            let value = runtime.attributes.get(attr_name).ok_or_else(|| {
                 ScriptLangError::message(format!(
-                    "macro invocation `<{}>` is missing attribute `{attr_name}`",
-                    invocation.head
+                    "{} is missing invocation attribute `{attr_name}`",
+                    runtime.context_label()
                 ))
             })?;
             MacroValue::Expr(value.to_string())
         }
         ("string", "get-attribute") => {
             let attr_name = required_attr(provider, "name")?;
-            let value = attr(invocation, attr_name).ok_or_else(|| {
+            let value = runtime.attributes.get(attr_name).ok_or_else(|| {
                 ScriptLangError::message(format!(
-                    "macro invocation `<{}>` is missing attribute `{attr_name}`",
-                    invocation.head
+                    "{} is missing invocation attribute `{attr_name}`",
+                    runtime.context_label()
                 ))
             })?;
             MacroValue::String(value.to_string())
         }
+        ("bool", "get-attribute") => {
+            let attr_name = required_attr(provider, "name")?;
+            let value = runtime.attributes.get(attr_name).ok_or_else(|| {
+                ScriptLangError::message(format!(
+                    "{} is missing invocation attribute `{attr_name}`",
+                    runtime.context_label()
+                ))
+            })?;
+            let parsed = match value.as_str() {
+                "true" => true,
+                "false" => false,
+                other => {
+                    return Err(error_at(
+                        provider,
+                        format!("cannot parse `{other}` as macro bool attribute"),
+                    ));
+                }
+            };
+            MacroValue::Bool(parsed)
+        }
+        ("int", "get-attribute") => {
+            let attr_name = required_attr(provider, "name")?;
+            let value = runtime.attributes.get(attr_name).ok_or_else(|| {
+                ScriptLangError::message(format!(
+                    "{} is missing invocation attribute `{attr_name}`",
+                    runtime.context_label()
+                ))
+            })?;
+            let parsed = value.parse::<i64>().map_err(|_| {
+                error_at(
+                    provider,
+                    format!("cannot parse `{value}` as macro int attribute"),
+                )
+            })?;
+            MacroValue::Int(parsed)
+        }
         ("ast", "get-content") => {
-            MacroValue::AstItems(select_invocation_content(invocation, provider)?)
+            MacroValue::AstItems(select_invocation_content(runtime, provider)?)
         }
         ("ast", "quote") => MacroValue::AstItems(quote_items(
-            invocation,
+            _invocation,
             &mut ExpandEnv::default(),
             ExpandRuleScope::Statement,
             runtime,
@@ -130,10 +151,7 @@ fn eval_let(
     Ok(())
 }
 
-pub(super) fn eval_unquote(
-    form: &Form,
-    runtime: &MacroRuntimeEnv,
-) -> Result<MacroValue, ScriptLangError> {
+pub(super) fn eval_unquote(form: &Form, runtime: &MacroEnv) -> Result<MacroValue, ScriptLangError> {
     let name = raw_body_text(form)
         .filter(|text| !text.is_empty())
         .ok_or_else(|| error_at(form, "<unquote> requires local name body"))?;
@@ -184,15 +202,28 @@ fn invocation_children(invocation: &Form) -> Vec<FormItem> {
         .unwrap_or_default()
 }
 
+fn invocation_attributes(invocation: &Form) -> std::collections::BTreeMap<String, String> {
+    invocation
+        .fields
+        .iter()
+        .filter_map(|field| match (&field.name[..], &field.value) {
+            ("children", _) => None,
+            (name, FormValue::String(value)) => Some((name.to_string(), value.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
 fn select_invocation_content(
-    invocation: &Form,
+    runtime: &MacroEnv,
     provider: &Form,
 ) -> Result<Vec<FormItem>, ScriptLangError> {
     match attr(provider, "head") {
-        None => Ok(invocation_children(invocation)),
+        None => Ok(runtime.content.clone()),
         Some(head) => {
             let mut selected = Vec::new();
-            for item in invocation_children(invocation) {
+            for item in &runtime.content {
+                let item = item.clone();
                 let FormItem::Form(form) = item else {
                     continue;
                 };

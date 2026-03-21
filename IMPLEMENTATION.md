@@ -2,8 +2,6 @@
 
 本文档只描述当前代码库中已经落地的实现，不描述长期目标。长期架构原则仍以 `AGENTS.md` 为准。
 
-注意：当前仓库正在进入“macro enhancement”阶段，目标是在保留现有 env-driven expand 主线的前提下，补上 `quote / unquote`、编译期环境和最小 hygiene。当前计划见 [`MACRO_ENHANCEMENT_PLAN.md`](/Users/xuming/work/scriptlang-new/MACRO_ENHANCEMENT_PLAN.md)。
-
 ## Workspace Layout
 
 当前项目已经拆成多 crate workspace：
@@ -58,6 +56,12 @@
 - `<quote>`
 - `<unquote>`
 
+当前 quote 字符串槽位还支持 `${local_name}` 形式的 compile-time splice：
+
+- 用于普通字符串属性
+- 用于普通文本节点
+- 用于 expr 属性
+
 当前明确不支持：
 
 - `<while>`
@@ -109,6 +113,8 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 - `semantic/expand/` 当前已经按职责拆分：
   - [`dispatch.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/dispatch.rs)：统一 expand 分派入口，负责 builtin / macro hook 路由
   - [`imports.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/imports.rs)：import 目标校验
+  - [`macro_env.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/macro_env.rs)：显式 `MacroEnv`，承载 current module、imports、attributes、content、locals 和 gensym 状态
+  - [`macro_values.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/macro_values.rs)：compile-time `MacroValue`
   - [`macros.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/macros.rs)：macro 定义收集、可见性查找和模板式宏展开
   - [`quote.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/quote.rs)：`quote / unquote`、AST splice 和最小 hygiene
   - [`modules.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/modules.rs)：module catalog 与 script 字面量查找
@@ -119,26 +125,22 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
   - [`const_eval.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/const_eval.rs)：builtin 常量求值与常量替换
 - `semantic/expr/` 统一承载 expr 前端处理；`script literal` 会先经过统一 token 扫描，模板 `${...}` 的洞会先落到 `ExprSource` 外壳后再回到当前 `TextTemplate` 主路径
 - builtin form 的 expand 处理当前已收敛到 [`semantic/expand/dispatch.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/dispatch.rs) 的统一调度；macro 定义和宏展开细节则收敛到 [`semantic/expand/macros.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/macros.rs)
-- `ExpandRegistry` 当前已经提供 builtin / macro 共用的统一分发入口；macro 目前支持最小 MVP：
+- `ExpandRegistry` 当前已经提供 builtin / macro 共用的统一分发入口；macro 当前支持：
   - 当前支持 `scope="statement"` 和 `scope="module"`
-  - 宏体支持 `{{attr_name}}` 属性替换
-  - 宏体支持 `<yield/>` 把调用点 children 拼接进宏体
   - 当前宏展开要求产出恰好一个根 form
-- 当前宏系统仍是 MVP：
-  - `scope / {{attr_name}} / <yield/>` 这套宏表层语法是过渡方案；长期目标是以 `quote / unquote + MacroEnv` 取代它
+- 当前宏系统以 `quote / unquote + MacroEnv` 为主路径：
   - 现在已经支持最小的 `quote / unquote`
   - 现在已经支持 compile-time `<let>`
   - 现在已经支持 `get_attribute` / `get_content`
   - `get_content` 现在支持 `head="..."`，可按调用点直接子标签筛选 AST 片段
+  - `quote` 中的普通字符串属性和文本节点支持 `${local_name}` compile-time splice
   - 现在已经支持最小 hygiene：quote 中引入的 runtime `<temp>` 名会 gensym，并同步改写后续 expr 引用
-  - 但仍没有完整的显式 `MacroEnv` 公共模型
-  - 也还没有完整的 compile-time value system 和更广泛的 quote splice 规则
+  - 当前已有显式 `MacroEnv`
+  - 当前 compile-time values 至少覆盖 `string / expr / ast / bool / int`
 - program 级 macro registry 当前按 module 归档定义；expand dispatch 会按“当前 module -> 已 import modules -> 隐式 kernel”顺序解析可见宏
 - 同名 macro 当前允许在不同 `scope` 下共存；分派时会按 `(name, scope)` 而不是只按名字解析
-- macro 当前同时支持两条路径：
-  - 旧的模板式路径：`{{attr_name}}` + `<yield/>`
-  - 新的 compile-time 路径：`<let> + <quote> + <unquote>`
-- 新的 compile-time 宏路径当前已可支撑标准 `unless` 和 `if-else` 宏；`kernel.xml` 中已有真实示例
+- 当前宏统一通过 compile-time 路径展开：`<let> + <quote> + <unquote>`
+- 当前 compile-time 宏路径已可支撑标准 `unless`、`if-else`、`say`、`when_text` 和 `script_text` 宏；`kernel.xml` 中已有真实示例
 - 在 form semantics 阶段完成 MVP 标签校验、属性校验、`<import>` 上下文推进、统一名称解析、`<const>` 编译期求值和结构下沉
 - `<const>` 只在 semantic analyze 阶段内存在；进入 `SemanticProgram` 后不再保留 const 声明
 - compiler 当前为每个 module 隐式提供最早生效的 `import kernel` 上下文
@@ -171,7 +173,7 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
   - `@m1.entry` 形式的完整字面量
   - 编译期会校验字面量引用的 script 是否存在
 - `<goto>` 当前不再做 script ref 名字解析；它只保留表达式并 lower 成运行时动态跳转
-- `kernel.xml` 当前除常量外，已可声明最小 kernel macro；API 单测和 integration example 已覆盖 statement-scope 与 module-scope 的基本宏展开路径、imported module macro 可见性解析，以及基于 `quote / unquote` 的 `unless` / `if-else` 标准宏
+- `kernel.xml` 当前除常量外，已可声明最小 kernel macro；API 单测和 integration example 已覆盖 statement-scope 与 module-scope 的基本宏展开路径、imported module macro 可见性解析，以及基于 `quote / unquote` 的 `say` / `when_text` / `script_text` / `unless` / `if-else` 标准宏
 
 当前 IR 指令包括：
 
