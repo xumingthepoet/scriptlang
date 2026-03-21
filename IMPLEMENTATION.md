@@ -2,6 +2,8 @@
 
 本文档只描述当前代码库中已经落地的实现，不描述长期目标。长期架构原则仍以 `AGENTS.md` 为准。
 
+注意：`sl-compiler` 前端语义层当前正在进行较大重构，目标是向 env-driven expand 结构收敛。本文档描述的是“当前已落地状态”，不是前端最终形态；最终目标、步骤和实时进展见 [`SEMANTIC_REWRITE_PLAN.md`](/Users/xuming/work/scriptlang-new/SEMANTIC_REWRITE_PLAN.md)。
+
 ## Workspace Layout
 
 当前项目已经拆成多 crate workspace：
