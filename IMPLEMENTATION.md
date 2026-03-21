@@ -4,6 +4,8 @@
 
 注意：`sl-compiler` 前端语义层当前正在进行较大重构，目标是向 env-driven expand 结构收敛。本文档描述的是“当前已落地状态”，不是前端最终形态；最终目标、步骤和实时进展见 [`SEMANTIC_REWRITE_PLAN.md`](/Users/xuming/work/scriptlang-new/SEMANTIC_REWRITE_PLAN.md)。
 
+另：当前 `make coverage` / `make gate` 的 coverage 阈值已临时放宽为 `0 / 0`，目的是避免在前端重构期间由 coverage 门槛阻塞结构改造；这不是最终测试目标，后续需要随着重构收敛重新收紧。
+
 ## Workspace Layout
 
 当前项目已经拆成多 crate workspace：
@@ -86,22 +88,35 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 `sl-compiler` 负责：
 
 - 以显式 pipeline 执行编译：
-  - `Form -> slot classification`
-  - `classified Form -> module/script/var/stmt 语义结构`
+  - `Form -> semantic expand`
+  - `expand` 当前已直接消费 raw `Form`，顺序推进定义期状态，并把 module children / exports / imports / const declarations / kernel macros 沉淀到 `ProgramState`
+  - `expand` 外部已经是唯一前端入口；其内部当前仍分成“定义期 expand + semantic program analysis”两块
   - `semantic program -> runtime IR`
 - 源码目录当前按阶段分成：
   - 顶层 `pipeline.rs`
-  - `semantic/`：名称解析、`<const>` 编译期求值、文本模板解析、语义下沉
+  - `semantic/`：名称解析、`<const>` 编译期求值、文本模板解析、语义下沉；当前已包含新的 `env.rs`、`form.rs`、`expand/`、`expr/` 和 `types.rs`
+  - `semantic/expand/`：当前同时承载 builtin/kernel macro expansion、module definition-time state、scope/const/program analysis helper
   - `assemble/`：声明收集、lowering、boot script、`CompiledArtifact` 装配
-- `classify` 当前会把开放 `Form` 上的内建槽位标成 `expr / template / plain text / ident / statements`，供后续 semantic 使用；它不是闭合 typed AST
+- `semantic/form.rs` 当前统一承载 raw `Form` 的属性、body、children 和错误定位 helper；旧 `classify.rs` 已删除
+- `expand` 入口当前已经建立，并直接对 raw `Form` 做 module / import / const / var / script / local temp 的顺序遍历和定义期状态维护；`ExpandEnv` 已累计整份程序的 module 状态快照，包括 module order、children、exports、imports、const declarations 和 kernel macros，后续仍会继续吸收剩余旧语义 helper 职责
+- `semantic/expr/` 当前不再只是目录占位；`script literal` rewrite 已先经过统一 token 扫描，模板 `${...}` 的洞也会先落到 `ExprSource` 外壳后再回到当前 `TextTemplate` 主路径
+- builtin form 的 expand 处理当前已收敛到 [`semantic/expand/rules.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/rules.rs) 的统一 rule 调度，不再分散在多个阶段文件里
+- `ExpandRegistry` 当前已经提供 builtin / macro 共用的统一分发入口；kernel 宏目前支持最小 MVP：
+  - 只支持在 `kernel` module 中声明 `<macro>`
+  - 当前支持 `scope="statement"` 和 `scope="module"`
+  - 宏体支持 `{{attr_name}}` 属性替换
+  - 宏体支持 `<yield/>` 把调用点 children 拼接进宏体
+  - 当前宏展开要求产出恰好一个根 form
+- program 级 macro registry 当前已从 `kernel` 特例表泛化为按 module 归档的定义表；expand dispatch 会按“当前 module -> 已 import modules -> 隐式 kernel”顺序解析可见宏
+- 同名 macro 当前允许在不同 `scope` 下共存；分派时会按 `(name, scope)` 而不是只按名字解析
 - 在 form semantics 阶段完成 MVP 标签校验、属性校验、`<import>` 上下文推进、统一名称解析、`<const>` 编译期求值和结构下沉
 - `<const>` 只在 semantic analyze 阶段内存在；进入 `SemanticProgram` 后不再保留 const 声明
 - compiler 当前为每个 module 隐式提供最早生效的 `import kernel` 上下文
-- semantic 当前会先建立 module 导出目录和作用域，再解析 const / var 引用并处理 script 字面量
+- semantic 当前的 module 导出目录已由 expand 阶段写入 `ProgramState`，`semantic/expand/*` 内部 helper 再做查询与消费，并解析 const / var 引用及 script 字面量
 - semantic 当前会区分“module 内声明存在”和“对 import 暴露的导出成员”；`private="true"` 会从导出目录中隐藏该声明
 - `assemble` 不再消费 import / scope / context 信息；它只消费已经解析好的语义结果
 - semantic 中的 var 引用当前会先重写成“已解析变量占位符”；真正的 runtime global 命名只在 assemble 阶段生成
-- `const_eval` 当前只负责 builtin 常量求值、稳定字面量回写和表达式 / 模板替换，不再自己实现 import 可见性规则
+- `semantic/expand/const_values.rs` 当前负责 builtin 常量求值、稳定字面量回写和表达式 / 模板替换，不再自己实现 import 可见性规则
 - 在 assemble 阶段收集 module 级 `<var>` 声明、为 script 分配全局唯一 `script_id`
 - 构造 `CompiledArtifact`
 - 生成 boot script，先执行全局初始化，再跳转到默认入口
@@ -126,6 +141,7 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
   - `@m1.entry` 形式的完整字面量
   - 编译期会校验字面量引用的 script 是否存在
 - `<goto>` 当前不再做 script ref 名字解析；它只保留表达式并 lower 成运行时动态跳转
+- `kernel.xml` 当前除常量外，已可声明最小 kernel macro；API 单测和 integration example 已覆盖 statement-scope 与 module-scope 的基本宏展开路径；另外 integration 已覆盖 imported module macro 的可见性解析
 
 当前 IR 指令包括：
 

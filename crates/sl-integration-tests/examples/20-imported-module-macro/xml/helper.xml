@@ -1,0 +1,8 @@
+<module name="helper">
+  <macro name="mk" scope="module">
+    <script name="{{name}}">
+      <text>from-helper-macro</text>
+      <end/>
+    </script>
+  </macro>
+</module>

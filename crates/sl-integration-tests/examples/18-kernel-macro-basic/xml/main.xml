@@ -1,0 +1,9 @@
+<module name="main">
+  <script name="main">
+    <say text="hello"/>
+    <when_text when="true">
+      <say text="inside"/>
+    </when_text>
+    <end/>
+  </script>
+</module>

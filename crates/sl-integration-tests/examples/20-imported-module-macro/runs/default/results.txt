@@ -1,0 +1,2 @@
+text from-helper-macro
+end

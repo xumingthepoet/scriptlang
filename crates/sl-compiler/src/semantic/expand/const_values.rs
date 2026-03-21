@@ -2,9 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use sl_core::ScriptLangError;
 
-use super::expr_rewrite::{is_ident_continue, is_ident_start};
-use super::resolve::QualifiedConstLookup;
-use super::types::DeclaredType;
+use super::scope::QualifiedConstLookup;
+use crate::semantic::expr::{is_ident_continue, is_ident_start};
+use crate::semantic::types::DeclaredType;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ConstValue {
@@ -382,8 +382,8 @@ impl<'a, R: ConstLookup> ConstParser<'a, R> {
 mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
-    use crate::semantic::expr_rewrite::{rewrite_expr_with_consts, rewrite_template_with_consts};
-    use crate::semantic::resolve::QualifiedConstLookup;
+    use crate::semantic::expand::scope::QualifiedConstLookup;
+    use crate::semantic::expr::{rewrite_expr_with_consts, rewrite_template_with_consts};
     use crate::semantic::types::DeclaredType;
     use sl_core::{ScriptLangError, TextSegment, TextTemplate};
 

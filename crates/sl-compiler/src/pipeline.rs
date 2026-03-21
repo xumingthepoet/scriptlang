@@ -1,11 +1,10 @@
 use sl_core::{CompiledArtifact, Form, ScriptLangError};
 
 use crate::assemble::assemble_artifact;
-use crate::semantic::{analyze_forms, classify_forms};
+use crate::semantic::expand_forms;
 
 pub fn compile_artifact(forms: &[Form]) -> Result<CompiledArtifact, ScriptLangError> {
-    let classified_forms = classify_forms(forms)?;
-    let semantic_program = analyze_forms(&classified_forms)?;
+    let semantic_program = expand_forms(forms)?;
     assemble_artifact(&semantic_program)
 }
 
@@ -16,7 +15,7 @@ mod tests {
     use super::compile_artifact;
 
     #[test]
-    fn compile_artifact_pipeline_reports_semantic_stage_errors() {
+    fn compile_artifact_pipeline_reports_expand_stage_errors() {
         let error = compile_artifact(&[Form {
             head: "module".to_string(),
             meta: FormMeta {

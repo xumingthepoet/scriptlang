@@ -3,10 +3,7 @@ use sl_core::{Form, FormField, FormItem, FormMeta, FormValue, ScriptLangError};
 const CHILDREN_FIELD: &str = "children";
 
 pub(crate) fn required_attr<'a>(form: &'a Form, name: &str) -> Result<&'a str, ScriptLangError> {
-    match attr(form, name) {
-        Some(value) => Ok(value),
-        None => Err(error_at(form, format!("<{}> requires `{name}`", form.head))),
-    }
+    attr(form, name).ok_or_else(|| error_at(form, format!("<{}> requires `{name}`", form.head)))
 }
 
 pub(crate) fn attr<'a>(form: &'a Form, name: &str) -> Option<&'a str> {
@@ -16,7 +13,37 @@ pub(crate) fn attr<'a>(form: &'a Form, name: &str) -> Option<&'a str> {
     })
 }
 
+pub(crate) fn body_expr(form: &Form) -> Result<String, ScriptLangError> {
+    if !matches!(form.head.as_str(), "var" | "temp" | "const" | "code") {
+        return Err(error_at(
+            form,
+            format!("<{}> body is not classified as an expression", form.head),
+        ));
+    }
+    trimmed_text_items(form)
+}
+
+pub(crate) fn body_template(form: &Form) -> Result<String, ScriptLangError> {
+    if form.head != "text" {
+        return Err(error_at(
+            form,
+            format!("<{}> body is not classified as a template", form.head),
+        ));
+    }
+    trimmed_text_items(form)
+}
+
 pub(crate) fn child_forms(form: &Form) -> Result<Vec<&Form>, ScriptLangError> {
+    if matches!(
+        form.head.as_str(),
+        "var" | "temp" | "const" | "code" | "text"
+    ) {
+        return Err(error_at(
+            form,
+            format!("<{}> body does not support nested statements", form.head),
+        ));
+    }
+
     let mut children = Vec::new();
     for item in children_items(form)? {
         match item {
@@ -91,7 +118,7 @@ fn field<'a>(form: &'a Form, name: &str) -> Option<&'a FormField> {
 mod tests {
     use sl_core::{Form, FormField, FormItem, FormMeta, FormValue, SourcePosition};
 
-    use super::{attr, child_forms, required_attr, trimmed_text_items};
+    use super::{attr, body_expr, body_template, child_forms, required_attr, trimmed_text_items};
 
     fn form(head: &str, fields: Vec<FormField>) -> Form {
         Form {
@@ -108,7 +135,7 @@ mod tests {
     }
 
     #[test]
-    fn form_helpers_read_attributes_and_children() {
+    fn raw_form_helpers_read_attributes_and_supported_bodies() {
         let module = form(
             "module",
             vec![
@@ -128,14 +155,36 @@ mod tests {
                 },
             ],
         );
+        let var = form(
+            "var",
+            vec![
+                FormField {
+                    name: "children".to_string(),
+                    value: FormValue::Sequence(vec![FormItem::Text("@loop".to_string())]),
+                },
+                FormField {
+                    name: "type".to_string(),
+                    value: FormValue::String("script".to_string()),
+                },
+            ],
+        );
+        let text = form(
+            "text",
+            vec![FormField {
+                name: "children".to_string(),
+                value: FormValue::Sequence(vec![FormItem::Text("${next}".to_string())]),
+            }],
+        );
 
         assert_eq!(attr(&module, "name"), Some("main"));
         assert_eq!(required_attr(&module, "name").expect("required"), "main");
         assert_eq!(child_forms(&module).expect("children")[0].head, "script");
+        assert_eq!(body_expr(&var).expect("expr"), "@loop");
+        assert_eq!(body_template(&text).expect("template"), "${next}");
     }
 
     #[test]
-    fn form_helpers_reject_invalid_text_or_missing_attrs() {
+    fn raw_form_helpers_reject_invalid_shapes() {
         let script = form(
             "script",
             vec![FormField {

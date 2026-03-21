@@ -4,13 +4,13 @@
 
 这不是历史记录文档，而是当前生效的重构目标文档。每次前端语义层、expr 处理方式、expand 结构或阶段边界发生变化时，都要同步更新本文档。
 
-Last updated: 2026-03-21
+Last updated: 2026-03-21 (Phase 1 advanced: kernel module macro MVP landed)
 
 ## Why
 
 当前 compiler 前端已经验证了一批 MVP 语言能力，但仍有几类结构性问题：
 
-- 前端职责分散在 `classify / analyze / resolve / const_eval / expr_rewrite` 多个并列模块中
+- 前端职责分散在 `classify / analyze / resolve / const_eval / expr/*` 多个并列模块中
 - expr 仍以 Rhai 字符串为主载体，并依赖启发式扫描与局部重写
 - `special form`、未来 macro、名称解析、const 展开还没有统一到 env-driven expand 模型
 - `semantic` 当前更像“若干后处理阶段”，而不是“以 expansion 为中心的前语义主战场”
@@ -42,12 +42,15 @@ Last updated: 2026-03-21
   - `ModuleState`
   - `LocalScope`
   - `CompilePhase`
+- `semantic/form.rs`
+  - raw `Form` helper
+  - attribute/body/children access
+  - shared source-location error formatting
 - `semantic/expand/`
   - `mod.rs`
   - `module.rs`
-  - `builtin.rs`
   - `consts.rs`
-  - `stmts.rs`
+  - `rules.rs`
 - `semantic/expr/`
   - `mod.rs`
   - `types.rs`
@@ -63,6 +66,7 @@ Last updated: 2026-03-21
   - 统一承载当前 module、imports、visible consts、locals、phase、source context
 - `expand`
   - 处理内建 form
+  - 处理 kernel macro
   - 推进 env
   - 做 const 展开、名字解析、slot interpretation、definition-time checks
   - 产出 normalized high-level program
@@ -105,7 +109,7 @@ expr 是这轮重构的关键点，单独列出目标。
 - 普通 Rhai 表达式可以保持黑盒文本
 - 语言级特殊语法必须先统一扫描成结构化 token
 - const / var / script literal rewrite 只能经由 `semantic/expr/*`
-- `resolve.rs`、`analyze.rs`、未来 `expand/*` 不允许再各自实现 expr 扫描逻辑
+- `scope.rs`、`program.rs`、未来 `expand/*` 不允许再各自实现 expr 扫描逻辑
 
 ## Migration Strategy
 
@@ -164,7 +168,7 @@ expr 是这轮重构的关键点，单独列出目标。
 
 完成条件：
 
-- `classify.rs`、`analyze.rs`、`resolve.rs` 的职责被新 expand 吸收
+- `classify.rs`、`analyze.rs`、旧 query/lookup 职责的阶段边界都会被新 expand 吸收
 - pipeline 简化为 `Form -> expand -> assemble`
 
 ### Phase 4: Prepare For User Macros
@@ -193,24 +197,40 @@ expr 是这轮重构的关键点，单独列出目标。
 - `done` `var / temp / const` 改为必须显式 `type`
 - `done` 当前支持的显式类型闭包补到 `int / bool / string / script / array / object`
 - `done` 删除顶层空 `expand.rs`
-- `done` `classify.rs` 已下沉到 `semantic/`
-- `done` expr 启发式 rewrite 已集中到 [`semantic/expr_rewrite.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expr_rewrite.rs)
+- `done` 旧 `classify.rs` 已从主路径和源码树删除，raw-form helper 收敛到 [`semantic/form.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/form.rs)
+- `done` expr 启发式 rewrite 已集中到 [`semantic/expr/rewrite.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expr/rewrite.rs)
 - `done` 旧前端实现已保存快照，便于重写时参考
+- `done` pipeline 已切到 [`semantic/expand/mod.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/mod.rs) 作为唯一前端入口
+- `done` `analyze / resolve` 已改为直接消费 raw `Form`，不再依赖 `ClassifiedForm`
+- `done` [`ExpandEnv`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/env.rs) 已开始累计整份程序的 module 状态快照，而不再只保存当前 module
+- `done` `ProgramState` 现在会保存 module order、expanded module children、exports、imports 和 const declarations
+- `done` `ModuleCatalog` 已改为从 `ProgramState` 构建，不再自行扫描 raw forms 生成导出目录
+- `done` `analyze` 当前优先消费 `ProgramState`，而不是再从 top-level forms 重建模块世界
+- `done` builtin form 的 expand 处理已收敛到 [`semantic/expand/rules.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/rules.rs) 的统一 rule 调度
+- `done` 旧的 `resolve.rs` / `analyze.rs` / `const_eval.rs` / `query.rs` 文件名已从源码树删除；当前对应 helper 已收敛进 [`semantic/expand/`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand)
+- `done` kernel module 现在已支持最小 macro MVP：`<macro name=\"...\" scope=\"statement|module\">...</macro>`
+- `done` `ExpandRegistry` 当前已经提供 builtin / kernel macro 共用的统一分发入口
+- `done` 当前宏体支持 `{{attr_name}}` 替换和 `<yield/>` children 拼接，并已有 API / integration coverage
+- `done` `semantic/expr/*` 已开始进入主路径：`script literal` 先经统一 token 扫描再 rewrite，模板洞也会先落到 `ExprSource`
+- `done` program 级 macro registry 已从 `kernel` 特例表泛化为按 module 归档的定义表，expand dispatch 现在会按当前 module / imports / implicit kernel 解析可见宏
+- `done` macro registry 当前已经按 `(name, scope)` 分派，允许同名 statement/module macro 共存
 
 ### In Progress
 
-- `in_progress` 现有 `semantic` 仍是旧分层，只是先做了边界收缩
-- `in_progress` expr 仍然主要以 Rhai 文本为载体，尚未形成新的轻量结构化表示
-- `in_progress` `classify / analyze / resolve / const_eval` 还没有被统一到 env-driven expand
+- `in_progress` 现有 `semantic` 仍保留旧语义思路按 `program / scope / const_values` helper 分层，尚未被 `expand rules + env` 完全吞掉
+- `in_progress` expr 仍然主要以 Rhai 文本为载体；虽然 `ExprSource` 已开始进入主路径，但还没有形成更完整的轻量结构化表示
+- `in_progress` `program / scope / consts` 还没有被统一到 env-driven expand
+- `in_progress` 已建立新的 [`semantic/env.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/env.rs) 骨架
+- `in_progress` 已建立新的 [`semantic/expr/`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expr) 目录，并把 rewrite/scan 逻辑迁入其中
+- `in_progress` 已建立新的 [`semantic/expand/mod.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/mod.rs) 入口；当前会先维护定义期状态，再进入 `expand/program.rs` 中的 semantic program analysis
+- `in_progress` 已建立 [`semantic/expand/module.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/module.rs)、[`consts.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/consts.rs) 和 [`rules.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/rules.rs) 骨架
+- `in_progress` `expand` 现在已开始顺序维护定义期状态：module name、imports、exports、local temps、const declarations，并把 module 状态沉淀进程序级 env 快照
+- `in_progress` `type` 解析已开始从旧 `analyze / query` 侧收敛到 [`semantic/expand/consts.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/consts.rs)
 
 ### Pending
 
-- `pending` 新的 `semantic/env.rs`
-- `pending` 新的 `semantic/expand/`
-- `pending` 新的 `semantic/expr/`
-- `pending` pipeline 切换到 `expand` 中心
-- `pending` declaration-time module state 替换静态 catalog
-- `pending` builtin form handler 化
+- `pending` declaration-time module state 继续替换剩余静态 resolve/analyze 逻辑
+- `in_progress` 当前已具备 import 可见宏解析，但还没有更完整的 module/import macro 生命周期与冲突策略
 - `pending` 用户 macro 接入点
 
 ## Immediate Next Steps
@@ -218,10 +238,13 @@ expr 是这轮重构的关键点，单独列出目标。
 建议按下面顺序推进：
 
 1. 建 `semantic/env.rs`
-2. 建 `semantic/expr/`，先把 `expr_rewrite.rs` 拆进去
-3. 建 `semantic/expand/mod.rs`，先只做内建 forms
-4. 把 `const` 处理迁进新 expand/env
-5. 把 `classify / analyze / resolve` 的逻辑逐步吸收入新 expand
+2. 建 `semantic/expr/`，先把当前 rewrite/scan 逻辑拆进去
+3. 建 `semantic/expand/mod.rs`，先让 pipeline 切到新入口
+4. 建 `semantic/expand/module.rs` / `consts.rs` / `rules.rs`
+5. 用 `semantic/form.rs` 接住 raw-form helper，删掉 `classify.rs`
+6. 把 `const` 处理迁进新 expand/env
+7. 把 `ModuleScope / ConstCatalog / ScopeResolver` 逐步改成直接围绕 `ProgramState`
+8. 把 `program / scope / const_values` 的逻辑逐步吸收入新 expand rule / env 模型
 
 ## Constraints
 

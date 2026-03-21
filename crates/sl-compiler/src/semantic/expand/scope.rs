@@ -1,11 +1,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use sl_core::ScriptLangError;
+use sl_core::{Form, ScriptLangError};
 
-use super::const_eval::{ConstEnv, ConstLookup, ConstValue, parse_const_value};
-use super::types::{DeclaredType, ModulePath, ResolvedRef};
-use super::{ClassifiedForm, attr, body_expr, child_forms, error_at, required_attr};
+use super::{
+    ConstEnv, ConstLookup, ConstValue, parse_const_value,
+    parse_declared_type_form as parse_declared_type,
+};
 use crate::names::script_literal_key;
+use crate::semantic::env::{ModuleExports, ModuleState, ProgramState};
+use crate::semantic::types::{MemberKind, ModulePath, ResolvedRef};
+use crate::semantic::{body_expr, error_at, required_attr};
 
 pub(crate) const DEFAULT_KERNEL_MODULE: &str = "kernel";
 
@@ -22,50 +26,8 @@ pub(crate) struct ModuleScope {
     imports: Vec<ModulePath>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct ModuleMembers {
-    declared: BTreeSet<String>,
-    exported: BTreeSet<String>,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct ModuleExports {
-    pub(crate) consts: ModuleMembers,
-    pub(crate) scripts: ModuleMembers,
-    pub(crate) vars: ModuleMembers,
-}
-
-impl ModuleMembers {
-    fn insert(&mut self, name: String, exported: bool) -> bool {
-        if !self.declared.insert(name.clone()) {
-            return false;
-        }
-        if exported {
-            self.exported.insert(name);
-        }
-        true
-    }
-
-    fn contains_declared(&self, name: &str) -> bool {
-        self.declared.contains(name)
-    }
-
-    fn contains_exported(&self, name: &str) -> bool {
-        self.exported.contains(name)
-    }
-
-    fn declared_names(&self) -> BTreeSet<String> {
-        self.declared.clone()
-    }
-}
-
 pub(crate) struct ModuleCatalog<'a> {
-    entries: BTreeMap<String, ModuleCatalogEntry<'a>>,
-}
-
-struct ModuleCatalogEntry<'a> {
-    children: Vec<&'a ClassifiedForm>,
-    exports: ModuleExports,
+    program: &'a ProgramState,
 }
 
 pub(crate) struct ConstCatalog<'a> {
@@ -120,79 +82,23 @@ impl ModuleScope {
 }
 
 impl<'a> ModuleCatalog<'a> {
-    pub(crate) fn build(forms: &'a [ClassifiedForm]) -> Result<Self, ScriptLangError> {
-        let mut entries = BTreeMap::new();
-        for form in forms {
-            if form.head != "module" {
-                return Err(error_at(
-                    form,
-                    format!("top-level <{}> is not supported in MVP", form.head),
-                ));
+    pub(crate) fn build(program: &'a ProgramState) -> Result<Self, ScriptLangError> {
+        for module_name in &program.module_order {
+            if !program.modules.contains_key(module_name) {
+                return Err(ScriptLangError::message(format!(
+                    "module `{module_name}` missing expand-time state"
+                )));
             }
-
-            let name = required_attr(form, "name")?.to_string();
-            if entries.contains_key(&name) {
-                return Err(error_at(
-                    form,
-                    format!("duplicate module declaration `{name}`"),
-                ));
-            }
-
-            let children = child_forms(form)?;
-            let mut exports = ModuleExports::default();
-            for child in &children {
-                match child.head.as_str() {
-                    "const" => {
-                        let const_name = required_attr(child, "name")?.to_string();
-                        if !exports
-                            .consts
-                            .insert(const_name.clone(), !is_private(child)?)
-                        {
-                            return Err(error_at(
-                                child,
-                                format!("duplicate const declaration `{name}.{const_name}`"),
-                            ));
-                        }
-                    }
-                    "script" => {
-                        let script_name = required_attr(child, "name")?.to_string();
-                        if !exports
-                            .scripts
-                            .insert(script_name.clone(), !is_private(child)?)
-                        {
-                            return Err(error_at(
-                                child,
-                                format!("duplicate script declaration `{name}.{script_name}`"),
-                            ));
-                        }
-                    }
-                    "var" => {
-                        let var_name = required_attr(child, "name")?.to_string();
-                        if !exports.vars.insert(var_name.clone(), !is_private(child)?) {
-                            return Err(error_at(
-                                child,
-                                format!("duplicate var declaration `{name}.{var_name}`"),
-                            ));
-                        }
-                    }
-                    "import" => {
-                        let _ = required_attr(child, "name")?;
-                    }
-                    _ => {}
-                }
-            }
-
-            entries.insert(name, ModuleCatalogEntry { children, exports });
         }
-        Ok(Self { entries })
+        Ok(Self { program })
     }
 
     pub(crate) fn contains(&self, module_name: &str) -> bool {
-        self.entries.contains_key(module_name)
+        self.program.modules.contains_key(module_name)
     }
 
     pub(crate) fn exports(&self, module_name: &str) -> Result<&ModuleExports, ScriptLangError> {
-        Ok(&self.entry(module_name)?.exports)
+        Ok(&self.module_state(module_name)?.exports)
     }
 
     pub(crate) fn resolve_script_literal(
@@ -218,8 +124,8 @@ impl<'a> ModuleCatalog<'a> {
         Ok(qualified)
     }
 
-    fn entry(&self, module_name: &str) -> Result<&ModuleCatalogEntry<'a>, ScriptLangError> {
-        self.entries.get(module_name).ok_or_else(|| {
+    fn module_state(&self, module_name: &str) -> Result<&'a ModuleState, ScriptLangError> {
+        self.program.modules.get(module_name).ok_or_else(|| {
             ScriptLangError::message(format!("module `{module_name}` does not exist"))
         })
     }
@@ -285,15 +191,15 @@ impl<'a> ConstCatalog<'a> {
         module_name: &str,
         target_name: &str,
     ) -> Result<Option<ConstValue>, ScriptLangError> {
-        let entry = self.modules.entry(module_name)?;
-        let mut remaining_const_names = entry.exports.consts.declared_names();
+        let module = self.modules.module_state(module_name)?;
+        let mut remaining_const_names = module.exports.consts.declared_names();
         let mut const_env = self.cached_env(module_name);
         for cached_name in const_env.keys() {
             remaining_const_names.remove(cached_name);
         }
         let mut scope = ModuleScope::initial(self.modules, module_name);
 
-        for child in &entry.children {
+        for child in &module.children {
             match child.head.as_str() {
                 "import" => {
                     let import_name = required_attr(child, "name")?.to_string();
@@ -316,7 +222,7 @@ impl<'a> ConstCatalog<'a> {
                     let mut resolver = ScopeResolver::new(self.modules, self, &scope);
                     let declared_type = parse_declared_type(child)?;
                     let value = parse_const_value(
-                        raw,
+                        &raw,
                         &const_env,
                         &mut resolver,
                         &blocked,
@@ -334,19 +240,6 @@ impl<'a> ConstCatalog<'a> {
         }
 
         Ok(const_env.get(target_name).cloned())
-    }
-}
-
-fn parse_declared_type(form: &ClassifiedForm) -> Result<DeclaredType, ScriptLangError> {
-    match attr(form, "type") {
-        None => Err(error_at(form, format!("<{}> requires `type`", form.head))),
-        Some("array") => Ok(DeclaredType::Array),
-        Some("bool") => Ok(DeclaredType::Bool),
-        Some("int") => Ok(DeclaredType::Int),
-        Some("object") => Ok(DeclaredType::Object),
-        Some("script") => Ok(DeclaredType::Script),
-        Some("string") => Ok(DeclaredType::String),
-        Some(other) => Err(error_at(form, format!("unsupported type `{other}` in MVP"))),
     }
 }
 
@@ -384,7 +277,7 @@ impl<'a, 'b> ScopeResolver<'a, 'b> {
             return Ok(Some(ResolvedRef::new(
                 self.scope.current_module(),
                 name,
-                super::types::MemberKind::Var,
+                MemberKind::Var,
             )));
         }
         for import in self.scope.imports().iter().rev() {
@@ -397,7 +290,7 @@ impl<'a, 'b> ScopeResolver<'a, 'b> {
                 return Ok(Some(ResolvedRef::new(
                     import.as_str(),
                     name,
-                    super::types::MemberKind::Var,
+                    MemberKind::Var,
                 )));
             }
         }
@@ -421,20 +314,12 @@ impl<'a, 'b> ScopeResolver<'a, 'b> {
         let exports = self.modules.exports(module_path)?;
         if module_path == self.scope.current_module() {
             if exports.vars.contains_declared(name) {
-                return Ok(Some(ResolvedRef::new(
-                    module_path,
-                    name,
-                    super::types::MemberKind::Var,
-                )));
+                return Ok(Some(ResolvedRef::new(module_path, name, MemberKind::Var)));
             }
             return Ok(None);
         }
         if exports.vars.contains_exported(name) {
-            Ok(Some(ResolvedRef::new(
-                module_path,
-                name,
-                super::types::MemberKind::Var,
-            )))
+            Ok(Some(ResolvedRef::new(module_path, name, MemberKind::Var)))
         } else {
             Err(ScriptLangError::message(format!(
                 "module `{module_path}` does not export var `{name}`"
@@ -500,7 +385,7 @@ impl ConstLookup for ScopeResolver<'_, '_> {
 
 pub(crate) fn validate_import_target(
     catalog: &ModuleCatalog<'_>,
-    form: &ClassifiedForm,
+    form: &Form,
     current_module: &str,
     import_name: &str,
 ) -> Result<(), ScriptLangError> {
@@ -517,17 +402,5 @@ pub(crate) fn validate_import_target(
             form,
             format!("imported module `{import_name}` does not exist"),
         ))
-    }
-}
-
-fn is_private(form: &ClassifiedForm) -> Result<bool, ScriptLangError> {
-    match attr(form, "private") {
-        None => Ok(false),
-        Some("true") => Ok(true),
-        Some("false") => Ok(false),
-        Some(other) => Err(error_at(
-            form,
-            format!("invalid boolean value `{other}` for `private`"),
-        )),
     }
 }

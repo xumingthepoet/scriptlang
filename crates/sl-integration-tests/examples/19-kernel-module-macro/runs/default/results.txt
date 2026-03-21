@@ -1,0 +1,2 @@
+text from-module-macro
+end

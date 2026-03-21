@@ -2,9 +2,12 @@ use std::collections::BTreeSet;
 
 use sl_core::{ScriptLangError, TextSegment, TextTemplate};
 
-use super::const_eval::{ConstEnv, ConstLookup};
-use super::resolve::{ModuleCatalog, QualifiedConstLookup, ScopeResolver};
+use super::scan::{is_ident_start, scan_expr_source, scan_quoted, scan_reference_path};
+use super::{ExprKind, SpecialTokenKind};
 use crate::names::resolved_var_placeholder;
+use crate::semantic::expand::{
+    ConstEnv, ConstLookup, ModuleCatalog, QualifiedConstLookup, ScopeResolver,
+};
 
 pub(crate) fn rewrite_expr_with_consts<R: ConstLookup>(
     source: &str,
@@ -188,91 +191,21 @@ pub(crate) fn rewrite_script_literals(
     current_module: &str,
     modules: &ModuleCatalog<'_>,
 ) -> Result<String, ScriptLangError> {
+    let expr = scan_expr_source(source, ExprKind::Rhai)?;
     let mut rewritten = String::with_capacity(source.len());
-    let bytes = source.as_bytes();
     let mut cursor = 0usize;
-
-    while cursor < bytes.len() {
-        let ch = bytes[cursor] as char;
-        if ch == '"' || ch == '\'' {
-            let end = scan_quoted(bytes, cursor)?;
-            rewritten.push_str(&source[cursor..end]);
-            cursor = end;
+    for token in expr.tokens {
+        if token.kind != SpecialTokenKind::ScriptLiteral {
             continue;
         }
-
-        if ch == '@' {
-            let start = cursor;
-            cursor += 1;
-            if cursor >= bytes.len() || !is_ident_start(bytes[cursor] as char) {
-                return Err(ScriptLangError::message(format!(
-                    "invalid script literal `{}`",
-                    &source[start..cursor]
-                )));
-            }
-            while cursor < bytes.len() {
-                let current = bytes[cursor] as char;
-                if is_ident_continue(current) || current == '.' {
-                    cursor += 1;
-                } else {
-                    break;
-                }
-            }
-            let raw = &source[start..cursor];
-            let qualified = modules.resolve_script_literal(current_module, raw)?;
-            rewritten.push_str(&format!("{qualified:?}"));
-            continue;
-        }
-
-        rewritten.push(ch);
-        cursor += ch.len_utf8();
+        rewritten.push_str(&source[cursor..token.start]);
+        let raw = &source[token.start..token.end];
+        let qualified = modules.resolve_script_literal(current_module, raw)?;
+        rewritten.push_str(&format!("{qualified:?}"));
+        cursor = token.end;
     }
-
+    rewritten.push_str(&source[cursor..]);
     Ok(rewritten)
-}
-
-pub(crate) fn scan_quoted(bytes: &[u8], start: usize) -> Result<usize, ScriptLangError> {
-    let quote = bytes[start];
-    let mut cursor = start + 1;
-    while cursor < bytes.len() {
-        match bytes[cursor] {
-            b'\\' => cursor += 2,
-            ch if ch == quote => return Ok(cursor + 1),
-            _ => cursor += 1,
-        }
-    }
-    Err(ScriptLangError::message("unterminated string literal"))
-}
-
-pub(crate) fn scan_reference_path(source: &str, start: usize) -> (usize, Vec<String>) {
-    let mut cursor = start;
-    let mut segments = Vec::new();
-    loop {
-        let ident_start = cursor;
-        cursor += 1;
-        let bytes = source.as_bytes();
-        while cursor < bytes.len() && is_ident_continue(bytes[cursor] as char) {
-            cursor += 1;
-        }
-        segments.push(source[ident_start..cursor].to_string());
-        if cursor >= bytes.len() || bytes[cursor] != b'.' {
-            break;
-        }
-        let next = cursor + 1;
-        if next >= bytes.len() || !is_ident_start(bytes[next] as char) {
-            break;
-        }
-        cursor = next;
-    }
-    (cursor, segments)
-}
-
-pub(crate) fn is_ident_start(ch: char) -> bool {
-    ch == '_' || ch.is_ascii_alphabetic()
-}
-
-pub(crate) fn is_ident_continue(ch: char) -> bool {
-    ch == '_' || ch.is_ascii_alphanumeric()
 }
 
 fn is_property_access(bytes: &[u8], ident_start: usize) -> bool {

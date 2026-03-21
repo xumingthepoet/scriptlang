@@ -1,3 +1,17 @@
 <module name="kernel">
   <const name="zero" type="int">0</const>
+  <macro name="say" scope="statement">
+    <text>{{text}}</text>
+  </macro>
+  <macro name="when_text" scope="statement">
+    <if when="{{when}}">
+      <yield/>
+    </if>
+  </macro>
+  <macro name="script_text" scope="module">
+    <script name="{{name}}">
+      <text>{{text}}</text>
+      <end/>
+    </script>
+  </macro>
 </module>

@@ -1,44 +1,50 @@
 use std::collections::BTreeSet;
 
-use sl_core::{ScriptLangError, TextSegment, TextTemplate};
+use sl_core::{Form, ScriptLangError, TextTemplate};
 
-use super::const_eval::{ConstEnv, ConstValue, parse_const_value};
-use super::expr_rewrite::{
-    rewrite_expr_with_consts, rewrite_expr_with_vars, rewrite_script_literals,
+use super::{
+    ConstCatalog, ConstEnv, ConstLookup, ConstValue, ModuleCatalog, ModuleScope, ScopeResolver,
+    parse_const_value, parse_declared_type_form as parse_declared_type, validate_import_target,
+};
+use crate::semantic::env::{ModuleState, ProgramState};
+use crate::semantic::expr::{
+    parse_text_template, rewrite_expr_with_consts, rewrite_expr_with_vars, rewrite_script_literals,
     rewrite_template_with_consts, rewrite_template_with_vars,
 };
-use super::resolve::{
-    ConstCatalog, ModuleCatalog, ModuleScope, ScopeResolver, validate_import_target,
+use crate::semantic::types::{
+    SemanticChoiceOption, SemanticModule, SemanticProgram, SemanticScript, SemanticStmt,
+    SemanticVar,
 };
-use super::types::{
-    DeclaredType, SemanticChoiceOption, SemanticModule, SemanticProgram, SemanticScript,
-    SemanticStmt, SemanticVar,
-};
-use super::{ClassifiedForm, attr, body_expr, body_template, child_forms, error_at, required_attr};
-pub(crate) fn analyze_forms(forms: &[ClassifiedForm]) -> Result<SemanticProgram, ScriptLangError> {
-    let catalog = ModuleCatalog::build(forms)?;
+use crate::semantic::{attr, body_expr, body_template, child_forms, error_at, required_attr};
+
+pub(crate) fn analyze_program(program: &ProgramState) -> Result<SemanticProgram, ScriptLangError> {
+    let catalog = ModuleCatalog::build(program)?;
     let mut const_catalog = ConstCatalog::new(&catalog);
-    let modules = forms
+    let modules = program
+        .module_order
         .iter()
-        .map(|form| analyze_module(form, &catalog, &mut const_catalog))
+        .map(|module_name| {
+            let module = program.modules.get(module_name).ok_or_else(|| {
+                ScriptLangError::message(format!(
+                    "module `{module_name}` missing expand-time state"
+                ))
+            })?;
+            analyze_module(module, &catalog, &mut const_catalog)
+        })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(SemanticProgram { modules })
 }
 
 fn analyze_module<'a>(
-    form: &ClassifiedForm,
+    module: &ModuleState,
     catalog: &'a ModuleCatalog<'a>,
     const_catalog: &mut ConstCatalog<'a>,
 ) -> Result<SemanticModule, ScriptLangError> {
-    if form.head != "module" {
-        return Err(error_at(
-            form,
-            format!("top-level <{}> is not supported in MVP", form.head),
-        ));
-    }
-
-    let name = required_attr(form, "name")?.to_string();
-    let module_children = child_forms(form)?;
+    let name = module
+        .module_name
+        .clone()
+        .ok_or_else(|| ScriptLangError::message("missing module name in expand state"))?;
+    let module_children = module.children.iter().collect::<Vec<_>>();
     let future_const_names = module_children
         .iter()
         .filter(|child| child.head == "const")
@@ -71,7 +77,7 @@ fn analyze_module<'a>(
                     name: required_attr(child, "name")?.to_string(),
                     declared_type: parse_declared_type(child)?,
                     expr: rewrite_var_expr(
-                        body_expr(child)?,
+                        &body_expr(child)?,
                         &const_env,
                         &mut visible,
                         &remaining_const_names,
@@ -104,9 +110,9 @@ fn analyze_module<'a>(
 }
 
 fn analyze_const(
-    form: &ClassifiedForm,
+    form: &Form,
     const_env: &ConstEnv,
-    resolver: &mut impl super::const_eval::ConstLookup,
+    resolver: &mut impl ConstLookup,
     remaining_const_names: &BTreeSet<String>,
 ) -> Result<(String, ConstValue), ScriptLangError> {
     let name = required_attr(form, "name")?.to_string();
@@ -114,12 +120,12 @@ fn analyze_const(
     let mut blocked = remaining_const_names.clone();
     blocked.remove(&name);
     let declared_type = parse_declared_type(form)?;
-    let value = parse_const_value(raw, const_env, resolver, &blocked, Some(&declared_type))?;
+    let value = parse_const_value(&raw, const_env, resolver, &blocked, Some(&declared_type))?;
     Ok((name, value))
 }
 
 fn analyze_script<'a>(
-    form: &ClassifiedForm,
+    form: &Form,
     catalog: &'a ModuleCatalog<'a>,
     const_catalog: &mut ConstCatalog<'a>,
     scope: &ModuleScope,
@@ -141,7 +147,7 @@ fn analyze_script<'a>(
 }
 
 fn analyze_block(
-    forms: &[&ClassifiedForm],
+    forms: &[&Form],
     const_env: &ConstEnv,
     resolver: &mut ScopeResolver<'_, '_>,
     remaining_const_names: &BTreeSet<String>,
@@ -165,7 +171,7 @@ fn analyze_block(
 }
 
 fn analyze_stmt(
-    form: &ClassifiedForm,
+    form: &Form,
     const_env: &ConstEnv,
     resolver: &mut ScopeResolver<'_, '_>,
     remaining_const_names: &BTreeSet<String>,
@@ -184,7 +190,7 @@ fn analyze_stmt(
             name: required_attr(form, "name")?.to_string(),
             declared_type: parse_declared_type(form)?,
             expr: rewrite_var_expr(
-                body_expr(form)?,
+                &body_expr(form)?,
                 const_env,
                 resolver,
                 remaining_const_names,
@@ -193,7 +199,7 @@ fn analyze_stmt(
         }),
         "code" => Ok(SemanticStmt::Code {
             code: rewrite_var_expr(
-                body_expr(form)?,
+                &body_expr(form)?,
                 const_env,
                 resolver,
                 remaining_const_names,
@@ -202,7 +208,7 @@ fn analyze_stmt(
         }),
         "text" => Ok(SemanticStmt::Text {
             template: rewrite_var_template(
-                parse_text_template(body_template(form)?),
+                parse_text_template(&body_template(form)?)?,
                 const_env,
                 resolver,
                 remaining_const_names,
@@ -240,7 +246,7 @@ fn analyze_stmt(
                 }
                 options.push(SemanticChoiceOption {
                     text: rewrite_var_template(
-                        parse_text_template(required_attr(option, "text")?),
+                        parse_text_template(required_attr(option, "text")?)?,
                         const_env,
                         resolver,
                         remaining_const_names,
@@ -260,7 +266,7 @@ fn analyze_stmt(
                     .map(parse_text_template)
                     .map(|template| {
                         rewrite_var_template(
-                            template,
+                            template?,
                             const_env,
                             resolver,
                             remaining_const_names,
@@ -324,65 +330,16 @@ fn rewrite_var_template(
     rewrite_template_with_vars(rewritten, resolver, shadowed_names)
 }
 
-fn parse_text_template(source: &str) -> TextTemplate {
-    let mut segments = Vec::new();
-    let mut cursor = 0usize;
-
-    while let Some(start_offset) = source[cursor..].find("${") {
-        let start = cursor + start_offset;
-        if start > cursor {
-            segments.push(TextSegment::Literal(source[cursor..start].to_string()));
-        }
-
-        let expr_start = start + 2;
-        let Some(end_offset) = source[expr_start..].find('}') else {
-            if let Some(TextSegment::Literal(prefix)) = segments.last_mut() {
-                prefix.push_str(&source[start..]);
-            } else {
-                segments.push(TextSegment::Literal(source[start..].to_string()));
-            }
-            cursor = source.len();
-            break;
-        };
-        let expr_end = expr_start + end_offset;
-        segments.push(TextSegment::Expr(
-            source[expr_start..expr_end].trim().to_string(),
-        ));
-        cursor = expr_end + 1;
-    }
-
-    if cursor < source.len() {
-        segments.push(TextSegment::Literal(source[cursor..].to_string()));
-    }
-    if segments.is_empty() {
-        segments.push(TextSegment::Literal(source.to_string()));
-    }
-
-    TextTemplate { segments }
-}
-
-fn parse_declared_type(form: &ClassifiedForm) -> Result<DeclaredType, ScriptLangError> {
-    match attr(form, "type") {
-        None => Err(error_at(form, format!("<{}> requires `type`", form.head))),
-        Some("array") => Ok(DeclaredType::Array),
-        Some("bool") => Ok(DeclaredType::Bool),
-        Some("int") => Ok(DeclaredType::Int),
-        Some("object") => Ok(DeclaredType::Object),
-        Some("script") => Ok(DeclaredType::Script),
-        Some("string") => Ok(DeclaredType::String),
-        Some(other) => Err(error_at(form, format!("unsupported type `{other}` in MVP"))),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use sl_core::{Form, FormField, FormItem, FormMeta, FormValue, SourcePosition};
 
     use crate::names::resolved_var_placeholder;
+    use crate::semantic::env::ExpandEnv;
+    use crate::semantic::expand::expand_raw_forms;
     use crate::semantic::types::DeclaredType;
 
-    use super::{SemanticStmt, analyze_forms, parse_text_template};
-    use crate::semantic::classify_forms;
+    use super::{SemanticStmt, analyze_program};
 
     fn meta() -> FormMeta {
         FormMeta {
@@ -434,8 +391,9 @@ mod tests {
     }
 
     fn analyzed(forms: Vec<Form>) -> super::SemanticProgram {
-        let classified = classify_forms(&forms).expect("classify");
-        analyze_forms(&classified).expect("analyze")
+        let mut env = ExpandEnv::default();
+        let _ = expand_raw_forms(&forms, &mut env).expect("expand");
+        analyze_program(&env.program).expect("analyze")
     }
 
     #[test]
@@ -511,7 +469,7 @@ mod tests {
 
     #[test]
     fn analyze_forms_rejects_missing_or_unknown_type_and_invalid_script_const() {
-        let missing_type = classify_forms(&[node(
+        let missing_type = [node(
             "module",
             vec![("name", "main")],
             vec![
@@ -522,12 +480,13 @@ mod tests {
                     vec![child(node("end", vec![], vec![]))],
                 )),
             ],
-        )])
-        .expect("classify");
-        let error = analyze_forms(&missing_type).expect_err("missing type should fail");
+        )];
+        let mut env = ExpandEnv::default();
+        let _ = expand_raw_forms(&missing_type, &mut env).expect("expand");
+        let error = analyze_program(&env.program).expect_err("missing type should fail");
         assert!(error.to_string().contains("<var> requires `type`"));
 
-        let unknown_type = classify_forms(&[node(
+        let unknown_type = [node(
             "module",
             vec![("name", "main")],
             vec![
@@ -542,12 +501,13 @@ mod tests {
                     vec![child(node("end", vec![], vec![]))],
                 )),
             ],
-        )])
-        .expect("classify");
-        let error = analyze_forms(&unknown_type).expect_err("unknown type should fail");
+        )];
+        let mut env = ExpandEnv::default();
+        let _ = expand_raw_forms(&unknown_type, &mut env).expect("expand");
+        let error = analyze_program(&env.program).expect_err("unknown type should fail");
         assert!(error.to_string().contains("unsupported type `number`"));
 
-        let bad_script_const = classify_forms(&[node(
+        let bad_script_const = [node(
             "module",
             vec![("name", "main")],
             vec![
@@ -562,19 +522,14 @@ mod tests {
                     vec![child(node("end", vec![], vec![]))],
                 )),
             ],
-        )])
-        .expect("classify");
-        let error = analyze_forms(&bad_script_const).expect_err("script const should fail");
+        )];
+        let mut env = ExpandEnv::default();
+        let _ = expand_raw_forms(&bad_script_const, &mut env).expect("expand");
+        let error = analyze_program(&env.program).expect_err("script const should fail");
         assert!(
             error
                 .to_string()
                 .contains("const declared as `script` must evaluate to a script literal")
         );
-    }
-
-    #[test]
-    fn parse_text_template_covers_literal_and_expression_shapes() {
-        let mixed = parse_text_template("a ${left} b");
-        assert_eq!(mixed.segments.len(), 3);
     }
 }

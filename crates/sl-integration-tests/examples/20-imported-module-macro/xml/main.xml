@@ -1,0 +1,4 @@
+<module name="main">
+  <import name="helper"/>
+  <mk name="main"/>
+</module>

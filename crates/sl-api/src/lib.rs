@@ -100,4 +100,60 @@ mod tests {
             StepResult::Completed(Completion::End)
         ));
     }
+
+    #[test]
+    fn create_engine_from_xml_map_expands_kernel_statement_macros() {
+        let sources = BTreeMap::from([(
+            "main.xml".to_string(),
+            r#"
+            <module name="main">
+              <script name="main">
+                <say text="hello"/>
+                <when_text when="true">
+                  <say text="inside"/>
+                </when_text>
+                <end/>
+              </script>
+            </module>
+            "#
+            .to_string(),
+        )]);
+        let mut engine = create_engine_from_xml_map(&sources, None).expect("engine");
+        let mut events = Vec::new();
+        loop {
+            match engine.step().expect("step") {
+                StepResult::Progress => continue,
+                StepResult::Event(StepEvent::Text { text, .. }) => events.push(text),
+                StepResult::Completed(Completion::End) => break,
+                other => panic!("unexpected step result: {other:?}"),
+            }
+        }
+
+        assert_eq!(events, vec!["hello".to_string(), "inside".to_string()]);
+    }
+
+    #[test]
+    fn create_engine_from_xml_map_expands_kernel_module_macros() {
+        let sources = BTreeMap::from([(
+            "main.xml".to_string(),
+            r#"
+            <module name="main">
+              <script_text name="main" text="from-macro"/>
+            </module>
+            "#
+            .to_string(),
+        )]);
+        let mut engine = create_engine_from_xml_map(&sources, None).expect("engine");
+
+        loop {
+            match engine.step().expect("step") {
+                StepResult::Progress => continue,
+                StepResult::Event(StepEvent::Text { text, .. }) => {
+                    assert_eq!(text, "from-macro");
+                }
+                StepResult::Completed(Completion::End) => break,
+                other => panic!("unexpected step result: {other:?}"),
+            }
+        }
+    }
 }
