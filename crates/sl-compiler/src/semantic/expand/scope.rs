@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use sl_core::ScriptLangError;
+use sl_core::{Form, ScriptLangError};
 
 use super::{
     ConstEnv, ConstLookup, ConstValue, parse_const_value,
@@ -9,7 +9,7 @@ use super::{
 use crate::semantic::types::{MemberKind, ModulePath, ResolvedRef};
 use crate::semantic::{body_expr, required_attr};
 
-use super::imports::validate_import_target;
+use super::imports::{validate_alias_target, validate_import_target};
 use super::modules::{DEFAULT_KERNEL_MODULE, ModuleCatalog};
 
 pub(crate) enum QualifiedConstLookup {
@@ -23,6 +23,7 @@ pub(crate) enum QualifiedConstLookup {
 pub(crate) struct ModuleScope {
     current_module: ModulePath,
     imports: Vec<ModulePath>,
+    aliases: BTreeMap<String, ModulePath>,
 }
 
 pub(crate) struct ConstCatalog<'a> {
@@ -49,9 +50,21 @@ impl ModuleScope {
         if module_name != DEFAULT_KERNEL_MODULE && catalog.contains(DEFAULT_KERNEL_MODULE) {
             imports.push(ModulePath(DEFAULT_KERNEL_MODULE.to_string()));
         }
+        let aliases = catalog
+            .module_state(module_name)
+            .ok()
+            .map(|module| {
+                module
+                    .child_aliases
+                    .iter()
+                    .map(|(alias_name, target)| (alias_name.clone(), ModulePath(target.clone())))
+                    .collect::<BTreeMap<_, _>>()
+            })
+            .unwrap_or_default();
         Self {
             current_module: ModulePath(module_name.to_string()),
             imports,
+            aliases,
         }
     }
 
@@ -63,16 +76,63 @@ impl ModuleScope {
         self.imports.push(ModulePath(module_name.to_string()));
     }
 
+    pub(crate) fn add_alias(&mut self, alias_name: &str, module_name: &str) {
+        self.aliases
+            .insert(alias_name.to_string(), ModulePath(module_name.to_string()));
+    }
+
     fn imports(&self) -> &[ModulePath] {
         &self.imports
     }
 
+    fn normalize_module_path<'a>(&'a self, module_name: &'a str) -> &'a str {
+        self.aliases
+            .get(module_name)
+            .map(|path| path.as_str())
+            .unwrap_or(module_name)
+    }
+
     fn can_access_module(&self, module_name: &str) -> bool {
+        let module_name = self.normalize_module_path(module_name);
         module_name == self.current_module()
+            || self
+                .aliases
+                .values()
+                .any(|alias| alias.as_str() == module_name)
             || self
                 .imports
                 .iter()
                 .any(|import| import.as_str() == module_name)
+    }
+
+    fn normalize_script_literal(&self, raw: &str) -> String {
+        let Some(raw) = raw.strip_prefix('@') else {
+            return raw.to_string();
+        };
+        if raw.is_empty() {
+            return "@".to_string();
+        }
+        if let Some((module_name, script_name)) = raw.rsplit_once('.') {
+            let module_name = self.normalize_module_path(module_name);
+            format!("@{module_name}.{script_name}")
+        } else {
+            format!("@{raw}")
+        }
+    }
+
+    fn normalize_function_literal(&self, raw: &str) -> String {
+        let Some(raw) = raw.strip_prefix('#') else {
+            return raw.to_string();
+        };
+        if raw.is_empty() {
+            return "#".to_string();
+        }
+        if let Some((module_name, function_name)) = raw.rsplit_once('.') {
+            let module_name = self.normalize_module_path(module_name);
+            format!("#{module_name}.{function_name}")
+        } else {
+            format!("#{raw}")
+        }
     }
 }
 
@@ -151,6 +211,12 @@ impl<'a> ConstCatalog<'a> {
                     validate_import_target(self.modules, child, module_name, &import_name)?;
                     scope.add_import(&import_name);
                 }
+                "alias" => {
+                    let alias_target = required_attr(child, "name")?.to_string();
+                    validate_alias_target(self.modules, child, module_name, &alias_target)?;
+                    let alias_name = alias_name(child)?;
+                    scope.add_alias(&alias_name, &alias_target);
+                }
                 "const" => {
                     let const_name = required_attr(child, "name")?.to_string();
                     if let Some(value) = const_env.get(&const_name).cloned() {
@@ -201,14 +267,6 @@ impl<'a, 'b> ScopeResolver<'a, 'b> {
         }
     }
 
-    pub(crate) fn current_module(&self) -> &str {
-        self.scope.current_module()
-    }
-
-    pub(crate) fn modules(&self) -> &'a ModuleCatalog<'a> {
-        self.modules
-    }
-
     pub(crate) fn resolve_short_var_ref(
         &self,
         name: &str,
@@ -247,6 +305,7 @@ impl<'a, 'b> ScopeResolver<'a, 'b> {
         module_path: &str,
         name: &str,
     ) -> Result<Option<ResolvedRef>, ScriptLangError> {
+        let module_path = self.scope.normalize_module_path(module_path);
         if !self.modules.contains(module_path) {
             return Ok(None);
         }
@@ -300,6 +359,7 @@ impl ConstLookup for ScopeResolver<'_, '_> {
         module_path: &str,
         name: &str,
     ) -> Result<QualifiedConstLookup, ScriptLangError> {
+        let module_path = self.scope.normalize_module_path(module_path);
         if !self.modules.contains(module_path) {
             return Ok(QualifiedConstLookup::NotModulePath);
         }
@@ -323,9 +383,31 @@ impl ConstLookup for ScopeResolver<'_, '_> {
     }
 
     fn resolve_script_literal(&mut self, raw: &str) -> Result<String, ScriptLangError> {
-        self.modules
-            .resolve_script_literal(self.scope.current_module(), raw)
+        self.modules.resolve_script_literal(
+            self.scope.current_module(),
+            &self.scope.normalize_script_literal(raw),
+        )
     }
+
+    fn resolve_function_literal(&mut self, raw: &str) -> Result<String, ScriptLangError> {
+        self.modules.resolve_function_literal(
+            self.scope.current_module(),
+            &self.scope.normalize_function_literal(raw),
+        )
+    }
+}
+
+fn alias_name(form: &Form) -> Result<String, ScriptLangError> {
+    if let Some(alias_name) = crate::semantic::attr(form, "as") {
+        return Ok(alias_name.to_string());
+    }
+    let module_name = required_attr(form, "name")?;
+    module_name
+        .rsplit('.')
+        .next()
+        .filter(|segment| !segment.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| ScriptLangError::message("<alias> requires valid `name`"))
 }
 
 #[cfg(test)]
@@ -393,6 +475,9 @@ mod tests {
         ModuleState {
             module_name: Some(module_name.to_string()),
             imports: Vec::new(),
+            requires: Vec::new(),
+            aliases: BTreeMap::new(),
+            child_aliases: BTreeMap::new(),
             const_decls: BTreeMap::new(),
             exports,
             children,
@@ -402,12 +487,16 @@ mod tests {
 
     fn exports_with(
         consts: &[(&str, bool)],
+        functions: &[(&str, bool)],
         vars: &[(&str, bool)],
         scripts: &[(&str, bool)],
     ) -> ModuleExports {
         let mut result = ModuleExports::default();
         for (name, exported) in consts {
             result.consts.insert((*name).to_string(), *exported);
+        }
+        for (name, exported) in functions {
+            result.functions.insert((*name).to_string(), *exported);
         }
         for (name, exported) in vars {
             result.vars.insert((*name).to_string(), *exported);
@@ -425,7 +514,7 @@ mod tests {
                     "kernel".to_string(),
                     module_state_with(
                         "kernel",
-                        exports_with(&[("zero", true)], &[], &[]),
+                        exports_with(&[("zero", true)], &[], &[], &[]),
                         vec![const_form("zero", "0")],
                     ),
                 ),
@@ -435,6 +524,7 @@ mod tests {
                         "helper",
                         exports_with(
                             &[("answer", true), ("hidden", false)],
+                            &[("pick", true)],
                             &[("value", true), ("priv", false)],
                             &[("entry", true)],
                         ),
@@ -445,7 +535,12 @@ mod tests {
                     "main".to_string(),
                     module_state_with(
                         "main",
-                        exports_with(&[("local", true)], &[("value", true)], &[("main", true)]),
+                        exports_with(
+                            &[("local", true)],
+                            &[("choose", true)],
+                            &[("value", true)],
+                            &[("main", true)],
+                        ),
                         vec![const_form("local", "1")],
                     ),
                 ),
@@ -466,6 +561,7 @@ mod tests {
         let mut const_catalog = ConstCatalog::new(&catalog);
         let mut scope = ModuleScope::initial(&catalog, "main");
         scope.add_import("helper");
+        scope.add_alias("h", "helper");
         let mut resolver = ScopeResolver::new(&catalog, &mut const_catalog, &scope);
 
         assert!(matches!(
@@ -474,6 +570,10 @@ mod tests {
         ));
         assert!(matches!(
             resolver.resolve_qualified_var_ref("helper", "value").expect("qualified import"),
+            Some(reference) if reference.qualified_name() == "helper.value"
+        ));
+        assert!(matches!(
+            resolver.resolve_qualified_var_ref("h", "value").expect("qualified alias"),
             Some(reference) if reference.qualified_name() == "helper.value"
         ));
         let hidden_var = resolver
@@ -502,11 +602,35 @@ mod tests {
                 .expect("qualified const"),
             QualifiedConstLookup::Value(ConstValue::Integer(42))
         ));
+        assert!(matches!(
+            resolver
+                .resolve_qualified_const("h", "answer")
+                .expect("qualified alias const"),
+            QualifiedConstLookup::Value(ConstValue::Integer(42))
+        ));
         assert_eq!(
             resolver
                 .resolve_script_literal("@main")
                 .expect("script literal"),
             "main.main"
+        );
+        assert_eq!(
+            resolver
+                .resolve_script_literal("@h.entry")
+                .expect("script alias literal"),
+            "helper.entry"
+        );
+        assert_eq!(
+            resolver
+                .resolve_function_literal("#choose")
+                .expect("short function literal"),
+            "main.choose"
+        );
+        assert_eq!(
+            resolver
+                .resolve_function_literal("#h.pick")
+                .expect("function alias literal"),
+            "helper.pick"
         );
     }
 
@@ -517,7 +641,7 @@ mod tests {
                 "main".to_string(),
                 module_state_with(
                     "main",
-                    exports_with(&[("a", true), ("b", true)], &[], &[]),
+                    exports_with(&[("a", true), ("b", true)], &[], &[], &[]),
                     vec![
                         form(
                             "const",
@@ -555,5 +679,155 @@ mod tests {
                 .to_string()
                 .contains("cannot be referenced before it is defined")
         );
+    }
+
+    #[test]
+    fn scope_resolver_reports_hidden_modules_and_unknown_functions() {
+        let program = program_state();
+        let catalog = ModuleCatalog::build(&program).expect("catalog");
+        let mut const_catalog = ConstCatalog::new(&catalog);
+        let scope = ModuleScope::initial(&catalog, "main");
+        let mut resolver = ScopeResolver::new(&catalog, &mut const_catalog, &scope);
+
+        let hidden = resolver
+            .resolve_qualified_const("helper", "answer")
+            .expect("hidden module without import");
+        assert!(matches!(hidden, QualifiedConstLookup::HiddenModule));
+
+        let unknown_function = resolver
+            .resolve_function_literal("#helper.nope")
+            .expect_err("unknown function");
+        assert!(unknown_function.to_string().contains("unknown function"));
+
+        let unknown_script = resolver
+            .resolve_script_literal("@helper.nope")
+            .expect_err("unknown script");
+        assert!(unknown_script.to_string().contains("unknown script"));
+    }
+
+    #[test]
+    fn module_scope_normalizes_aliases_for_literals_and_access_checks() {
+        let program = program_state();
+        let catalog = ModuleCatalog::build(&program).expect("catalog");
+        let mut scope = ModuleScope::initial(&catalog, "main");
+        scope.add_alias("h", "helper");
+
+        assert!(scope.can_access_module("h"));
+        assert_eq!(scope.normalize_script_literal("@h.entry"), "@helper.entry");
+        assert_eq!(scope.normalize_function_literal("#h.pick"), "#helper.pick");
+        assert_eq!(scope.normalize_script_literal("@loop"), "@loop");
+        assert_eq!(scope.normalize_function_literal("#pick"), "#pick");
+    }
+
+    #[test]
+    fn module_scope_and_alias_helpers_cover_edge_paths() {
+        let program = program_state();
+        let catalog = ModuleCatalog::build(&program).expect("catalog");
+        let scope = ModuleScope::initial(&catalog, "main");
+
+        assert_eq!(scope.normalize_script_literal("@"), "@");
+        assert_eq!(scope.normalize_function_literal("#"), "#");
+        assert_eq!(scope.normalize_script_literal("plain"), "plain");
+        assert_eq!(scope.normalize_function_literal("plain"), "plain");
+        assert!(!scope.can_access_module("helper"));
+
+        let alias = form("alias", vec![attr("name", "main.helper")]);
+        assert_eq!(alias_name(&alias).expect("default alias"), "helper");
+
+        let invalid = form("alias", vec![attr("name", "")]);
+        assert!(
+            alias_name(&invalid)
+                .expect_err("invalid alias target")
+                .to_string()
+                .contains("requires valid `name`")
+        );
+    }
+
+    #[test]
+    fn scope_resolver_covers_current_module_and_hidden_var_paths() {
+        let program = program_state();
+        let catalog = ModuleCatalog::build(&program).expect("catalog");
+        let mut const_catalog = ConstCatalog::new(&catalog);
+        let scope = ModuleScope::initial(&catalog, "main");
+        let resolver = ScopeResolver::new(&catalog, &mut const_catalog, &scope);
+
+        assert!(matches!(
+            resolver
+                .resolve_qualified_var_ref("main", "value")
+                .expect("current module qualified"),
+            Some(reference) if reference.qualified_name() == "main.value"
+        ));
+        assert!(
+            resolver
+                .resolve_qualified_var_ref("main", "missing")
+                .expect("missing current var")
+                .is_none()
+        );
+        assert!(
+            resolver
+                .resolve_qualified_var_ref("missing", "value")
+                .expect("not a module")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn const_catalog_and_scope_cover_cache_alias_and_hidden_module_paths() {
+        let program = program_state();
+        let catalog = ModuleCatalog::build(&program).expect("catalog");
+        let mut const_catalog = ConstCatalog::new(&catalog);
+
+        assert!(matches!(
+            const_catalog
+                .resolve_const("helper", "answer")
+                .expect("resolve first"),
+            Some(ConstValue::Integer(42))
+        ));
+        assert!(matches!(
+            const_catalog
+                .resolve_const("helper", "answer")
+                .expect("resolve cached"),
+            Some(ConstValue::Integer(42))
+        ));
+
+        let mut scope = ModuleScope::initial(&catalog, "main");
+        scope.add_import("helper");
+        scope.add_alias("h", "helper");
+        let mut resolver = ScopeResolver::new(&catalog, &mut const_catalog, &scope);
+
+        assert!(
+            resolver
+                .resolve_short_const("missing")
+                .expect("missing short const")
+                .is_none()
+        );
+        assert!(matches!(
+            resolver
+                .resolve_qualified_const("main", "local")
+                .expect("current module const"),
+            QualifiedConstLookup::Value(ConstValue::Integer(1))
+        ));
+
+        let hidden_var = resolver
+            .resolve_qualified_var_ref("kernel", "zero")
+            .expect_err("kernel not imported for var ref");
+        assert!(
+            hidden_var
+                .to_string()
+                .contains("does not export var `zero`")
+        );
+
+        let helper_private = resolver
+            .resolve_qualified_const("helper", "hidden")
+            .expect("private helper const");
+        assert!(matches!(helper_private, QualifiedConstLookup::UnknownConst));
+
+        let alias_public = resolver
+            .resolve_qualified_const("h", "answer")
+            .expect("alias const");
+        assert!(matches!(
+            alias_public,
+            QualifiedConstLookup::Value(ConstValue::Integer(42))
+        ));
     }
 }

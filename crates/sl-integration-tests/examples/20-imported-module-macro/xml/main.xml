@@ -1,4 +1,4 @@
 <module name="main">
-  <import name="helper"/>
+  <require name="helper"/>
   <mk name="main"/>
 </module>

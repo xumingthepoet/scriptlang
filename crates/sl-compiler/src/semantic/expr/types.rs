@@ -6,6 +6,7 @@ pub(crate) enum ExprKind {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SpecialTokenKind {
+    FunctionLiteral,
     ScriptLiteral,
     IdentRef,
     QualifiedRef,

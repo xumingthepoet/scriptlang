@@ -35,13 +35,19 @@
 
 - `<module>`
 - `<import>`
+- `<require>`
+- `<alias>`
 - `<macro>`
-- `private="true"` attribute on module-level `<const>`, `<var>`, `<script>`
+- `private="true"` attribute on module-level `<const>`, `<var>`, `<script>`, `<function>`
 - `<script>`
+- `<function>`
 - `<var>`
 - `<const>`
 - `<temp>`
 - `<if when="">`
+- `<while when="">`
+- `<break>`
+- `<continue>`
 - `<code>`
 - `<text>`
 - `<choice>`
@@ -64,7 +70,6 @@
 
 当前明确不支持：
 
-- `<while>`
 - `<else>`
 - `<call>`
 - `<return>`
@@ -72,12 +77,16 @@
 当前语义约束：
 
 - `<if>` 只有单分支，没有 `else`
+- 表层 `<if>` 当前由 `kernel` 宏提供，并展开成基于 `<while>` 的单次执行结构
+- `<while>` 当前已支持 `break` / `continue`
 - `<goto script="">` 现在是表达式槽位，运行时要求其结果为 script key 字符串
-- `<import>` 只能出现在 `<module>` 下，并按源码顺序向后影响当前 module 的编译期上下文
-- `private="true"` 目前只影响 module 边界导出；同一 module 内仍可直接引用 private const / var / script
+- `<import>`、`<require>`、`<alias>` 只能出现在 `<module>` 下，并按源码顺序向后影响当前 module 的编译期上下文
+- `private="true"` 目前只影响 module 边界导出；同一 module 内仍可直接引用 private const / var / script / function
 - `@main.loop` / `@loop` 是 script 字面量；`@loop` 会在编译期展开为当前 module 下的完整 script key
+- `#main.pick` / `#pick` 是 function 字面量；`#pick` 会在编译期展开为当前 module 下的完整 function key
 - `var / temp / const` 的 `type="..."` 现在是必填
-- 当前 MVP 识别的显式类型有 `int / bool / string / script / array / object`
+- 当前 MVP 识别的显式类型有 `int / bool / string / script / function / array / object`
+- `<function>` 第一阶段只作为“可声明、可被字面量引用的命名值”存在；当前还不支持 function 调用语义
 - runtime 不保留 module 概念，只按 `script_id + pc` 执行
 
 ## Parser / Compiler / Runtime
@@ -100,7 +109,7 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 
 - 以显式 pipeline 执行编译：
   - `Form -> semantic expand`
-  - `expand` 直接消费 raw `Form`，顺序推进定义期状态，并把 module children / exports / imports / const declarations / macro definitions 沉淀到 `ProgramState`
+  - `expand` 直接消费 raw `Form`，顺序推进定义期状态，并把 module children / exports / imports / requires / aliases / const declarations / macro definitions 沉淀到 `ProgramState`
   - `expand` 是当前唯一的前端语义入口；其内部通过 `ExpandEnv`、`ExpandRegistry` 和 `semantic/expand/*` 子模块完成定义期状态推进、macro 分派、名称解析和结构降解
   - `semantic program -> runtime IR`
 - 源码目录当前按阶段分成：
@@ -109,15 +118,15 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
   - `semantic/expand/`：承载 builtin/module macro expansion、module/import definition-time state、module catalog、scope resolution、const evaluation 和 script lowering analysis
   - `assemble/`：声明收集、lowering、boot script、`CompiledArtifact` 装配
 - `semantic/form.rs` 当前统一承载 raw `Form` 的属性、body、children 和错误定位 helper；旧 `classify.rs` 已删除
-- `expand` 入口会直接对 raw `Form` 做 module / import / const / var / script / local temp 的顺序遍历和定义期状态维护；`ExpandEnv` 会累计整份程序的 module 状态快照，包括 module order、children、exports、imports、const declarations 和 macro definitions
+- `expand` 入口会直接对 raw `Form` 做 module / import / require / alias / const / var / script / local temp 的顺序遍历和定义期状态维护；`ExpandEnv` 会累计整份程序的 module 状态快照，包括 module order、children、exports、imports、requires、aliases、const declarations 和 macro definitions
 - `semantic/expand/` 当前已经按职责拆分：
   - [`dispatch.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/dispatch.rs)：统一 expand 分派入口，负责 builtin / macro hook 路由
-  - [`imports.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/imports.rs)：import 目标校验
-  - [`macro_env.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/macro_env.rs)：显式 `MacroEnv`，承载 current module、imports、attributes、content、locals 和 gensym 状态
+  - [`imports.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/imports.rs)：`import` / `require` / `alias` 目标校验
+  - [`macro_env.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/macro_env.rs)：显式 `MacroEnv`，承载 current module、imports、requires、aliases、attributes、content、locals 和 gensym 状态
   - [`macro_values.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/macro_values.rs)：compile-time `MacroValue`
   - [`macros.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/macros.rs)：macro 定义收集、可见性查找和模板式宏展开
   - [`quote.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/quote.rs)：`quote / unquote`、AST splice 和最小 hygiene
-  - [`modules.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/modules.rs)：module catalog 与 script 字面量查找
+  - [`modules.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/modules.rs)：module catalog 与 script / function 字面量查找
   - [`scope.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/scope.rs)：module scope、const catalog 和 var/const 解析
   - [`program.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/program.rs)：program/module 级语义总调度
   - [`scripts.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/scripts.rs)：script body 和 statement lowering
@@ -134,17 +143,30 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
   - `get_content` 现在支持 `head="..."`，可按调用点直接子标签筛选 AST 片段
   - `quote` 中的普通字符串属性和文本节点支持 `${local_name}` compile-time splice
   - 现在已经支持最小 hygiene：quote 中引入的 runtime `<temp>` 名会 gensym，并同步改写后续 expr 引用
+  - gensym 当前按“宏调用全局 seed + 调用内局部计数”生成，避免嵌套宏和重复调用撞名
   - 当前已有显式 `MacroEnv`
   - 当前 compile-time values 至少覆盖 `string / expr / ast / bool / int`
-- program 级 macro registry 当前按 module 归档定义；expand dispatch 会按“当前 module -> 已 import modules -> 隐式 kernel”顺序解析可见宏
+- program 级 macro registry 当前按 module 归档定义；expand dispatch 会按“当前 module -> 已 require modules -> 隐式 kernel”顺序解析可见宏
 - `<macro>` 声明当前不再带 `scope`；宏定义本身不感知 module/script/statement 这类后续语义位置
 - expand dispatch 仍然保留“当前调用位置”的内部上下文，但它只用于 builtin 分派和展开结果消费，不再参与宏声明注册
 - 同名 macro 当前在同一 module 内不允许重复声明；registry 只按名字注册和解析
+- `expand` 当前已经支持嵌套 `<module>`；子模块会在编译期展平成限定名 module
+  - 例如 `main` 下的 `helper` 会变成 `main.helper`
+  - 嵌套深度不限，`main.helper.grand` 这类多级子模块会递归展平
+  - 父模块会自动获得直接子模块的词法短名 alias
+  - 例如 `main` 可直接写 `@helper.entry`，`main.helper` 可直接写 `@grand.entry`
+  - 父模块的 `children` 不再保留嵌套 `<module>` 节点
+  - 子模块内的 `<macro>` 也会按限定名 module 递归注册到 program macro registry
+- `import` 当前只负责成员短名可见性
+- `require` 当前只负责宏可见性
+- `alias` 当前只负责 module 名缩写；可用于 const / var / script / function 的显式限定引用
 - 当前宏统一通过 compile-time 路径展开：`<let> + <quote> + <unquote>`
 - 当前 compile-time 宏路径已可支撑标准 `unless`、`if-else`、`say`、`when_text` 和 `script_text` 宏；`kernel.xml` 中已有真实示例
-- 在 form semantics 阶段完成 MVP 标签校验、属性校验、`<import>` 上下文推进、统一名称解析、`<const>` 编译期求值和结构下沉
+- 在 form semantics 阶段完成 MVP 标签校验、属性校验、`<import>` / `<require>` / `<alias>` 上下文推进、统一名称解析、`<const>` 编译期求值和结构下沉
 - `<const>` 只在 semantic analyze 阶段内存在；进入 `SemanticProgram` 后不再保留 const 声明
-- compiler 当前为每个 module 隐式提供最早生效的 `import kernel` 上下文
+- compiler 当前为每个 module 隐式提供 kernel 上下文：
+  - macro 解析有隐式 kernel fallback，不依赖显式 `require kernel`
+  - semantic scope 仍会给每个 module 最早生效的 implicit `import kernel`
 - semantic 当前的 module 导出目录已由 expand 阶段写入 `ProgramState`，`semantic/expand/*` 内部 helper 再做查询与消费，并解析 const / var 引用及 script 字面量
 - semantic 当前会区分“module 内声明存在”和“对 import 暴露的导出成员”；`private="true"` 会从导出目录中隐藏该声明
 - `assemble` 不再消费 import / scope / context 信息；它只消费已经解析好的语义结果
@@ -155,7 +177,7 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 - 生成 boot script，先执行全局初始化，再跳转到默认入口
 - 默认入口当前固定为 `main.main`；若不存在则编译报错
 - `<const>` 当前只支持 module 级，且只支持 builtin 常量值与对前面已定义 const 的引用
-- `<const>` 会按声明类型做编译期校验；当前已覆盖 `int / bool / string / script / array / object`
+- `<const>` 会按声明类型做编译期校验；当前已覆盖 `int / bool / string / script / function / array / object`
 - `type="script"` 的 `<const>` 只允许 script 字面量或前置 script const 引用
 - `<const>` 在 compiler 内消解为源码替换，不进入 runtime，也不会出现在 `CompiledArtifact.globals`
 - `<var>` / `<temp>` 当前要求显式类型，但除 `script` 外暂不做完整表达式静态类型流转；semantic 先把可见 var 引用解析成规范占位符，assemble 再统一 lower 成 runtime 名
@@ -163,18 +185,27 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
   - 当前 module 的短名 const
   - imported module 的短名 const
   - `m1.zero` 形式的显式模块限定 const
+  - `alias_name.zero` 形式的 alias 限定 const
   - imported private const 不可见，会报 `does not export const`
 - var 名字解析当前支持：
   - 当前 module 的短名 var
   - imported module 的短名 var
   - `m1.value` 形式的显式模块限定 var
+  - `alias_name.value` 形式的 alias 限定 var
   - imported private var 不可见，会报 `does not export var`
 - `script` 字面量当前支持：
   - `@loop` 当前 module 下的短字面量
   - `@m1.entry` 形式的完整字面量
+  - `@alias_name.entry` 形式的 alias 字面量
   - 编译期会校验字面量引用的 script 是否存在
+- `function` 字面量当前支持：
+  - `#pick` 当前 module 下的短字面量
+  - `#m1.pick` 形式的完整字面量
+  - `#alias_name.pick` 形式的 alias 字面量
+  - 编译期会校验字面量引用的 function 是否存在
 - `<goto>` 当前不再做 script ref 名字解析；它只保留表达式并 lower 成运行时动态跳转
-- `kernel.xml` 当前除常量外，已可声明最小 kernel macro；API 单测和 integration example 已覆盖 imported module macro 可见性解析，以及基于 `quote / unquote` 的 `say` / `when_text` / `script_text` / `unless` / `if-else` 标准宏
+- `kernel.xml` 当前除常量外，已可声明最小 kernel macro；API 单测和 integration example 已覆盖 required module macro 可见性解析，以及基于 `quote / unquote` 的 `say` / `when_text` / `script_text` / `unless` / `if-else` 标准宏
+- `kernel` 当前还提供标准 `<if>` 宏；它通过 non-capturing `<while>` 结构实现，不再依赖表层 builtin `<if>`
 
 当前 IR 指令包括：
 
@@ -213,7 +244,7 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 - module 语义处理
 - AST 节点解释执行
 - 宏展开
-- `import` / module var 可见性处理
+- `import` / `require` / `alias` 的编译期可见性处理
 - script ref 级别的 compile-time 可见性规则
 
 ## API
@@ -267,6 +298,16 @@ crates/sl-integration-tests/examples/<example>/
 2. 通过 `sl-api` 执行 parse / compile / create engine
 3. 按 `actions.txt` 驱动 runtime
 4. 把实际结果和 `results.txt` 对比
+
+当前例子集已覆盖的代表性场景包括：
+
+- nested sub module 多级展平、父子模块短名引用与跳转
+- `while / break / continue` lower 到现有 jump 指令
+- kernel `<if>` 通过 `<while>` 宏化提供
+- `26-kernel-if-via-while` 覆盖 `<if>` 经 kernel macro 展开后的运行链路
+- `require` 导入的普通 module macro
+- `function` 字面量 `#foo`
+- kernel `unless` / `if-else` 标准宏
 
 ## Build Commands
 

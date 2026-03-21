@@ -327,6 +327,22 @@ mod tests {
         ))
     }
 
+    fn engine_with_boot(boot_instructions: Vec<Instruction>) -> Engine {
+        Engine::new(artifact_with_scripts(
+            vec![(
+                "main.entry".to_string(),
+                CompiledScript {
+                    script_id: 0,
+                    local_names: Vec::new(),
+                    instructions: vec![Instruction::End],
+                },
+            )],
+            Vec::new(),
+            0,
+            boot_instructions,
+        ))
+    }
+
     #[test]
     fn new_uses_boot_state_and_start_can_override_entry() {
         let mut engine = Engine::new(artifact_with_scripts(
@@ -807,5 +823,19 @@ mod tests {
         );
         assert_eq!(dynamic_to_text(&Dynamic::UNIT), "");
         assert_eq!(dynamic_to_text(&Dynamic::from(9_i64)), "9");
+    }
+
+    #[test]
+    fn jump_script_at_boot_without_override_uses_instruction_target() {
+        let mut engine = engine_with_boot(vec![Instruction::JumpScript {
+            target_script_id: 0,
+        }]);
+
+        let step = engine.step().expect("step should work");
+
+        assert!(matches!(step, StepResult::Progress));
+        assert_eq!(engine.current_script_id(), 0);
+        assert_eq!(engine.current_pc(), 0);
+        assert_eq!(engine.state.entry_override, None);
     }
 }

@@ -32,7 +32,8 @@ pub(crate) fn lower_script(
     draft: &mut ScriptDraft,
     script: &SemanticScript,
 ) -> Result<(), ScriptLangError> {
-    lower_block(script_refs, draft, &script.body)?;
+    let mut loop_stack = Vec::new();
+    lower_block(script_refs, draft, &script.body, &mut loop_stack)?;
     if !matches!(
         draft.instructions.last(),
         Some(
@@ -48,6 +49,7 @@ fn lower_block(
     script_refs: &std::collections::BTreeMap<String, ScriptId>,
     draft: &mut ScriptDraft,
     body: &[SemanticStmt],
+    loop_stack: &mut Vec<LoopFrame>,
 ) -> Result<(), ScriptLangError> {
     for stmt in body {
         match stmt {
@@ -81,14 +83,67 @@ fn lower_block(
                 draft
                     .instructions
                     .push(Instruction::JumpIfFalse { target_pc: 0 });
-                lower_block(script_refs, draft, body)?;
+                lower_block(script_refs, draft, body, loop_stack)?;
                 let after_body = draft.instructions.len();
                 draft.instructions[jump_index] = Instruction::JumpIfFalse {
                     target_pc: after_body,
                 };
             }
+            SemanticStmt::While {
+                when,
+                body,
+                captures_loop_control,
+            } => {
+                let head_pc = draft.instructions.len();
+                draft.instructions.push(Instruction::EvalCond {
+                    expr: lower_resolved_vars_to_runtime_names(when),
+                });
+                let exit_jump_index = draft.instructions.len();
+                draft
+                    .instructions
+                    .push(Instruction::JumpIfFalse { target_pc: 0 });
+                if *captures_loop_control {
+                    loop_stack.push(LoopFrame {
+                        head_pc,
+                        break_jump_indices: Vec::new(),
+                    });
+                }
+                lower_block(script_refs, draft, body, loop_stack)?;
+                draft
+                    .instructions
+                    .push(Instruction::Jump { target_pc: head_pc });
+                let exit_pc = draft.instructions.len();
+                draft.instructions[exit_jump_index] =
+                    Instruction::JumpIfFalse { target_pc: exit_pc };
+                if *captures_loop_control {
+                    let frame = loop_stack.pop().expect("loop frame should exist");
+                    for jump_index in frame.break_jump_indices {
+                        draft.instructions[jump_index] = Instruction::Jump { target_pc: exit_pc };
+                    }
+                }
+            }
+            SemanticStmt::Break => {
+                let Some(frame) = loop_stack.last_mut() else {
+                    return Err(ScriptLangError::message(
+                        "<break> is only allowed inside <while>",
+                    ));
+                };
+                let jump_index = draft.instructions.len();
+                draft.instructions.push(Instruction::Jump { target_pc: 0 });
+                frame.break_jump_indices.push(jump_index);
+            }
+            SemanticStmt::Continue => {
+                let Some(frame) = loop_stack.last() else {
+                    return Err(ScriptLangError::message(
+                        "<continue> is only allowed inside <while>",
+                    ));
+                };
+                draft.instructions.push(Instruction::Jump {
+                    target_pc: frame.head_pc,
+                });
+            }
             SemanticStmt::Choice { prompt, options } => {
-                lower_choice(script_refs, draft, prompt.as_ref(), options)?;
+                lower_choice(script_refs, draft, prompt.as_ref(), options, loop_stack)?;
             }
             SemanticStmt::Goto { expr } => {
                 draft.instructions.push(Instruction::JumpScriptExpr {
@@ -106,6 +161,7 @@ fn lower_choice(
     draft: &mut ScriptDraft,
     prompt: Option<&sl_core::TextTemplate>,
     options: &[SemanticChoiceOption],
+    loop_stack: &mut Vec<LoopFrame>,
 ) -> Result<(), ScriptLangError> {
     let build_index = draft.instructions.len();
     draft.instructions.push(Instruction::BuildChoice {
@@ -121,7 +177,7 @@ fn lower_choice(
             text: lower_text_template(&option.text),
             target_pc,
         });
-        lower_block(script_refs, draft, &option.body)?;
+        lower_block(script_refs, draft, &option.body, loop_stack)?;
         let jump_index = draft.instructions.len();
         draft.instructions.push(Instruction::Jump { target_pc: 0 });
         branch_jump_indices.push(jump_index);
@@ -136,6 +192,11 @@ fn lower_choice(
         options: branches,
     };
     Ok(())
+}
+
+struct LoopFrame {
+    head_pc: usize,
+    break_jump_indices: Vec<usize>,
 }
 
 fn lower_text_template(template: &TextTemplate) -> CompiledText {
@@ -260,5 +321,199 @@ mod tests {
             [CompiledTextPart::Literal(text), CompiledTextPart::Expr(expr)]
                 if text == "hello " && expr == "name"
         ));
+    }
+
+    #[test]
+    fn lower_script_covers_code_text_if_end_and_reused_local_ids() {
+        let mut draft = draft();
+        let script = SemanticScript {
+            name: "entry".to_string(),
+            body: vec![
+                SemanticStmt::Temp {
+                    name: "x".to_string(),
+                    declared_type: DeclaredType::Int,
+                    expr: "1".to_string(),
+                },
+                SemanticStmt::Code {
+                    code: "x = x + 1;".to_string(),
+                },
+                SemanticStmt::Text {
+                    template: TextTemplate {
+                        segments: vec![
+                            TextSegment::Literal("value=".to_string()),
+                            TextSegment::Expr("x".to_string()),
+                        ],
+                    },
+                    tag: Some("note".to_string()),
+                },
+                SemanticStmt::If {
+                    when: "x > 1".to_string(),
+                    body: vec![
+                        SemanticStmt::Temp {
+                            name: "x".to_string(),
+                            declared_type: DeclaredType::Int,
+                            expr: "2".to_string(),
+                        },
+                        SemanticStmt::End,
+                    ],
+                },
+            ],
+        };
+
+        lower_script(&BTreeMap::new(), &mut draft, &script).expect("lower");
+
+        assert_eq!(draft.local_names, vec!["x".to_string()]);
+        assert!(matches!(
+            &draft.instructions[0],
+            Instruction::EvalTemp { local_id, expr } if *local_id == 0 && expr == "1"
+        ));
+        assert!(matches!(
+            &draft.instructions[1],
+            Instruction::ExecCode { code } if code == "x = x + 1;"
+        ));
+        assert!(matches!(
+            &draft.instructions[2],
+            Instruction::EmitText { text, tag }
+                if matches!(text.parts.as_slice(),
+                    [CompiledTextPart::Literal(prefix), CompiledTextPart::Expr(expr)]
+                    if prefix == "value=" && expr == "x")
+                && tag.as_deref() == Some("note")
+        ));
+        assert!(matches!(
+            &draft.instructions[3],
+            Instruction::EvalCond { expr } if expr == "x > 1"
+        ));
+        assert!(matches!(
+            &draft.instructions[4],
+            Instruction::JumpIfFalse { target_pc } if *target_pc == 7
+        ));
+        assert!(matches!(
+            &draft.instructions[5],
+            Instruction::EvalTemp { local_id, expr } if *local_id == 0 && expr == "2"
+        ));
+        assert!(matches!(&draft.instructions[6], Instruction::End));
+    }
+
+    #[test]
+    fn lower_script_covers_while_break_and_continue() {
+        let mut draft = draft();
+        let script = SemanticScript {
+            name: "entry".to_string(),
+            body: vec![SemanticStmt::While {
+                when: "flag".to_string(),
+                captures_loop_control: true,
+                body: vec![
+                    SemanticStmt::Continue,
+                    SemanticStmt::Break,
+                    SemanticStmt::Text {
+                        template: TextTemplate {
+                            segments: vec![TextSegment::Literal("never".to_string())],
+                        },
+                        tag: None,
+                    },
+                ],
+            }],
+        };
+
+        lower_script(&BTreeMap::new(), &mut draft, &script).expect("lower");
+
+        assert!(matches!(
+            &draft.instructions[0],
+            Instruction::EvalCond { expr } if expr == "flag"
+        ));
+        assert!(matches!(
+            &draft.instructions[1],
+            Instruction::JumpIfFalse { target_pc } if *target_pc == 6
+        ));
+        assert!(matches!(
+            &draft.instructions[2],
+            Instruction::Jump { target_pc } if *target_pc == 0
+        ));
+        assert!(matches!(
+            &draft.instructions[3],
+            Instruction::Jump { target_pc } if *target_pc == 6
+        ));
+        assert!(matches!(
+            &draft.instructions[4],
+            Instruction::EmitText { .. }
+        ));
+        assert!(matches!(
+            &draft.instructions[5],
+            Instruction::Jump { target_pc } if *target_pc == 0
+        ));
+    }
+
+    #[test]
+    fn lower_script_rejects_break_and_continue_outside_loop() {
+        let break_error = lower_script(
+            &BTreeMap::new(),
+            &mut draft(),
+            &SemanticScript {
+                name: "entry".to_string(),
+                body: vec![SemanticStmt::Break],
+            },
+        )
+        .expect_err("break outside loop");
+        assert!(
+            break_error
+                .to_string()
+                .contains("only allowed inside <while>")
+        );
+
+        let continue_error = lower_script(
+            &BTreeMap::new(),
+            &mut draft(),
+            &SemanticScript {
+                name: "entry".to_string(),
+                body: vec![SemanticStmt::Continue],
+            },
+        )
+        .expect_err("continue outside loop");
+        assert!(
+            continue_error
+                .to_string()
+                .contains("only allowed inside <while>")
+        );
+    }
+
+    #[test]
+    fn lower_script_non_capturing_while_does_not_accept_break_or_continue() {
+        let break_error = lower_script(
+            &BTreeMap::new(),
+            &mut draft(),
+            &SemanticScript {
+                name: "entry".to_string(),
+                body: vec![SemanticStmt::While {
+                    when: "true".to_string(),
+                    captures_loop_control: false,
+                    body: vec![SemanticStmt::Break],
+                }],
+            },
+        )
+        .expect_err("break should not target synthetic loop");
+        assert!(
+            break_error
+                .to_string()
+                .contains("only allowed inside <while>")
+        );
+
+        let continue_error = lower_script(
+            &BTreeMap::new(),
+            &mut draft(),
+            &SemanticScript {
+                name: "entry".to_string(),
+                body: vec![SemanticStmt::While {
+                    when: "true".to_string(),
+                    captures_loop_control: false,
+                    body: vec![SemanticStmt::Continue],
+                }],
+            },
+        )
+        .expect_err("continue should not target synthetic loop");
+        assert!(
+            continue_error
+                .to_string()
+                .contains("only allowed inside <while>")
+        );
     }
 }

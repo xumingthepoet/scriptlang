@@ -28,11 +28,16 @@ mod tests {
     #[test]
     fn message_constructor_and_display_work() {
         let error = ScriptLangError::message("hello");
+        let owned = ScriptLangError::message(String::from("owned"));
 
         assert_eq!(error.to_string(), "hello");
         assert!(matches!(
             error,
             ScriptLangError::Message { message } if message == "hello"
+        ));
+        assert!(matches!(
+            owned,
+            ScriptLangError::Message { message } if message == "owned"
         ));
     }
 

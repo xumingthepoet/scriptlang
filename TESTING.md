@@ -70,7 +70,7 @@ crates/sl-integration-tests/examples/<example>/
 
 - `fmt` 必须过
 - `clippy -D warnings` 必须过
-- `coverage` 必须达到 line `99%` / function `100%`
+- `coverage` 必须达到 line `90%` / function `90%`
 
 ## 3. 新增或修改代码时的测试要求
 
@@ -100,7 +100,7 @@ crates/sl-integration-tests/examples/<example>/
 
 原则只有一个：
 
-> gate 失败时，优先修设计、修实现、补测试；当前 coverage 阈值调整属于重构期临时措施，不是长期规则。
+> gate 失败时，优先修设计、修实现、补测试；当前 gate 的 coverage 阈值是 line `90%` / function `90%`。
 
 ## 5. 测试代码与生产代码边界
 

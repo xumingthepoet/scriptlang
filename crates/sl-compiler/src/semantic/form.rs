@@ -118,7 +118,9 @@ fn field<'a>(form: &'a Form, name: &str) -> Option<&'a FormField> {
 mod tests {
     use sl_core::{Form, FormField, FormItem, FormMeta, FormValue, SourcePosition};
 
-    use super::{attr, body_expr, body_template, child_forms, required_attr, trimmed_text_items};
+    use super::{
+        attr, body_expr, body_template, child_forms, location, required_attr, trimmed_text_items,
+    };
 
     fn form(head: &str, fields: Vec<FormField>) -> Form {
         Form {
@@ -224,5 +226,71 @@ mod tests {
                 .to_string()
                 .contains("nested <inner> is not supported")
         );
+    }
+
+    #[test]
+    fn raw_form_helpers_cover_additional_error_paths() {
+        let seq_attr_form = form(
+            "module",
+            vec![
+                FormField {
+                    name: "name".to_string(),
+                    value: FormValue::Sequence(Vec::new()),
+                },
+                FormField {
+                    name: "children".to_string(),
+                    value: FormValue::Sequence(Vec::new()),
+                },
+            ],
+        );
+        let wrong_head = form(
+            "script",
+            vec![FormField {
+                name: "children".to_string(),
+                value: FormValue::Sequence(vec![FormItem::Text("x".to_string())]),
+            }],
+        );
+        let missing_children = form("script", Vec::new());
+        let malformed_children = form(
+            "script",
+            vec![FormField {
+                name: "children".to_string(),
+                value: FormValue::String("bad".to_string()),
+            }],
+        );
+        let inline_meta = FormMeta {
+            source_name: None,
+            start: SourcePosition { row: 3, column: 5 },
+            end: SourcePosition { row: 3, column: 9 },
+            start_byte: 0,
+            end_byte: 4,
+        };
+
+        assert_eq!(attr(&seq_attr_form, "name"), None);
+        assert!(
+            body_expr(&wrong_head)
+                .expect_err("wrong head")
+                .to_string()
+                .contains("body is not classified as an expression")
+        );
+        assert!(
+            body_template(&wrong_head)
+                .expect_err("wrong head")
+                .to_string()
+                .contains("body is not classified as a template")
+        );
+        assert!(
+            child_forms(&missing_children)
+                .expect_err("missing children")
+                .to_string()
+                .contains("missing `children` field")
+        );
+        assert!(
+            trimmed_text_items(&malformed_children)
+                .expect_err("malformed children")
+                .to_string()
+                .contains("invalid `children` field shape")
+        );
+        assert_eq!(location(&inline_meta), "3:5");
     }
 }

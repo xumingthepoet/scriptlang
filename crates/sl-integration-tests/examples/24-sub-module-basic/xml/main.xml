@@ -1,0 +1,20 @@
+<module name="main">
+  <module name="helper">
+    <module name="grand">
+      <script name="entry">
+        <text>nested</text>
+        <end />
+      </script>
+    </module>
+
+    <script name="relay">
+      <goto script="@grand.entry" />
+    </script>
+  </module>
+
+  <var name="next" type="script">@helper.relay</var>
+
+  <script name="main">
+    <goto script="next" />
+  </script>
+</module>

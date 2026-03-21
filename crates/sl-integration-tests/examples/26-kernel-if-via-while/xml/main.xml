@@ -1,0 +1,12 @@
+<module name="main">
+  <script name="main">
+    <temp name="flag" type="bool">true</temp>
+    <if when="flag">
+      <text>shown</text>
+    </if>
+    <if when="false">
+      <text>hidden</text>
+    </if>
+    <end />
+  </script>
+</module>

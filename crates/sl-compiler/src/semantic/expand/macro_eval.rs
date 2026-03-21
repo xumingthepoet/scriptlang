@@ -345,10 +345,10 @@ mod tests {
             _ => panic!("expected form"),
         };
         assert_eq!(first.head, "temp");
-        assert_eq!(attr(first, "name"), Some("__macro_condition_1"));
+        assert_eq!(attr(first, "name"), Some("__macro_unless_1_condition_1"));
         assert_eq!(raw_body_text(first).as_deref(), Some("flag"));
         assert_eq!(second.head, "if");
-        assert_eq!(attr(second, "when"), Some("!__macro_condition_1"));
+        assert_eq!(attr(second, "when"), Some("!__macro_unless_1_condition_1"));
         let second_children = invocation_children(second);
         assert_eq!(second_children.len(), 1);
     }
@@ -408,5 +408,417 @@ mod tests {
         assert_eq!(second.head, "text");
         assert_eq!(raw_body_text(first).as_deref(), Some("a"));
         assert_eq!(raw_body_text(second).as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn macro_evaluator_rejects_missing_quote_and_unexpected_top_level_text() {
+        let invocation = node("m", vec![], vec![]);
+
+        let missing_quote = evaluate_macro_items(
+            &[],
+            &invocation,
+            &mut ExpandEnv::default(),
+            ExpandRuleScope::Statement,
+        )
+        .expect_err("missing quote");
+        assert!(
+            missing_quote
+                .to_string()
+                .contains("requires one <quote> block")
+        );
+
+        let text_error = evaluate_macro_items(
+            &[text_item("unexpected")],
+            &invocation,
+            &mut ExpandEnv::default(),
+            ExpandRuleScope::Statement,
+        )
+        .expect_err("top-level text");
+        assert!(text_error.to_string().contains("unexpected top-level text"));
+    }
+
+    #[test]
+    fn macro_evaluator_covers_let_scalar_types_and_error_paths() {
+        let invocation = node(
+            "sample",
+            vec![("flag", "true"), ("count", "7"), ("name", "neo")],
+            vec![],
+        );
+        let body = vec![
+            child(node(
+                "let",
+                vec![("name", "flag_v"), ("type", "bool")],
+                vec![child(node("get-attribute", vec![("name", "flag")], vec![]))],
+            )),
+            child(node(
+                "let",
+                vec![("name", "count_v"), ("type", "int")],
+                vec![child(node(
+                    "get-attribute",
+                    vec![("name", "count")],
+                    vec![],
+                ))],
+            )),
+            child(node(
+                "let",
+                vec![("name", "name_v"), ("type", "string")],
+                vec![child(node("get-attribute", vec![("name", "name")], vec![]))],
+            )),
+            child(node(
+                "quote",
+                vec![],
+                vec![child(node(
+                    "text",
+                    vec![("tag", "${name_v}")],
+                    vec![text_item("${count_v}:${flag_v}")],
+                ))],
+            )),
+        ];
+
+        let items = evaluate_macro_items(
+            &body,
+            &invocation,
+            &mut ExpandEnv::default(),
+            ExpandRuleScope::Statement,
+        )
+        .expect("macro eval");
+        let text_form = match &items[0] {
+            FormItem::Form(form) => form,
+            _ => panic!("expected text form"),
+        };
+        assert_eq!(attr(text_form, "tag"), Some("neo"));
+        assert_eq!(raw_body_text(text_form).as_deref(), Some("7:true"));
+
+        let bad_bool = evaluate_macro_items(
+            &[
+                child(node(
+                    "let",
+                    vec![("name", "flag_v"), ("type", "bool")],
+                    vec![child(node("get-attribute", vec![("name", "name")], vec![]))],
+                )),
+                child(node("quote", vec![], vec![])),
+            ],
+            &invocation,
+            &mut ExpandEnv::default(),
+            ExpandRuleScope::Statement,
+        )
+        .expect_err("bad bool");
+        assert!(
+            bad_bool
+                .to_string()
+                .contains("cannot parse `neo` as macro bool attribute")
+        );
+
+        let bad_type = evaluate_macro_items(
+            &[
+                child(node(
+                    "let",
+                    vec![("name", "x"), ("type", "float")],
+                    vec![child(node(
+                        "get-attribute",
+                        vec![("name", "count")],
+                        vec![],
+                    ))],
+                )),
+                child(node("quote", vec![], vec![])),
+            ],
+            &invocation,
+            &mut ExpandEnv::default(),
+            ExpandRuleScope::Statement,
+        )
+        .expect_err("bad type");
+        assert!(bad_type.to_string().contains("unsupported macro let type"));
+
+        let bad_provider = evaluate_macro_items(
+            &[
+                child(node(
+                    "let",
+                    vec![("name", "x"), ("type", "expr")],
+                    vec![child(node("get-content", vec![], vec![]))],
+                )),
+                child(node("quote", vec![], vec![])),
+            ],
+            &invocation,
+            &mut ExpandEnv::default(),
+            ExpandRuleScope::Statement,
+        )
+        .expect_err("bad provider");
+        assert!(
+            bad_provider
+                .to_string()
+                .contains("unsupported <get-content> provider")
+        );
+    }
+
+    #[test]
+    fn macro_evaluator_covers_quote_provider_and_single_child_errors() {
+        let invocation = node(
+            "m",
+            vec![("name", "neo")],
+            vec![child(node("text", vec![], vec![text_item("hello")]))],
+        );
+
+        let quoted_provider = evaluate_macro_items(
+            &[
+                child(node(
+                    "let",
+                    vec![("name", "ast_v"), ("type", "ast")],
+                    vec![child(node(
+                        "quote",
+                        vec![],
+                        vec![child(node("text", vec![], vec![text_item("quoted")]))],
+                    ))],
+                )),
+                child(node(
+                    "quote",
+                    vec![],
+                    vec![child(node("unquote", vec![], vec![text_item("ast_v")]))],
+                )),
+            ],
+            &invocation,
+            &mut ExpandEnv::default(),
+            ExpandRuleScope::Statement,
+        )
+        .expect("quoted provider");
+        let quoted_text = match &quoted_provider[0] {
+            FormItem::Form(form) => form,
+            _ => panic!("expected text form"),
+        };
+        assert_eq!(raw_body_text(quoted_text).as_deref(), Some("quoted"));
+
+        let multi_child = evaluate_macro_items(
+            &[
+                child(node(
+                    "let",
+                    vec![("name", "x"), ("type", "string")],
+                    vec![
+                        child(node("get-attribute", vec![("name", "name")], vec![])),
+                        child(node("get-attribute", vec![("name", "name")], vec![])),
+                    ],
+                )),
+                child(node("quote", vec![], vec![])),
+            ],
+            &invocation,
+            &mut ExpandEnv::default(),
+            ExpandRuleScope::Statement,
+        )
+        .expect_err("multi child");
+        assert!(
+            multi_child
+                .to_string()
+                .contains("requires exactly one meaningful child")
+        );
+
+        let missing_attr = evaluate_macro_items(
+            &[
+                child(node(
+                    "let",
+                    vec![("name", "x"), ("type", "string")],
+                    vec![child(node(
+                        "get-attribute",
+                        vec![("name", "missing")],
+                        vec![],
+                    ))],
+                )),
+                child(node("quote", vec![], vec![])),
+            ],
+            &invocation,
+            &mut ExpandEnv::default(),
+            ExpandRuleScope::Statement,
+        )
+        .expect_err("missing attr");
+        assert!(
+            missing_attr
+                .to_string()
+                .contains("missing invocation attribute `missing`")
+        );
+    }
+
+    #[test]
+    fn macro_evaluator_covers_unsupported_forms_and_helper_errors() {
+        let invocation = node("m", vec![("name", "neo")], vec![text_item("plain")]);
+
+        let unsupported = evaluate_macro_items(
+            &[
+                child(node("if", vec![], vec![])),
+                child(node("quote", vec![], vec![])),
+            ],
+            &invocation,
+            &mut ExpandEnv::default(),
+            ExpandRuleScope::Statement,
+        )
+        .expect_err("unsupported compile-time form");
+        assert!(
+            unsupported
+                .to_string()
+                .contains("unsupported compile-time macro form <if>")
+        );
+
+        let missing_unquote_body =
+            eval_unquote(&node("unquote", vec![], vec![]), &MacroEnv::default())
+                .expect_err("missing local name");
+        assert!(
+            missing_unquote_body
+                .to_string()
+                .contains("requires local name body")
+        );
+
+        let unknown_unquote = eval_unquote(
+            &node("unquote", vec![], vec![text_item("missing")]),
+            &MacroEnv::default(),
+        )
+        .expect_err("unknown local");
+        assert!(
+            unknown_unquote
+                .to_string()
+                .contains("unknown macro local `missing`")
+        );
+
+        let expected_form = evaluate_macro_items(
+            &[
+                child(node(
+                    "let",
+                    vec![("name", "x"), ("type", "string")],
+                    vec![text_item("oops")],
+                )),
+                child(node("quote", vec![], vec![])),
+            ],
+            &invocation,
+            &mut ExpandEnv::default(),
+            ExpandRuleScope::Statement,
+        )
+        .expect_err("text child");
+        assert!(expected_form.to_string().contains("expected child form"));
+
+        let missing_children = evaluate_macro_items(
+            &[
+                child(form(
+                    "let",
+                    vec![attr_field("name", "x"), attr_field("type", "string")],
+                )),
+                child(node("quote", vec![], vec![])),
+            ],
+            &invocation,
+            &mut ExpandEnv::default(),
+            ExpandRuleScope::Statement,
+        )
+        .expect_err("missing children");
+        assert!(
+            missing_children
+                .to_string()
+                .contains("<let> requires `children`")
+        );
+
+        let filtered = select_invocation_content(
+            &MacroEnv {
+                current_module: Some("main".to_string()),
+                imports: vec![],
+                requires: vec![],
+                aliases: Default::default(),
+                macro_name: "m".to_string(),
+                attributes: Default::default(),
+                content: vec![
+                    text_item("ignored"),
+                    child(node("do", vec![], vec![text_item("a")])),
+                    child(form("do", vec![])),
+                ],
+                locals: Default::default(),
+                gensym_seed: 0,
+                gensym_counter: 0,
+            },
+            &node("get-content", vec![("head", "do")], vec![]),
+        )
+        .expect_err("filtered malformed child");
+        assert!(filtered.to_string().contains("<do> requires `children`"));
+    }
+
+    #[test]
+    fn macro_evaluator_covers_missing_attributes_and_single_child_edge_cases() {
+        let invocation = node("m", vec![], vec![]);
+
+        let missing_expr = evaluate_macro_items(
+            &[
+                child(node(
+                    "let",
+                    vec![("name", "when_expr"), ("type", "expr")],
+                    vec![child(node("get-attribute", vec![("name", "when")], vec![]))],
+                )),
+                child(node("quote", vec![], vec![])),
+            ],
+            &invocation,
+            &mut ExpandEnv::default(),
+            ExpandRuleScope::Statement,
+        )
+        .expect_err("missing expr attr");
+        assert!(
+            missing_expr
+                .to_string()
+                .contains("missing invocation attribute `when`")
+        );
+
+        let bad_bool = evaluate_macro_items(
+            &[
+                child(node(
+                    "let",
+                    vec![("name", "flag"), ("type", "bool")],
+                    vec![child(node("get-attribute", vec![("name", "flag")], vec![]))],
+                )),
+                child(node("quote", vec![], vec![])),
+            ],
+            &node("m", vec![("flag", "maybe")], vec![]),
+            &mut ExpandEnv::default(),
+            ExpandRuleScope::Statement,
+        )
+        .expect_err("bad bool attr");
+        assert!(
+            bad_bool
+                .to_string()
+                .contains("cannot parse `maybe` as macro bool attribute")
+        );
+
+        let bad_int = evaluate_macro_items(
+            &[
+                child(node(
+                    "let",
+                    vec![("name", "count"), ("type", "int")],
+                    vec![child(node(
+                        "get-attribute",
+                        vec![("name", "count")],
+                        vec![],
+                    ))],
+                )),
+                child(node("quote", vec![], vec![])),
+            ],
+            &node("m", vec![("count", "abc")], vec![]),
+            &mut ExpandEnv::default(),
+            ExpandRuleScope::Statement,
+        )
+        .expect_err("bad int attr");
+        assert!(
+            bad_int
+                .to_string()
+                .contains("cannot parse `abc` as macro int attribute")
+        );
+
+        let no_children = single_child_form(&form("let", vec![children_field(Vec::new())]))
+            .expect_err("no child");
+        assert!(
+            no_children
+                .to_string()
+                .contains("requires exactly one meaningful child")
+        );
+
+        let text_child =
+            single_child_form(&form("let", vec![children_field(vec![text_item("x")])]))
+                .expect_err("text child");
+        assert!(text_child.to_string().contains("expected child form"));
+
+        assert!(invocation_children(&invocation).is_empty());
+        assert_eq!(
+            invocation_attributes(&node("m", vec![("count", "1")], vec![]))
+                .get("count")
+                .map(String::as_str),
+            Some("1")
+        );
     }
 }

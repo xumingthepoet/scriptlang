@@ -1,0 +1,13 @@
+<module name="main">
+  <alias name="helper" as="h" />
+
+  <const name="picker" type="function">#h.pick</const>
+  <var name="direct" type="function">#h.pick</var>
+  <var name="via_const" type="function">picker</var>
+
+  <script name="main">
+    <text>${direct}</text>
+    <text>${via_const}</text>
+    <end />
+  </script>
+</module>

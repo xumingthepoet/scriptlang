@@ -1,6 +1,6 @@
 use sl_core::ScriptLangError;
 
-use crate::names::script_literal_key;
+use crate::names::{function_literal_key, script_literal_key};
 use crate::semantic::env::{ModuleExports, ModuleState, ProgramState};
 
 pub(crate) const DEFAULT_KERNEL_MODULE: &str = "kernel";
@@ -47,6 +47,29 @@ impl<'a> ModuleCatalog<'a> {
         {
             return Err(ScriptLangError::message(format!(
                 "unknown script `{qualified}`"
+            )));
+        }
+        Ok(qualified)
+    }
+
+    pub(crate) fn resolve_function_literal(
+        &self,
+        current_module: &str,
+        raw: &str,
+    ) -> Result<String, ScriptLangError> {
+        let qualified = function_literal_key(raw, current_module)
+            .ok_or_else(|| ScriptLangError::message(format!("invalid function literal `{raw}`")))?;
+        let (module_name, function_name) = qualified
+            .rsplit_once('.')
+            .expect("qualified function literal must contain module separator");
+        if !self.contains(module_name)
+            || !self
+                .exports(module_name)?
+                .functions
+                .contains_declared(function_name)
+        {
+            return Err(ScriptLangError::message(format!(
+                "unknown function `{qualified}`"
             )));
         }
         Ok(qualified)
@@ -126,6 +149,9 @@ mod tests {
         ModuleState {
             module_name: Some(module_name.to_string()),
             imports: Vec::new(),
+            requires: Vec::new(),
+            aliases: BTreeMap::new(),
+            child_aliases: BTreeMap::new(),
             const_decls: BTreeMap::new(),
             exports,
             children,
@@ -135,12 +161,16 @@ mod tests {
 
     fn exports_with(
         consts: &[(&str, bool)],
+        functions: &[(&str, bool)],
         vars: &[(&str, bool)],
         scripts: &[(&str, bool)],
     ) -> ModuleExports {
         let mut result = ModuleExports::default();
         for (name, exported) in consts {
             result.consts.insert((*name).to_string(), *exported);
+        }
+        for (name, exported) in functions {
+            result.functions.insert((*name).to_string(), *exported);
         }
         for (name, exported) in vars {
             result.vars.insert((*name).to_string(), *exported);
@@ -158,7 +188,7 @@ mod tests {
                     "kernel".to_string(),
                     module_state_with(
                         "kernel",
-                        exports_with(&[("zero", true)], &[], &[]),
+                        exports_with(&[("zero", true)], &[], &[], &[]),
                         vec![const_form("zero", "0")],
                     ),
                 ),
@@ -168,6 +198,7 @@ mod tests {
                         "helper",
                         exports_with(
                             &[("answer", true), ("hidden", false)],
+                            &[("pick", true)],
                             &[("value", true), ("priv", false)],
                             &[("entry", true)],
                         ),
@@ -178,7 +209,12 @@ mod tests {
                     "main".to_string(),
                     module_state_with(
                         "main",
-                        exports_with(&[("local", true)], &[("value", true)], &[("main", true)]),
+                        exports_with(
+                            &[("local", true)],
+                            &[("choose", true)],
+                            &[("value", true)],
+                            &[("main", true)],
+                        ),
                         vec![const_form("local", "1")],
                     ),
                 ),
@@ -210,6 +246,18 @@ mod tests {
                 .expect("qualified"),
             "helper.entry"
         );
+        assert_eq!(
+            catalog
+                .resolve_function_literal("main", "#choose")
+                .expect("function"),
+            "main.choose"
+        );
+        assert_eq!(
+            catalog
+                .resolve_function_literal("main", "#helper.pick")
+                .expect("qualified function"),
+            "helper.pick"
+        );
     }
 
     #[test]
@@ -229,5 +277,36 @@ mod tests {
             .resolve_script_literal("main", "@helper.nope")
             .expect_err("unknown script");
         assert!(script_error.to_string().contains("unknown script"));
+        let function_error = catalog
+            .resolve_function_literal("main", "#helper.nope")
+            .expect_err("unknown function");
+        assert!(function_error.to_string().contains("unknown function"));
+    }
+
+    #[test]
+    fn module_catalog_rejects_missing_module_and_invalid_literal_shapes() {
+        let program = program_state();
+        let catalog = ModuleCatalog::build(&program).expect("catalog");
+
+        let missing = catalog.module_state("missing").expect_err("missing module");
+        assert!(missing.to_string().contains("does not exist"));
+
+        let invalid_script = catalog
+            .resolve_script_literal("main", "@")
+            .expect_err("invalid script literal");
+        assert!(
+            invalid_script
+                .to_string()
+                .contains("invalid script literal")
+        );
+
+        let invalid_function = catalog
+            .resolve_function_literal("main", "#")
+            .expect_err("invalid function literal");
+        assert!(
+            invalid_function
+                .to_string()
+                .contains("invalid function literal")
+        );
     }
 }

@@ -4,7 +4,8 @@ use sl_core::{Form, ScriptLangError};
 
 use super::{
     ConstCatalog, ConstEnv, ConstLookup, ConstValue, ModuleCatalog, ModuleScope, ScopeResolver,
-    parse_const_value, parse_declared_type_form as parse_declared_type, validate_import_target,
+    parse_const_value, parse_declared_type_form as parse_declared_type, validate_alias_target,
+    validate_import_target, validate_require_target,
 };
 use crate::semantic::env::{ModuleState, ProgramState};
 use crate::semantic::types::{SemanticModule, SemanticProgram, SemanticVar};
@@ -59,6 +60,15 @@ fn analyze_module<'a>(
                 validate_import_target(catalog, child, &name, &import_name)?;
                 scope.add_import(&import_name);
             }
+            "require" => {
+                let require_name = required_attr(child, "name")?.to_string();
+                validate_require_target(catalog, child, &name, &require_name)?;
+            }
+            "alias" => {
+                let alias_target = required_attr(child, "name")?.to_string();
+                validate_alias_target(catalog, child, &name, &alias_target)?;
+                scope.add_alias(&alias_name(child)?, &alias_target);
+            }
             "const" => {
                 let mut visible = ScopeResolver::new(catalog, const_catalog, &scope);
                 let (const_name, value) =
@@ -80,6 +90,7 @@ fn analyze_module<'a>(
                     )?,
                 });
             }
+            "function" => {}
             "script" => scripts.push(analyze_script(
                 child,
                 catalog,
@@ -119,6 +130,22 @@ fn analyze_const(
     Ok((name, value))
 }
 
+fn alias_name(form: &Form) -> Result<String, ScriptLangError> {
+    if let Some(alias_name) = crate::semantic::attr(form, "as") {
+        if alias_name.is_empty() {
+            return Err(error_at(form, "<alias> `as` cannot be empty"));
+        }
+        return Ok(alias_name.to_string());
+    }
+    let module_name = required_attr(form, "name")?;
+    module_name
+        .rsplit('.')
+        .next()
+        .filter(|segment| !segment.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| error_at(form, "<alias> requires valid `name`"))
+}
+
 #[cfg(test)]
 mod tests {
     use sl_core::{Form, FormField, FormItem, FormMeta, FormValue, SourcePosition};
@@ -128,7 +155,7 @@ mod tests {
     use crate::semantic::expand::expand_raw_forms;
     use crate::semantic::types::{DeclaredType, SemanticStmt};
 
-    use super::analyze_program;
+    use super::{ProgramState, analyze_program};
 
     fn meta() -> FormMeta {
         FormMeta {
@@ -257,6 +284,73 @@ mod tests {
     }
 
     #[test]
+    fn analyze_forms_supports_alias_for_explicit_refs_and_script_literals() {
+        let program = analyzed(vec![
+            node(
+                "module",
+                vec![("name", "helper")],
+                vec![
+                    child(node(
+                        "const",
+                        vec![("name", "target"), ("type", "script")],
+                        vec![text("@entry")],
+                    )),
+                    child(node(
+                        "var",
+                        vec![("name", "value"), ("type", "int")],
+                        vec![text("1")],
+                    )),
+                    child(node(
+                        "script",
+                        vec![("name", "entry")],
+                        vec![child(node("end", vec![], vec![]))],
+                    )),
+                ],
+            ),
+            node(
+                "module",
+                vec![("name", "main")],
+                vec![
+                    child(node("alias", vec![("name", "helper"), ("as", "h")], vec![])),
+                    child(node(
+                        "var",
+                        vec![("name", "next"), ("type", "script")],
+                        vec![text("@h.entry")],
+                    )),
+                    child(node(
+                        "var",
+                        vec![("name", "copied"), ("type", "int")],
+                        vec![text("h.value")],
+                    )),
+                    child(node(
+                        "script",
+                        vec![("name", "main")],
+                        vec![
+                            child(node("goto", vec![("script", "next")], vec![])),
+                            child(node("text", vec![], vec![text("${copied}")])),
+                        ],
+                    )),
+                ],
+            ),
+        ]);
+
+        let module = program
+            .modules
+            .iter()
+            .find(|module| module.name == "main")
+            .expect("main module");
+        assert_eq!(module.vars[0].expr, "\"helper.entry\"");
+        assert_eq!(
+            module.vars[1].expr,
+            resolved_var_placeholder("helper.value")
+        );
+        assert!(matches!(
+            &module.scripts[0].body[0],
+            SemanticStmt::Goto { expr } if expr == &resolved_var_placeholder("main.next")
+        ));
+    }
+
+    #[test]
     fn analyze_forms_rejects_missing_or_unknown_type_and_invalid_script_const() {
         let missing_type = [node(
             "module",
@@ -319,6 +413,157 @@ mod tests {
             error
                 .to_string()
                 .contains("const declared as `script` must evaluate to a script literal")
+        );
+    }
+
+    #[test]
+    fn analyze_forms_accepts_function_declarations_and_literals() {
+        let program = analyzed(vec![
+            node(
+                "module",
+                vec![("name", "helper")],
+                vec![child(node("function", vec![("name", "pick")], vec![]))],
+            ),
+            node(
+                "module",
+                vec![("name", "main")],
+                vec![
+                    child(node("alias", vec![("name", "helper"), ("as", "h")], vec![])),
+                    child(node(
+                        "const",
+                        vec![("name", "picker"), ("type", "function")],
+                        vec![text("#h.pick")],
+                    )),
+                    child(node(
+                        "var",
+                        vec![("name", "chosen"), ("type", "function")],
+                        vec![text("picker")],
+                    )),
+                    child(node(
+                        "script",
+                        vec![("name", "main")],
+                        vec![child(node("text", vec![], vec![text("${chosen}")]))],
+                    )),
+                ],
+            ),
+        ]);
+
+        let main = program
+            .modules
+            .iter()
+            .find(|module| module.name == "main")
+            .expect("main module");
+        assert_eq!(main.vars[0].declared_type, DeclaredType::Function);
+        assert_eq!(main.vars[0].expr, "\"helper.pick\"");
+    }
+
+    #[test]
+    fn analyze_program_reports_missing_state_and_invalid_module_children() {
+        let mut env = ExpandEnv::default();
+        let _ = expand_raw_forms(
+            &[
+                node("module", vec![("name", "kernel")], vec![]),
+                node(
+                    "module",
+                    vec![("name", "main")],
+                    vec![
+                        child(node("require", vec![("name", "kernel")], vec![])),
+                        child(node("function", vec![("name", "pick")], vec![])),
+                        child(node(
+                            "temp",
+                            vec![("name", "scratch"), ("type", "int")],
+                            vec![text("1")],
+                        )),
+                    ],
+                ),
+            ],
+            &mut env,
+        )
+        .expect("expand");
+
+        let invalid_child = analyze_program(&env.program).expect_err("invalid child");
+        assert!(
+            invalid_child
+                .to_string()
+                .contains("unsupported <module> child <temp>")
+        );
+
+        let mut broken = env.program.clone();
+        broken.module_order.push("missing".to_string());
+        let missing = analyze_program(&broken).expect_err("missing module state");
+        assert!(missing.to_string().contains("missing expand-time state"));
+    }
+
+    #[test]
+    fn analyze_program_alias_name_helpers_cover_default_and_error_paths() {
+        let alias = node("alias", vec![("name", "main.helper")], vec![]);
+        assert_eq!(super::alias_name(&alias).expect("default alias"), "helper");
+
+        let empty = node("alias", vec![("name", "main.helper"), ("as", "")], vec![]);
+        assert!(
+            super::alias_name(&empty)
+                .expect_err("empty alias")
+                .to_string()
+                .contains("cannot be empty")
+        );
+
+        let invalid = node("alias", vec![("name", "")], vec![]);
+        assert!(
+            super::alias_name(&invalid)
+                .expect_err("invalid alias")
+                .to_string()
+                .contains("requires valid `name`")
+        );
+    }
+
+    #[test]
+    fn analyze_program_covers_import_validation_and_missing_module_name() {
+        let mut env = ExpandEnv::default();
+        let _ = expand_raw_forms(
+            &[node(
+                "module",
+                vec![("name", "main")],
+                vec![
+                    child(node("import", vec![("name", "missing")], vec![])),
+                    child(node(
+                        "script",
+                        vec![("name", "main")],
+                        vec![child(node("end", vec![], vec![]))],
+                    )),
+                ],
+            )],
+            &mut env,
+        )
+        .expect("expand");
+        let import_error = analyze_program(&env.program).expect_err("bad import");
+        assert!(
+            import_error
+                .to_string()
+                .contains("imported module `missing` does not exist")
+        );
+
+        let mut broken = env.program.clone();
+        if let Some(main) = broken.modules.get_mut("main") {
+            main.module_name = None;
+        }
+        let missing_name = analyze_program(&broken).expect_err("missing module name");
+        assert!(
+            missing_name
+                .to_string()
+                .contains("missing module name in expand state")
+        );
+    }
+
+    #[test]
+    fn analyze_program_reports_missing_module_state() {
+        let mut broken = ProgramState::default();
+        broken.module_order.push("main".to_string());
+
+        let error = analyze_program(&broken).expect_err("missing module state");
+        assert!(
+            error
+                .to_string()
+                .contains("module `main` missing expand-time state")
         );
     }
 }

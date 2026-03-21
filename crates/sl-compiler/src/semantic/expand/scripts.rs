@@ -6,8 +6,9 @@ use super::{
     ConstCatalog, ConstEnv, ModuleCatalog, ModuleScope, ScopeResolver, parse_declared_type_form,
 };
 use crate::semantic::expr::{
-    parse_text_template, rewrite_expr_with_consts, rewrite_expr_with_vars, rewrite_script_literals,
-    rewrite_template_with_consts, rewrite_template_with_vars,
+    parse_text_template, rewrite_expr_with_consts, rewrite_expr_with_vars,
+    rewrite_special_literals, rewrite_template_special_literals, rewrite_template_with_consts,
+    rewrite_template_with_vars,
 };
 use crate::semantic::types::{SemanticChoiceOption, SemanticScript, SemanticStmt};
 use crate::semantic::{attr, body_expr, body_template, child_forms, error_at, required_attr};
@@ -120,6 +121,40 @@ fn analyze_stmt(
                 shadowed_names,
             )?,
         }),
+        "while" => Ok(SemanticStmt::While {
+            when: rewrite_var_expr(
+                required_attr(form, "when")?,
+                const_env,
+                resolver,
+                remaining_const_names,
+                shadowed_names,
+            )?,
+            captures_loop_control: parse_loop_capture_attr(form)?,
+            body: analyze_block(
+                &child_forms(form)?,
+                const_env,
+                resolver,
+                remaining_const_names,
+                shadowed_names,
+            )?,
+        }),
+        "break" => {
+            let children = child_forms(form)?;
+            if !children.is_empty() {
+                return Err(error_at(form, "<break> does not support nested statements"));
+            }
+            Ok(SemanticStmt::Break)
+        }
+        "continue" => {
+            let children = child_forms(form)?;
+            if !children.is_empty() {
+                return Err(error_at(
+                    form,
+                    "<continue> does not support nested statements",
+                ));
+            }
+            Ok(SemanticStmt::Continue)
+        }
         "choice" => {
             let mut options = Vec::new();
             for option in child_forms(form)? {
@@ -182,6 +217,18 @@ fn analyze_stmt(
     }
 }
 
+fn parse_loop_capture_attr(form: &Form) -> Result<bool, ScriptLangError> {
+    match attr(form, "__sl_loop_capture") {
+        None => Ok(true),
+        Some("true") => Ok(true),
+        Some("false") => Ok(false),
+        Some(other) => Err(error_at(
+            form,
+            format!("invalid boolean value `{other}` for `__sl_loop_capture`"),
+        )),
+    }
+}
+
 pub(super) fn rewrite_var_expr(
     source: &str,
     const_env: &ConstEnv,
@@ -196,8 +243,7 @@ pub(super) fn rewrite_var_expr(
         remaining_const_names,
         shadowed_names,
     )?;
-    let rewritten =
-        rewrite_script_literals(&rewritten, resolver.current_module(), resolver.modules())?;
+    let rewritten = rewrite_special_literals(&rewritten, resolver)?;
     rewrite_expr_with_vars(&rewritten, resolver, shadowed_names)
 }
 
@@ -215,5 +261,338 @@ fn rewrite_var_template(
         remaining_const_names,
         shadowed_names,
     )?;
+    let rewritten = rewrite_template_special_literals(rewritten, resolver)?;
     rewrite_template_with_vars(rewritten, resolver, shadowed_names)
+}
+
+#[cfg(test)]
+mod tests {
+    use sl_core::{Form, FormField, FormItem, FormMeta, FormValue, SourcePosition, TextSegment};
+
+    use crate::semantic::env::ExpandEnv;
+    use crate::semantic::expand::{analyze_program, expand_raw_forms};
+    use crate::semantic::types::{DeclaredType, SemanticStmt};
+
+    fn meta() -> FormMeta {
+        FormMeta {
+            source_name: Some("main.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 50 },
+            start_byte: 0,
+            end_byte: 50,
+        }
+    }
+
+    fn form(head: &str, fields: Vec<FormField>) -> Form {
+        Form {
+            head: head.to_string(),
+            meta: meta(),
+            fields,
+        }
+    }
+
+    fn attr(name: &str, value: &str) -> FormField {
+        FormField {
+            name: name.to_string(),
+            value: FormValue::String(value.to_string()),
+        }
+    }
+
+    fn children(items: Vec<FormItem>) -> FormField {
+        FormField {
+            name: "children".to_string(),
+            value: FormValue::Sequence(items),
+        }
+    }
+
+    fn node(head: &str, attrs: Vec<(&str, &str)>, items: Vec<FormItem>) -> Form {
+        let mut fields = attrs
+            .into_iter()
+            .map(|(k, v)| attr(k, v))
+            .collect::<Vec<_>>();
+        fields.push(children(items));
+        form(head, fields)
+    }
+
+    fn text(value: &str) -> FormItem {
+        FormItem::Text(value.to_string())
+    }
+
+    fn child(form: Form) -> FormItem {
+        FormItem::Form(form)
+    }
+
+    fn analyzed(forms: Vec<Form>) -> crate::semantic::types::SemanticProgram {
+        let mut env = ExpandEnv::default();
+        let _ = expand_raw_forms(&forms, &mut env).expect("expand");
+        analyze_program(&env.program).expect("analyze")
+    }
+
+    #[test]
+    fn analyze_script_covers_statement_variants_and_special_literals() {
+        let program = analyzed(vec![
+            node(
+                "module",
+                vec![("name", "helper")],
+                vec![child(node("function", vec![("name", "pick")], vec![]))],
+            ),
+            node(
+                "module",
+                vec![("name", "main")],
+                vec![
+                    child(node("alias", vec![("name", "helper"), ("as", "h")], vec![])),
+                    child(node(
+                        "const",
+                        vec![("name", "answer"), ("type", "int")],
+                        vec![text("41")],
+                    )),
+                    child(node(
+                        "var",
+                        vec![("name", "next"), ("type", "script")],
+                        vec![text("@loop")],
+                    )),
+                    child(node(
+                        "script",
+                        vec![("name", "main")],
+                        vec![
+                            child(node(
+                                "temp",
+                                vec![("name", "counter"), ("type", "int")],
+                                vec![text("answer")],
+                            )),
+                            child(node("code", vec![], vec![text("#h.pick")])),
+                            child(node(
+                                "text",
+                                vec![("tag", "line")],
+                                vec![text("${counter}:${#h.pick}:${@loop}")],
+                            )),
+                            child(node(
+                                "if",
+                                vec![("when", "counter == 41")],
+                                vec![child(node("text", vec![], vec![text("ok")]))],
+                            )),
+                            child(node(
+                                "while",
+                                vec![("when", "counter < 45")],
+                                vec![
+                                    child(node("continue", vec![], vec![])),
+                                    child(node("break", vec![], vec![])),
+                                ],
+                            )),
+                            child(node(
+                                "choice",
+                                vec![("text", "pick ${answer}")],
+                                vec![
+                                    child(node(
+                                        "option",
+                                        vec![("text", "A ${#h.pick}")],
+                                        vec![child(node("text", vec![], vec![text("a")]))],
+                                    )),
+                                    child(node(
+                                        "option",
+                                        vec![("text", "B")],
+                                        vec![child(node("end", vec![], vec![]))],
+                                    )),
+                                ],
+                            )),
+                            child(node("goto", vec![("script", "@loop")], vec![])),
+                            child(node("end", vec![], vec![])),
+                        ],
+                    )),
+                    child(node(
+                        "script",
+                        vec![("name", "loop")],
+                        vec![child(node("end", vec![], vec![]))],
+                    )),
+                ],
+            ),
+        ]);
+
+        let main = program
+            .modules
+            .iter()
+            .find(|module| module.name == "main")
+            .expect("main module");
+        let body = &main.scripts[0].body;
+
+        assert!(matches!(
+            &body[0],
+            SemanticStmt::Temp { name, declared_type, expr }
+                if name == "counter"
+                    && *declared_type == DeclaredType::Int
+                    && expr == "41"
+        ));
+        assert!(matches!(
+            &body[1],
+            SemanticStmt::Code { code } if code == "\"helper.pick\""
+        ));
+        assert!(matches!(
+            &body[2],
+            SemanticStmt::Text { template, tag }
+                if tag.as_deref() == Some("line")
+                    && matches!(&template.segments[0], TextSegment::Expr(expr) if expr == "counter")
+                    && matches!(&template.segments[2], TextSegment::Expr(expr) if expr == "\"helper.pick\"")
+                    && matches!(&template.segments[4], TextSegment::Expr(expr) if expr == "\"main.loop\"")
+        ));
+        assert!(matches!(
+            &body[3],
+            SemanticStmt::If { when, body }
+                if when == "counter == 41"
+                    && matches!(&body[0], SemanticStmt::Text { .. })
+        ));
+        assert!(matches!(
+            &body[4],
+            SemanticStmt::While {
+                when,
+                body,
+                captures_loop_control: true
+            }
+                if when == "counter < 45"
+                    && matches!(&body[0], SemanticStmt::Continue)
+                    && matches!(&body[1], SemanticStmt::Break)
+        ));
+        assert!(matches!(
+            &body[5],
+            SemanticStmt::Choice { prompt: Some(prompt), options }
+                if matches!(&prompt.segments[1], TextSegment::Expr(expr) if expr == "41")
+                    && options.len() == 2
+                    && matches!(&options[0].text.segments[1], TextSegment::Expr(expr) if expr == "\"helper.pick\"")
+        ));
+        assert!(matches!(
+            &body[6],
+            SemanticStmt::Goto { expr } if expr == "\"main.loop\""
+        ));
+        assert!(matches!(&body[7], SemanticStmt::End));
+    }
+
+    #[test]
+    fn analyze_script_rejects_invalid_statement_forms() {
+        let const_error = {
+            let mut env = ExpandEnv::default();
+            let forms = vec![node(
+                "module",
+                vec![("name", "main")],
+                vec![child(node(
+                    "script",
+                    vec![("name", "main")],
+                    vec![child(node(
+                        "const",
+                        vec![("name", "x"), ("type", "int")],
+                        vec![text("1")],
+                    ))],
+                ))],
+            )];
+            let _ = expand_raw_forms(&forms, &mut env).expect("expand");
+            analyze_program(&env.program).expect_err("const in script")
+        };
+        assert!(const_error.to_string().contains("direct <module> child"));
+
+        let import_error = {
+            let mut env = ExpandEnv::default();
+            let forms = vec![node(
+                "module",
+                vec![("name", "main")],
+                vec![child(node(
+                    "script",
+                    vec![("name", "main")],
+                    vec![child(node("import", vec![("name", "helper")], vec![]))],
+                ))],
+            )];
+            let _ = expand_raw_forms(&forms, &mut env).expect("expand");
+            analyze_program(&env.program).expect_err("import in script")
+        };
+        assert!(import_error.to_string().contains("direct <module> child"));
+
+        let invalid_choice_error = {
+            let mut env = ExpandEnv::default();
+            let forms = vec![node(
+                "module",
+                vec![("name", "main")],
+                vec![child(node(
+                    "script",
+                    vec![("name", "main")],
+                    vec![child(node(
+                        "choice",
+                        vec![],
+                        vec![child(node("text", vec![], vec![text("bad")]))],
+                    ))],
+                ))],
+            )];
+            let _ = expand_raw_forms(&forms, &mut env).expect("expand");
+            analyze_program(&env.program).expect_err("invalid choice")
+        };
+        assert!(
+            invalid_choice_error
+                .to_string()
+                .contains("only supports <option> children")
+        );
+
+        let unsupported_stmt_error = {
+            let mut env = ExpandEnv::default();
+            let forms = vec![node(
+                "module",
+                vec![("name", "main")],
+                vec![child(node(
+                    "script",
+                    vec![("name", "main")],
+                    vec![child(node("unknown", vec![], vec![]))],
+                ))],
+            )];
+            let _ = expand_raw_forms(&forms, &mut env).expect("expand");
+            analyze_program(&env.program).expect_err("unsupported stmt")
+        };
+        assert!(
+            unsupported_stmt_error
+                .to_string()
+                .contains("unsupported statement <unknown>")
+        );
+
+        let bad_break_error = {
+            let mut env = ExpandEnv::default();
+            let forms = vec![node(
+                "module",
+                vec![("name", "main")],
+                vec![child(node(
+                    "script",
+                    vec![("name", "main")],
+                    vec![child(node(
+                        "break",
+                        vec![],
+                        vec![child(node("end", vec![], vec![]))],
+                    ))],
+                ))],
+            )];
+            let _ = expand_raw_forms(&forms, &mut env).expect("expand");
+            analyze_program(&env.program).expect_err("break with children")
+        };
+        assert!(
+            bad_break_error
+                .to_string()
+                .contains("<break> does not support nested statements")
+        );
+
+        let bad_loop_attr_error = {
+            let mut env = ExpandEnv::default();
+            let forms = vec![node(
+                "module",
+                vec![("name", "main")],
+                vec![child(node(
+                    "script",
+                    vec![("name", "main")],
+                    vec![child(node(
+                        "while",
+                        vec![("when", "true"), ("__sl_loop_capture", "maybe")],
+                        vec![child(node("end", vec![], vec![]))],
+                    ))],
+                ))],
+            )];
+            let _ = expand_raw_forms(&forms, &mut env).expect("expand");
+            analyze_program(&env.program).expect_err("bad loop attr")
+        };
+        assert!(
+            bad_loop_attr_error
+                .to_string()
+                .contains("invalid boolean value `maybe`")
+        );
+    }
 }

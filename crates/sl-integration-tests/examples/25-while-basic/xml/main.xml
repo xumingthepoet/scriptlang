@@ -1,0 +1,17 @@
+<module name="main">
+  <script name="main">
+    <temp name="i" type="int">0</temp>
+    <while when="i &lt; 5">
+      <code>i += 1;</code>
+      <if when="i == 2">
+        <continue />
+      </if>
+      <text>${i}</text>
+      <if when="i == 4">
+        <break />
+      </if>
+    </while>
+    <text>done</text>
+    <end />
+  </script>
+</module>

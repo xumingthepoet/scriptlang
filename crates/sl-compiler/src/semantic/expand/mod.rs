@@ -20,7 +20,7 @@ use super::types::SemanticProgram;
 pub(crate) use const_eval::{ConstEnv, ConstLookup, ConstValue, parse_const_value};
 pub(crate) use declared_types::parse_declared_type_form;
 use dispatch::{ExpandRuleScope, expand_with_rules};
-pub(crate) use imports::validate_import_target;
+pub(crate) use imports::{validate_alias_target, validate_import_target, validate_require_target};
 use macros::collect_program_macros;
 use module::expand_module_form;
 pub(crate) use modules::ModuleCatalog;
@@ -189,13 +189,18 @@ mod tests {
 
         let mut env = ExpandEnv::default();
         let expanded = expand_raw_forms(&forms, &mut env).expect("expand");
+        let stored = env
+            .program
+            .modules
+            .get("main")
+            .expect("module state should be stored in program state");
 
         assert_eq!(expanded.len(), 1);
-        assert_eq!(env.module.module_name.as_deref(), Some("main"));
-        assert_eq!(env.module.imports, vec!["other".to_string()]);
-        assert!(env.module.locals.contains("counter"));
+        assert_eq!(stored.module_name.as_deref(), Some("main"));
+        assert_eq!(stored.imports, vec!["other".to_string()]);
+        assert!(stored.locals.contains("counter"));
         assert_eq!(
-            env.module
+            stored
                 .const_decls
                 .get("seed")
                 .expect("const decl should exist")
@@ -203,7 +208,7 @@ mod tests {
             DeclaredType::Int
         );
         assert_eq!(
-            env.module
+            stored
                 .const_decls
                 .get("seed")
                 .expect("const decl should exist")
@@ -211,14 +216,7 @@ mod tests {
                 .as_deref(),
             Some("1")
         );
-        let stored = env
-            .program
-            .modules
-            .get("main")
-            .expect("module state should be stored in program state");
         assert_eq!(env.program.module_order, vec!["main".to_string()]);
-        assert_eq!(stored.imports, vec!["other".to_string()]);
-        assert!(stored.locals.contains("counter"));
         assert_eq!(stored.children.len(), 3);
     }
 
@@ -359,7 +357,7 @@ mod tests {
     }
 
     #[test]
-    fn program_macro_registry_resolves_imported_module_macros() {
+    fn program_macro_registry_resolves_required_module_macros() {
         let forms = vec![
             form(
                 "module",
@@ -404,7 +402,7 @@ mod tests {
                 vec![
                     attr("name", "main"),
                     children(vec![child(form(
-                        "import",
+                        "require",
                         vec![attr("name", "helper"), children(vec![])],
                     ))]),
                 ],
@@ -417,6 +415,93 @@ mod tests {
         assert!(
             env.program
                 .resolve_macro(Some("main"), &["helper".to_string()], "mk")
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn program_macro_registry_does_not_use_imports_for_macro_visibility() {
+        let forms = vec![
+            form(
+                "module",
+                vec![
+                    attr("name", "helper"),
+                    children(vec![child(form(
+                        "macro",
+                        vec![
+                            attr("name", "mk"),
+                            children(vec![child(form(
+                                "quote",
+                                vec![children(vec![child(form(
+                                    "script",
+                                    vec![
+                                        attr("name", "nested"),
+                                        children(vec![child(form("end", vec![children(vec![])]))]),
+                                    ],
+                                ))])],
+                            ))]),
+                        ],
+                    ))]),
+                ],
+            ),
+            form(
+                "module",
+                vec![
+                    attr("name", "main"),
+                    children(vec![child(form(
+                        "import",
+                        vec![attr("name", "helper"), children(vec![])],
+                    ))]),
+                ],
+            ),
+        ];
+
+        let mut env = ExpandEnv::default();
+        collect_program_macros(&forms, &mut env).expect("collect macros");
+
+        assert!(env.program.resolve_macro(Some("main"), &[], "mk").is_none());
+    }
+
+    #[test]
+    fn collect_program_macros_flattens_nested_module_macro_namespaces() {
+        let forms = vec![form(
+            "module",
+            vec![
+                attr("name", "main"),
+                children(vec![child(form(
+                    "module",
+                    vec![
+                        attr("name", "helper"),
+                        children(vec![child(form(
+                            "macro",
+                            vec![
+                                attr("name", "mk"),
+                                children(vec![child(form(
+                                    "quote",
+                                    vec![children(vec![child(form(
+                                        "script",
+                                        vec![
+                                            attr("name", "nested"),
+                                            children(vec![child(form(
+                                                "end",
+                                                vec![children(vec![])],
+                                            ))]),
+                                        ],
+                                    ))])],
+                                ))]),
+                            ],
+                        ))]),
+                    ],
+                ))]),
+            ],
+        )];
+
+        let mut env = ExpandEnv::default();
+        collect_program_macros(&forms, &mut env).expect("collect macros");
+
+        assert!(
+            env.program
+                .resolve_macro(Some("main.helper"), &[], "mk")
                 .is_some()
         );
     }

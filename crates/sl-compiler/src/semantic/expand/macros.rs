@@ -2,6 +2,7 @@ use sl_core::{Form, FormItem, FormValue, ScriptLangError};
 
 use super::dispatch::{ExpandRuleScope, expand_generated_items};
 use super::macro_eval::evaluate_macro_items;
+use crate::names::qualified_member_name;
 use crate::semantic::env::{ExpandEnv, MacroDefinition};
 use crate::semantic::{child_forms, error_at, required_attr};
 
@@ -16,15 +17,31 @@ pub(super) fn collect_program_macros(
                 format!("top-level <{}> is not supported in MVP", form.head),
             ));
         }
-        let module_name = required_attr(form, "name")?.to_string();
-        for child in child_forms(form)? {
-            if child.head != "macro" {
-                continue;
+        collect_module_macros(form, None, env)?;
+    }
+    Ok(())
+}
+
+fn collect_module_macros(
+    form: &Form,
+    parent_module: Option<&str>,
+    env: &mut ExpandEnv,
+) -> Result<(), ScriptLangError> {
+    let raw_name = required_attr(form, "name")?;
+    let module_name = match parent_module {
+        Some(parent) => qualified_member_name(parent, raw_name),
+        None => raw_name.to_string(),
+    };
+    for child in child_forms(form)? {
+        match child.head.as_str() {
+            "macro" => {
+                let definition = parse_macro_definition(child, &module_name)?;
+                env.program
+                    .register_macro(definition)
+                    .map_err(|message| error_at(child, message))?;
             }
-            let definition = parse_macro_definition(child, &module_name)?;
-            env.program
-                .register_macro(definition)
-                .map_err(|message| error_at(child, message))?;
+            "module" => collect_module_macros(child, Some(&module_name), env)?,
+            _ => {}
         }
     }
     Ok(())
@@ -330,6 +347,25 @@ mod tests {
             text_error
                 .to_string()
                 .contains("cannot produce top-level text")
+        );
+    }
+
+    #[test]
+    fn parse_macro_definition_requires_children_field() {
+        let error = parse_macro_definition(
+            &Form {
+                head: "macro".to_string(),
+                meta: meta(),
+                fields: vec![attr_field("name", "m")],
+            },
+            "main",
+        )
+        .expect_err("missing children");
+
+        assert!(
+            error
+                .to_string()
+                .contains("<macro> requires `children` field")
         );
     }
 }

@@ -35,6 +35,21 @@ pub(crate) fn script_literal_key(raw: &str, current_module: &str) -> Option<Stri
     }
 }
 
+pub(crate) fn function_literal_key(raw: &str, current_module: &str) -> Option<String> {
+    let raw = raw.strip_prefix('#')?;
+    if raw.is_empty() {
+        return None;
+    }
+    if let Some((module_name, function_name)) = raw.rsplit_once('.') {
+        if module_name.is_empty() || function_name.is_empty() {
+            return None;
+        }
+        Some(qualified_member_name(module_name, function_name))
+    } else {
+        Some(qualified_member_name(current_module, raw))
+    }
+}
+
 pub(crate) fn lower_resolved_vars_to_runtime_names(source: &str) -> String {
     let mut lowered = String::with_capacity(source.len());
     let bytes = source.as_bytes();
@@ -82,8 +97,8 @@ fn scan_quoted(bytes: &[u8], start: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::{
-        lower_resolved_vars_to_runtime_names, resolved_var_placeholder, runtime_global_name,
-        script_literal_key,
+        function_literal_key, lower_resolved_vars_to_runtime_names, resolved_var_placeholder,
+        runtime_global_name, script_literal_key,
     };
 
     #[test]
@@ -113,5 +128,22 @@ mod tests {
             Some("other.loop".to_string())
         );
         assert_eq!(script_literal_key("@", "main"), None);
+        assert_eq!(script_literal_key("@main.", "main"), None);
+        assert_eq!(script_literal_key("@.loop", "main"), None);
+    }
+
+    #[test]
+    fn function_literal_key_supports_short_and_qualified_forms() {
+        assert_eq!(
+            function_literal_key("#pick", "main"),
+            Some("main.pick".to_string())
+        );
+        assert_eq!(
+            function_literal_key("#other.pick", "main"),
+            Some("other.pick".to_string())
+        );
+        assert_eq!(function_literal_key("#", "main"), None);
+        assert_eq!(function_literal_key("#main.", "main"), None);
+        assert_eq!(function_literal_key("#.pick", "main"), None);
     }
 }

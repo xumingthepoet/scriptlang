@@ -78,7 +78,7 @@ impl ExpandRegistry {
         match scope {
             ExpandRuleScope::ModuleChild => matches!(form.head.as_str(), "script" | "var" | "temp"),
             ExpandRuleScope::Statement => {
-                matches!(form.head.as_str(), "temp" | "if" | "choice" | "option")
+                matches!(form.head.as_str(), "temp" | "while" | "choice" | "option")
             }
         }
     }
@@ -114,7 +114,7 @@ fn expand_statement_child(
             }
             Ok(vec![FormItem::Form(form.clone())])
         }
-        "if" | "choice" | "option" => Ok(vec![FormItem::Form(rewrite_form_children(
+        "while" | "choice" | "option" => Ok(vec![FormItem::Form(rewrite_form_children(
             form,
             env,
             ExpandRuleScope::Statement,
@@ -178,10 +178,211 @@ fn expand_sequence_items(
 
 #[cfg(test)]
 mod tests {
-    use super::ExpandRuleScope;
+    use sl_core::{Form, FormField, FormItem, FormMeta, FormValue, SourcePosition};
+
+    use crate::semantic::env::{ExpandEnv, MacroDefinition};
+
+    use super::{
+        ExpandDispatch, ExpandRegistry, ExpandRuleScope, expand_form_items, expand_generated_items,
+        expand_with_rules, rewrite_form_children,
+    };
+
+    fn meta() -> FormMeta {
+        FormMeta {
+            source_name: Some("main.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 20 },
+            start_byte: 0,
+            end_byte: 20,
+        }
+    }
+
+    fn form(head: &str, fields: Vec<FormField>) -> Form {
+        Form {
+            head: head.to_string(),
+            meta: meta(),
+            fields,
+        }
+    }
+
+    fn attr(name: &str, value: &str) -> FormField {
+        FormField {
+            name: name.to_string(),
+            value: FormValue::String(value.to_string()),
+        }
+    }
+
+    fn children(items: Vec<FormItem>) -> FormField {
+        FormField {
+            name: "children".to_string(),
+            value: FormValue::Sequence(items),
+        }
+    }
+
+    fn text(value: &str) -> FormItem {
+        FormItem::Text(value.to_string())
+    }
+
+    fn child(form: Form) -> FormItem {
+        FormItem::Form(form)
+    }
+
+    fn node(head: &str, attrs: Vec<(&str, &str)>, items: Vec<FormItem>) -> Form {
+        let mut fields = attrs
+            .into_iter()
+            .map(|(k, v)| attr(k, v))
+            .collect::<Vec<_>>();
+        fields.push(children(items));
+        form(head, fields)
+    }
 
     #[test]
     fn expand_rule_scope_variants_remain_distinct() {
         assert_ne!(ExpandRuleScope::ModuleChild, ExpandRuleScope::Statement);
+    }
+
+    #[test]
+    fn dispatch_covers_builtin_and_macro_hook_paths() {
+        let mut env = ExpandEnv::default();
+        env.begin_module(Some("main".to_string()), Some("main.xml".to_string()))
+            .expect("module");
+        env.program
+            .register_macro(MacroDefinition {
+                module_name: "main".to_string(),
+                name: "hello".to_string(),
+                body: vec![child(node("quote", vec![], vec![text("hi")]))],
+            })
+            .expect("register macro");
+
+        let registry = ExpandRegistry;
+        assert_eq!(
+            registry.dispatch(
+                &node("script", vec![], vec![]),
+                &env,
+                ExpandRuleScope::ModuleChild
+            ),
+            ExpandDispatch::Builtin
+        );
+        assert_eq!(
+            registry.dispatch(
+                &node("hello", vec![], vec![]),
+                &env,
+                ExpandRuleScope::Statement
+            ),
+            ExpandDispatch::MacroHook
+        );
+        assert_eq!(
+            registry.dispatch(
+                &node("unknown", vec![], vec![]),
+                &env,
+                ExpandRuleScope::Statement
+            ),
+            ExpandDispatch::Builtin
+        );
+    }
+
+    #[test]
+    fn expand_helpers_cover_root_errors_and_child_rewrite() {
+        let mut env = ExpandEnv::default();
+        env.begin_module(Some("main".to_string()), Some("main.xml".to_string()))
+            .expect("module");
+        env.program
+            .register_macro(MacroDefinition {
+                module_name: "main".to_string(),
+                name: "double".to_string(),
+                body: vec![child(node(
+                    "quote",
+                    vec![],
+                    vec![
+                        child(node("text", vec![], vec![text("a")])),
+                        child(node("text", vec![], vec![text("b")])),
+                    ],
+                ))],
+            })
+            .expect("register multi macro");
+        env.program
+            .register_macro(MacroDefinition {
+                module_name: "main".to_string(),
+                name: "stringy".to_string(),
+                body: vec![
+                    child(node(
+                        "let",
+                        vec![("name", "label"), ("type", "string")],
+                        vec![child(node(
+                            "get-attribute",
+                            vec![("name", "label")],
+                            vec![],
+                        ))],
+                    )),
+                    child(node(
+                        "quote",
+                        vec![],
+                        vec![child(node("unquote", vec![], vec![text("label")]))],
+                    )),
+                ],
+            })
+            .expect("register string macro");
+
+        let multi_error = expand_with_rules(
+            &node("double", vec![], vec![]),
+            &mut env,
+            ExpandRuleScope::Statement,
+        )
+        .expect_err("multi root");
+        assert!(
+            multi_error
+                .to_string()
+                .contains("must produce exactly one root form")
+        );
+
+        let text_error = expand_with_rules(
+            &node("stringy", vec![("label", "hello")], vec![]),
+            &mut env,
+            ExpandRuleScope::Statement,
+        )
+        .expect_err("top-level text");
+        assert!(
+            text_error
+                .to_string()
+                .contains("cannot produce top-level text")
+        );
+
+        let script = node(
+            "script",
+            vec![("name", "main")],
+            vec![child(node(
+                "temp",
+                vec![("name", "x"), ("type", "int")],
+                vec![text("1")],
+            ))],
+        );
+        let rewritten = rewrite_form_children(
+            &script,
+            &mut ExpandEnv::default(),
+            ExpandRuleScope::Statement,
+        )
+        .expect("rewrite children");
+        assert_eq!(rewritten.head, "script");
+        let items = expand_generated_items(
+            &[
+                text("hi"),
+                child(node(
+                    "temp",
+                    vec![("name", "x"), ("type", "int")],
+                    vec![text("1")],
+                )),
+            ],
+            &mut ExpandEnv::default(),
+            ExpandRuleScope::Statement,
+        )
+        .expect("generated items");
+        assert_eq!(items.len(), 2);
+        let plain = expand_form_items(
+            &node("noop", vec![], vec![]),
+            &mut ExpandEnv::default(),
+            ExpandRuleScope::Statement,
+        )
+        .expect("plain builtin");
+        assert_eq!(plain.len(), 1);
     }
 }

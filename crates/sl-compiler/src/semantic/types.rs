@@ -26,6 +26,7 @@ pub(crate) struct ModulePath(pub(crate) String);
 pub(crate) enum DeclaredType {
     Array,
     Bool,
+    Function,
     Int,
     Object,
     Script,
@@ -86,6 +87,13 @@ pub(crate) enum SemanticStmt {
         when: String,
         body: Vec<SemanticStmt>,
     },
+    While {
+        when: String,
+        body: Vec<SemanticStmt>,
+        captures_loop_control: bool,
+    },
+    Break,
+    Continue,
     Choice {
         prompt: Option<TextTemplate>,
         options: Vec<SemanticChoiceOption>,

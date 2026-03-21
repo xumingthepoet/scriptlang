@@ -84,6 +84,7 @@ fn parse_items(doc: &Document<'_>, node: Node<'_, '_>, source_name: Option<&str>
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::panic::catch_unwind;
 
     use sl_core::{Form, FormField, FormItem, FormValue};
 
@@ -220,5 +221,37 @@ mod tests {
         .expect_err("should fail");
 
         assert!(error.to_string().contains("xml parse error"));
+    }
+
+    #[test]
+    fn parser_test_helpers_and_non_element_nodes_are_covered() {
+        let module = parse_module_xml(
+            r#"<!--c--><module name="main"><?pi ok?><script name="entry"><end /></script></module>"#,
+        )
+        .expect("module should parse");
+
+        let items = children(&module);
+        assert_eq!(items.len(), 1);
+        assert_eq!(form_item(&items[0]).head, "script");
+
+        let bad_children = Form {
+            head: "module".to_string(),
+            meta: module.meta.clone(),
+            fields: vec![FormField {
+                name: CHILDREN_FIELD.to_string(),
+                value: FormValue::String("oops".to_string()),
+            }],
+        };
+        assert!(catch_unwind(|| children(&bad_children)).is_err());
+        assert!(catch_unwind(|| field(&module, "missing")).is_err());
+        assert!(catch_unwind(|| string_field(&module, CHILDREN_FIELD)).is_err());
+        assert!(catch_unwind(|| text_item(&items[0])).is_err());
+        let text_only = FormItem::Text("x".to_string());
+        assert!(
+            catch_unwind(|| {
+                let _ = form_item(&text_only);
+            })
+            .is_err()
+        );
     }
 }

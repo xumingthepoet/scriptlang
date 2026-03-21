@@ -1,5 +1,22 @@
 <module name="kernel">
   <const name="zero" type="int">0</const>
+  <macro name="if" attributes="when:expr" content="ast">
+    <let name="when_expr" type="expr">
+      <get-attribute name="when"/>
+    </let>
+    <let name="content_ast" type="ast">
+      <get-content/>
+    </let>
+    <quote>
+      <temp name="condition" type="bool">
+        <unquote>when_expr</unquote>
+      </temp>
+      <while when="condition" __sl_loop_capture="false">
+        <code>condition = false;</code>
+        <unquote>content_ast</unquote>
+      </while>
+    </quote>
+  </macro>
   <macro name="say" attributes="text:string">
     <let name="text_value" type="string">
       <get-attribute name="text"/>

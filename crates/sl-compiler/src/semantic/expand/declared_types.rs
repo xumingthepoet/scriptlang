@@ -38,6 +38,7 @@ pub(crate) fn parse_declared_type_name(
         None => Err(error(format!("<{}> requires `type`", head))),
         Some("array") => Ok(DeclaredType::Array),
         Some("bool") => Ok(DeclaredType::Bool),
+        Some("function") => Ok(DeclaredType::Function),
         Some("int") => Ok(DeclaredType::Int),
         Some("object") => Ok(DeclaredType::Object),
         Some("script") => Ok(DeclaredType::Script),
@@ -120,6 +121,11 @@ mod tests {
             parse_declared_type_name(Some("object"), "var", ScriptLangError::message)
                 .expect("object"),
             DeclaredType::Object
+        );
+        assert_eq!(
+            parse_declared_type_name(Some("function"), "var", ScriptLangError::message)
+                .expect("function"),
+            DeclaredType::Function
         );
         assert!(
             parse_declared_type_name(None, "var", ScriptLangError::message)

@@ -40,6 +40,34 @@ pub(crate) fn scan_expr_source(
             });
             continue;
         }
+        if ch == '#' {
+            if cursor + 1 < bytes.len() && bytes[cursor + 1] == b'{' {
+                cursor += 1;
+                continue;
+            }
+            let start = cursor;
+            cursor += 1;
+            if cursor >= bytes.len() || !is_ident_start(bytes[cursor] as char) {
+                return Err(ScriptLangError::message(format!(
+                    "invalid function literal `{}`",
+                    &source[start..cursor]
+                )));
+            }
+            while cursor < bytes.len() {
+                let current = bytes[cursor] as char;
+                if is_ident_continue(current) || current == '.' {
+                    cursor += 1;
+                } else {
+                    break;
+                }
+            }
+            tokens.push(SpecialToken {
+                kind: SpecialTokenKind::FunctionLiteral,
+                start,
+                end: cursor,
+            });
+            continue;
+        }
         if is_ident_start(ch) {
             let start = cursor;
             let (end, segments) = scan_reference_path(source, cursor);
@@ -114,7 +142,7 @@ mod tests {
     #[test]
     fn scan_expr_source_tracks_script_literals_and_refs() {
         let expr = scan_expr_source(
-            r#"target + @main.loop + user.name + "skip @quoted""#,
+            r#"target + @main.loop + #main.pick + user.name + "skip @quoted""#,
             ExprKind::Rhai,
         )
         .expect("scan");
@@ -129,6 +157,7 @@ mod tests {
             vec![
                 SpecialTokenKind::IdentRef,
                 SpecialTokenKind::ScriptLiteral,
+                SpecialTokenKind::FunctionLiteral,
                 SpecialTokenKind::QualifiedRef,
             ]
         );

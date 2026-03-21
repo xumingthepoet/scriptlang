@@ -31,6 +31,9 @@ impl LocalScope {
 pub(crate) struct ModuleState {
     pub(crate) module_name: Option<String>,
     pub(crate) imports: Vec<String>,
+    pub(crate) requires: Vec<String>,
+    pub(crate) aliases: BTreeMap<String, String>,
+    pub(crate) child_aliases: BTreeMap<String, String>,
     pub(crate) const_decls: BTreeMap<String, PendingConstDecl>,
     pub(crate) exports: ModuleExports,
     pub(crate) children: Vec<Form>,
@@ -52,6 +55,7 @@ pub(crate) struct ModuleMembers {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ModuleExports {
     pub(crate) consts: ModuleMembers,
+    pub(crate) functions: ModuleMembers,
     pub(crate) scripts: ModuleMembers,
     pub(crate) vars: ModuleMembers,
 }
@@ -69,6 +73,7 @@ pub(crate) struct ExpandEnv {
     pub(crate) source_name: Option<String>,
     pub(crate) program: ProgramState,
     pub(crate) module: ModuleState,
+    pub(crate) macro_invocation_counter: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -99,6 +104,9 @@ impl ExpandEnv {
         self.module = ModuleState {
             module_name,
             imports: Vec::new(),
+            requires: Vec::new(),
+            aliases: BTreeMap::new(),
+            child_aliases: BTreeMap::new(),
             const_decls: BTreeMap::new(),
             exports: ModuleExports::default(),
             children: Vec::new(),
@@ -133,6 +141,41 @@ impl ExpandEnv {
         self.module.imports.push(import_name.into());
     }
 
+    pub(crate) fn add_require(&mut self, require_name: impl Into<String>) {
+        self.module.requires.push(require_name.into());
+    }
+
+    pub(crate) fn add_alias(
+        &mut self,
+        alias_name: impl Into<String>,
+        module_name: impl Into<String>,
+    ) -> Result<(), String> {
+        let alias_name = alias_name.into();
+        let module_name = module_name.into();
+        match self.module.aliases.get(&alias_name) {
+            Some(existing) if existing != &module_name => Err(format!(
+                "alias `{alias_name}` already points to `{existing}`"
+            )),
+            Some(_) => Ok(()),
+            None => {
+                self.module.aliases.insert(alias_name, module_name);
+                Ok(())
+            }
+        }
+    }
+
+    pub(crate) fn add_child_alias(
+        &mut self,
+        alias_name: impl Into<String>,
+        module_name: impl Into<String>,
+    ) -> Result<(), String> {
+        let alias_name = alias_name.into();
+        let module_name = module_name.into();
+        self.add_alias(alias_name.clone(), module_name.clone())?;
+        self.module.child_aliases.insert(alias_name, module_name);
+        Ok(())
+    }
+
     pub(crate) fn add_local(&mut self, name: impl Into<String>) {
         self.module.locals.insert(name.into());
     }
@@ -160,6 +203,10 @@ impl ExpandEnv {
         self.module.exports.scripts.insert(name.into(), exported)
     }
 
+    pub(crate) fn declare_function(&mut self, name: impl Into<String>, exported: bool) -> bool {
+        self.module.exports.functions.insert(name.into(), exported)
+    }
+
     pub(crate) fn declare_var(&mut self, name: impl Into<String>, exported: bool) -> bool {
         self.module.exports.vars.insert(name.into(), exported)
     }
@@ -167,7 +214,12 @@ impl ExpandEnv {
     pub(crate) fn resolve_macro(&self, name: &str) -> Option<&MacroDefinition> {
         let current_module = self.module.module_name.as_deref();
         self.program
-            .resolve_macro(current_module, &self.module.imports, name)
+            .resolve_macro(current_module, &self.module.requires, name)
+    }
+
+    pub(crate) fn reserve_macro_invocation_seed(&mut self) -> usize {
+        self.macro_invocation_counter += 1;
+        self.macro_invocation_counter
     }
 }
 
