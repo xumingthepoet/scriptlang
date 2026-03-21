@@ -2,12 +2,13 @@ use std::collections::BTreeSet;
 
 use sl_core::{ScriptLangError, TextSegment, TextTemplate};
 
-use super::const_eval::{
-    ConstEnv, ConstValue, parse_const_value, rewrite_expr_with_consts, rewrite_template_with_consts,
+use super::const_eval::{ConstEnv, ConstValue, parse_const_value};
+use super::expr_rewrite::{
+    rewrite_expr_with_consts, rewrite_expr_with_vars, rewrite_script_literals,
+    rewrite_template_with_consts, rewrite_template_with_vars,
 };
 use super::resolve::{
-    ConstCatalog, ModuleCatalog, ModuleScope, ScopeResolver, rewrite_expr_with_vars,
-    rewrite_script_literals, rewrite_template_with_vars, validate_import_target,
+    ConstCatalog, ModuleCatalog, ModuleScope, ScopeResolver, validate_import_target,
 };
 use super::types::{
     DeclaredType, SemanticChoiceOption, SemanticModule, SemanticProgram, SemanticScript,

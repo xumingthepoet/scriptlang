@@ -1,5 +1,6 @@
 mod analyze;
 mod const_eval;
+mod expr_rewrite;
 mod resolve;
 pub(crate) mod types;
 
