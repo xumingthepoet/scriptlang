@@ -1,8 +1,9 @@
 use std::collections::{BTreeMap, HashMap};
 
-use sl_core::{GlobalVar, Instruction, LocalId, ScriptId};
+use sl_core::{CompiledFunction, GlobalVar, Instruction, LocalId, ScriptId};
 
 pub(crate) struct ProgramAssembler {
+    pub(crate) functions: BTreeMap<String, CompiledFunction>,
     pub(crate) scripts: Vec<ScriptDraft>,
     pub(crate) script_refs: BTreeMap<String, ScriptId>,
     pub(crate) globals: Vec<GlobalDecl>,

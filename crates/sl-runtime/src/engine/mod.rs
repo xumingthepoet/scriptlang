@@ -1,13 +1,13 @@
 mod execute;
 mod state;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
-use rhai::{AST, Dynamic, Engine as RhaiEngine, Scope};
+use rhai::{AST, Array, Dynamic, Engine as RhaiEngine, EvalAltResult, Scope};
 use sl_core::{
-    CompiledArtifact, CompiledScript, CompiledText, CompiledTextPart, PendingChoiceOption,
-    PendingChoiceSnapshot, ScriptId, ScriptLangError, Snapshot,
+    CompiledArtifact, CompiledFunction, CompiledScript, CompiledText, CompiledTextPart,
+    PendingChoiceOption, PendingChoiceSnapshot, ScriptId, ScriptLangError, Snapshot,
 };
 
 use self::state::{EngineState, PendingChoiceState};
@@ -24,9 +24,9 @@ impl Engine {
         let artifact = Arc::new(artifact);
         let state = EngineState::for_boot(&artifact);
         Self {
-            artifact,
+            artifact: artifact.clone(),
             state,
-            rhai: RhaiEngine::new(),
+            rhai: build_rhai_engine(Arc::new(artifact.functions.clone())),
             ast_cache: HashMap::new(),
         }
     }
@@ -238,6 +238,61 @@ impl Engine {
     }
 }
 
+fn build_rhai_engine(functions: Arc<BTreeMap<String, CompiledFunction>>) -> RhaiEngine {
+    let mut rhai = RhaiEngine::new();
+
+    let invoke_functions = functions.clone();
+    rhai.register_fn(
+        "invoke",
+        move |fn_ref: String, args: Array| -> Result<Dynamic, Box<EvalAltResult>> {
+            eval_compiled_function(invoke_functions.clone(), &fn_ref, args)
+        },
+    );
+
+    let call_functions = functions;
+    rhai.register_fn(
+        "__sl_call",
+        move |fn_ref: String, args: Array| -> Result<Dynamic, Box<EvalAltResult>> {
+            eval_compiled_function(call_functions.clone(), &fn_ref, args)
+        },
+    );
+
+    rhai
+}
+
+fn eval_compiled_function(
+    functions: Arc<BTreeMap<String, CompiledFunction>>,
+    fn_ref: &str,
+    args: Array,
+) -> Result<Dynamic, Box<EvalAltResult>> {
+    let function = functions.get(fn_ref).cloned().ok_or_else(|| {
+        EvalAltResult::ErrorRuntime(
+            format!("Invoke target not found `{fn_ref}`").into(),
+            rhai::Position::NONE,
+        )
+    })?;
+    if args.len() != function.param_names.len() {
+        return Err(EvalAltResult::ErrorRuntime(
+            format!(
+                "Function `{fn_ref}` expects {} args but got {}",
+                function.param_names.len(),
+                args.len()
+            )
+            .into(),
+            rhai::Position::NONE,
+        )
+        .into());
+    }
+
+    let engine = build_rhai_engine(functions);
+    let ast = engine.compile(&function.body)?;
+    let mut scope = Scope::new();
+    for (name, value) in function.param_names.iter().zip(args.into_iter()) {
+        scope.push_dynamic(name.clone(), value);
+    }
+    engine.eval_ast_with_scope::<Dynamic>(&mut scope, &ast)
+}
+
 fn dynamic_to_bool(value: &Dynamic) -> Result<bool, ScriptLangError> {
     if let Some(value) = value.clone().try_cast::<bool>() {
         Ok(value)
@@ -259,14 +314,16 @@ fn dynamic_to_text(value: &Dynamic) -> String {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::sync::Arc;
 
     use rhai::Dynamic;
     use sl_core::{
-        ChoiceBranch, CompiledArtifact, CompiledScript, CompiledText, CompiledTextPart, Completion,
-        GlobalVar, Instruction, PendingChoiceOption, Snapshot, StepEvent, StepResult, Suspension,
+        ChoiceBranch, CompiledArtifact, CompiledFunction, CompiledScript, CompiledText,
+        CompiledTextPart, Completion, GlobalVar, Instruction, PendingChoiceOption, Snapshot,
+        StepEvent, StepResult, Suspension,
     };
 
-    use super::{Engine, dynamic_to_bool, dynamic_to_text};
+    use super::{Engine, build_rhai_engine, dynamic_to_bool, dynamic_to_text};
 
     fn text(parts: Vec<CompiledTextPart>) -> CompiledText {
         CompiledText { parts }
@@ -294,6 +351,7 @@ mod tests {
         CompiledArtifact {
             default_entry_script_id,
             boot_script_id,
+            functions: BTreeMap::new(),
             script_refs,
             scripts: all_scripts,
             globals,
@@ -837,5 +895,63 @@ mod tests {
         assert_eq!(engine.current_script_id(), 0);
         assert_eq!(engine.current_pc(), 0);
         assert_eq!(engine.state.entry_override, None);
+    }
+
+    #[test]
+    fn eval_expression_supports_compiled_function_calls_and_invoke() {
+        let mut engine = simple_engine(vec![Instruction::End]);
+        engine.artifact = Arc::new(CompiledArtifact {
+            default_entry_script_id: 0,
+            boot_script_id: 1,
+            functions: BTreeMap::from([
+                (
+                    "main.add1".to_string(),
+                    CompiledFunction {
+                        param_names: vec!["x".to_string()],
+                        body: "return x + 1;".to_string(),
+                    },
+                ),
+                (
+                    "main.run".to_string(),
+                    CompiledFunction {
+                        param_names: vec!["x".to_string()],
+                        body: "return __sl_call(\"main.add1\", [x]) * 2;".to_string(),
+                    },
+                ),
+            ]),
+            script_refs: BTreeMap::from([
+                ("main.entry".to_string(), 0),
+                ("__boot__".to_string(), 1),
+            ]),
+            scripts: vec![
+                CompiledScript {
+                    script_id: 0,
+                    local_names: vec!["name".to_string(), "x".to_string()],
+                    instructions: vec![Instruction::End],
+                },
+                CompiledScript {
+                    script_id: 1,
+                    local_names: Vec::new(),
+                    instructions: vec![Instruction::JumpScript {
+                        target_script_id: 0,
+                    }],
+                },
+            ],
+            globals: vec![GlobalVar {
+                global_id: 0,
+                runtime_name: "answer".to_string(),
+            }],
+        });
+        engine.rhai = build_rhai_engine(Arc::new(engine.artifact.functions.clone()));
+
+        let direct = engine
+            .eval_expression("__sl_call(\"main.run\", [3])")
+            .expect("direct call");
+        let invoked = engine
+            .eval_expression("let f = \"main.add1\"; invoke(f, [4])")
+            .expect("invoke");
+
+        assert_eq!(direct.clone_cast::<i64>(), 8);
+        assert_eq!(invoked.clone_cast::<i64>(), 5);
     }
 }

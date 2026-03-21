@@ -4,14 +4,16 @@ use sl_core::{Form, ScriptLangError};
 
 use super::{
     ConstCatalog, ConstEnv, ConstLookup, ConstValue, ModuleCatalog, ModuleScope, ScopeResolver,
-    parse_const_value, parse_declared_type_form as parse_declared_type, validate_alias_target,
-    validate_import_target, validate_require_target,
+    parse_const_value, parse_declared_type_form as parse_declared_type, parse_declared_type_name,
+    validate_alias_target, validate_import_target, validate_require_target,
 };
 use crate::semantic::env::{ModuleState, ProgramState};
-use crate::semantic::types::{SemanticModule, SemanticProgram, SemanticVar};
-use crate::semantic::{body_expr, error_at, required_attr};
+use crate::semantic::types::{
+    DeclaredType, SemanticFunction, SemanticModule, SemanticProgram, SemanticVar,
+};
+use crate::semantic::{attr, body_expr, error_at, required_attr};
 
-use super::scripts::{analyze_script, rewrite_var_expr};
+use super::scripts::{analyze_script, rewrite_function_body, rewrite_var_expr};
 
 pub(crate) fn analyze_program(program: &ProgramState) -> Result<SemanticProgram, ScriptLangError> {
     let catalog = ModuleCatalog::build(program)?;
@@ -50,6 +52,7 @@ fn analyze_module<'a>(
     let mut remaining_const_names = future_const_names;
     let mut const_env = ConstEnv::new();
     let mut scope = ModuleScope::initial(catalog, &name);
+    let mut functions = Vec::new();
     let mut vars = Vec::new();
     let mut scripts = Vec::new();
 
@@ -76,6 +79,15 @@ fn analyze_module<'a>(
                 remaining_const_names.remove(&const_name);
                 const_env.insert(const_name, value);
             }
+            "function" => {
+                let mut visible = ScopeResolver::new(catalog, const_catalog, &scope);
+                functions.push(analyze_function(
+                    child,
+                    &const_env,
+                    &mut visible,
+                    &remaining_const_names,
+                )?);
+            }
             "var" => {
                 let mut visible = ScopeResolver::new(catalog, const_catalog, &scope);
                 vars.push(SemanticVar {
@@ -90,7 +102,6 @@ fn analyze_module<'a>(
                     )?,
                 });
             }
-            "function" => {}
             "script" => scripts.push(analyze_script(
                 child,
                 catalog,
@@ -110,8 +121,32 @@ fn analyze_module<'a>(
 
     Ok(SemanticModule {
         name,
+        functions,
         vars,
         scripts,
+    })
+}
+
+fn analyze_function(
+    form: &Form,
+    const_env: &ConstEnv,
+    resolver: &mut ScopeResolver<'_, '_>,
+    remaining_const_names: &BTreeSet<String>,
+) -> Result<SemanticFunction, ScriptLangError> {
+    let param_names = parse_function_args(form)?;
+    let shadowed_names = param_names.iter().cloned().collect::<BTreeSet<_>>();
+    let body = body_expr(form)?;
+    Ok(SemanticFunction {
+        name: required_attr(form, "name")?.to_string(),
+        param_names,
+        return_type: parse_function_return_type(form)?,
+        body: rewrite_function_body(
+            &body,
+            const_env,
+            resolver,
+            remaining_const_names,
+            &shadowed_names,
+        )?,
     })
 }
 
@@ -144,6 +179,47 @@ fn alias_name(form: &Form) -> Result<String, ScriptLangError> {
         .filter(|segment| !segment.is_empty())
         .map(str::to_string)
         .ok_or_else(|| error_at(form, "<alias> requires valid `name`"))
+}
+
+fn parse_function_return_type(form: &Form) -> Result<DeclaredType, ScriptLangError> {
+    parse_declared_type_name(attr(form, "return_type"), "function", |message| {
+        error_at(form, message)
+    })
+}
+
+fn parse_function_args(form: &Form) -> Result<Vec<String>, ScriptLangError> {
+    let Some(raw) = attr(form, "args") else {
+        return Ok(Vec::new());
+    };
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut names = BTreeSet::new();
+    let mut params = Vec::new();
+    for segment in raw.split(',').map(str::trim) {
+        let (declared_type, name) = segment.split_once(':').ok_or_else(|| {
+            error_at(
+                form,
+                format!("invalid function arg declaration `{segment}`"),
+            )
+        })?;
+        let name = name.trim();
+        parse_declared_type_name(Some(declared_type.trim()), "function", |message| {
+            error_at(form, message)
+        })?;
+        if name.is_empty() {
+            return Err(error_at(
+                form,
+                format!("invalid function arg declaration `{segment}`"),
+            ));
+        }
+        if !names.insert(name.to_string()) {
+            return Err(error_at(form, format!("duplicate function arg `{name}`")));
+        }
+        params.push(name.to_string());
+    }
+    Ok(params)
 }
 
 #[cfg(test)]
@@ -422,7 +498,11 @@ mod tests {
             node(
                 "module",
                 vec![("name", "helper")],
-                vec![child(node("function", vec![("name", "pick")], vec![]))],
+                vec![child(node(
+                    "function",
+                    vec![("name", "pick"), ("return_type", "int")],
+                    vec![text("return 1;")],
+                ))],
             ),
             node(
                 "module",
@@ -448,6 +528,15 @@ mod tests {
             ),
         ]);
 
+        let helper = program
+            .modules
+            .iter()
+            .find(|module| module.name == "helper")
+            .expect("helper module");
+        assert_eq!(helper.functions[0].return_type, DeclaredType::Int);
+        assert_eq!(helper.functions[0].param_names, Vec::<String>::new());
+        assert_eq!(helper.functions[0].body, "return 1;");
+
         let main = program
             .modules
             .iter()
@@ -468,7 +557,11 @@ mod tests {
                     vec![("name", "main")],
                     vec![
                         child(node("require", vec![("name", "kernel")], vec![])),
-                        child(node("function", vec![("name", "pick")], vec![])),
+                        child(node(
+                            "function",
+                            vec![("name", "pick"), ("return_type", "int")],
+                            vec![text("return 1;")],
+                        )),
                         child(node(
                             "temp",
                             vec![("name", "scratch"), ("type", "int")],

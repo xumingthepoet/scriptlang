@@ -6,6 +6,7 @@ use crate::{GlobalId, LocalId, ScriptId};
 pub struct CompiledArtifact {
     pub default_entry_script_id: ScriptId,
     pub boot_script_id: ScriptId,
+    pub functions: BTreeMap<String, CompiledFunction>,
     pub script_refs: BTreeMap<String, ScriptId>,
     pub scripts: Vec<CompiledScript>,
     pub globals: Vec<GlobalVar>,
@@ -22,6 +23,12 @@ pub struct CompiledScript {
 pub struct GlobalVar {
     pub global_id: GlobalId,
     pub runtime_name: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct CompiledFunction {
+    pub param_names: Vec<String>,
+    pub body: String,
 }
 
 #[derive(Clone, Debug)]
@@ -85,8 +92,8 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::{
-        ChoiceBranch, CompiledArtifact, CompiledScript, CompiledText, CompiledTextPart, GlobalVar,
-        Instruction,
+        ChoiceBranch, CompiledArtifact, CompiledFunction, CompiledScript, CompiledText,
+        CompiledTextPart, GlobalVar, Instruction,
     };
 
     #[test]
@@ -136,6 +143,13 @@ mod tests {
         let artifact = CompiledArtifact {
             default_entry_script_id: 0,
             boot_script_id: 1,
+            functions: BTreeMap::from([(
+                "main.pick".to_string(),
+                CompiledFunction {
+                    param_names: vec!["x".to_string()],
+                    body: "return x + 1;".to_string(),
+                },
+            )]),
             script_refs: BTreeMap::from([
                 ("main.entry".to_string(), 0),
                 ("__boot__".to_string(), 1),
@@ -160,6 +174,10 @@ mod tests {
 
         assert_eq!(artifact.default_entry_script_id, 0);
         assert_eq!(artifact.boot_script_id, 1);
+        assert_eq!(
+            artifact.functions["main.pick"].param_names,
+            vec!["x".to_string()]
+        );
         assert_eq!(artifact.scripts[0].script_id, 0);
         assert_eq!(artifact.scripts[0].local_names, vec!["x".to_string()]);
         assert_eq!(

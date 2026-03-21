@@ -14,7 +14,10 @@ pub(crate) fn attr<'a>(form: &'a Form, name: &str) -> Option<&'a str> {
 }
 
 pub(crate) fn body_expr(form: &Form) -> Result<String, ScriptLangError> {
-    if !matches!(form.head.as_str(), "var" | "temp" | "const" | "code") {
+    if !matches!(
+        form.head.as_str(),
+        "var" | "temp" | "const" | "code" | "function"
+    ) {
         return Err(error_at(
             form,
             format!("<{}> body is not classified as an expression", form.head),
@@ -36,7 +39,7 @@ pub(crate) fn body_template(form: &Form) -> Result<String, ScriptLangError> {
 pub(crate) fn child_forms(form: &Form) -> Result<Vec<&Form>, ScriptLangError> {
     if matches!(
         form.head.as_str(),
-        "var" | "temp" | "const" | "code" | "text"
+        "var" | "temp" | "const" | "code" | "text" | "function"
     ) {
         return Err(error_at(
             form,

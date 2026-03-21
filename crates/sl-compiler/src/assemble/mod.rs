@@ -16,6 +16,7 @@ pub(crate) fn assemble_artifact(
     program: &SemanticProgram,
 ) -> Result<CompiledArtifact, ScriptLangError> {
     let mut assembler = ProgramAssembler {
+        functions: BTreeMap::new(),
         scripts: Vec::new(),
         script_refs: BTreeMap::new(),
         globals: Vec::new(),
@@ -54,6 +55,7 @@ pub(crate) fn assemble_artifact(
     Ok(CompiledArtifact {
         default_entry_script_id,
         boot_script_id,
+        functions: assembler.functions,
         script_refs: assembler.script_refs,
         scripts,
         globals: assembler
@@ -83,6 +85,7 @@ mod tests {
     fn assemble_artifact_requires_at_least_one_script() {
         let error = assemble_artifact(&program(vec![SemanticModule {
             name: "main".to_string(),
+            functions: Vec::new(),
             vars: Vec::new(),
             scripts: Vec::new(),
         }]))
@@ -95,6 +98,7 @@ mod tests {
     fn assemble_artifact_requires_main_main_as_default_entry() {
         let error = assemble_artifact(&program(vec![SemanticModule {
             name: "main".to_string(),
+            functions: Vec::new(),
             vars: Vec::new(),
             scripts: vec![SemanticScript {
                 name: "entry".to_string(),
@@ -113,6 +117,7 @@ mod tests {
     fn assemble_artifact_collects_globals_and_lowers_scripts() {
         let artifact = assemble_artifact(&program(vec![SemanticModule {
             name: "main".to_string(),
+            functions: Vec::new(),
             vars: vec![SemanticVar {
                 name: "answer".to_string(),
                 declared_type: DeclaredType::Int,
@@ -176,6 +181,7 @@ mod tests {
     fn assemble_artifact_rejects_duplicate_script_refs_and_allows_same_named_globals() {
         let duplicate_script = assemble_artifact(&program(vec![SemanticModule {
             name: "main".to_string(),
+            functions: Vec::new(),
             vars: Vec::new(),
             scripts: vec![
                 SemanticScript {
@@ -197,6 +203,7 @@ mod tests {
         let artifact = assemble_artifact(&program(vec![
             SemanticModule {
                 name: "main".to_string(),
+                functions: Vec::new(),
                 vars: vec![SemanticVar {
                     name: "name".to_string(),
                     declared_type: DeclaredType::Int,
@@ -209,6 +216,7 @@ mod tests {
             },
             SemanticModule {
                 name: "b".to_string(),
+                functions: Vec::new(),
                 vars: vec![SemanticVar {
                     name: "name".to_string(),
                     declared_type: DeclaredType::Int,
@@ -229,6 +237,7 @@ mod tests {
     #[test]
     fn build_boot_script_is_empty_except_for_jump_when_no_globals_exist() {
         let builder = ProgramAssembler {
+            functions: Default::default(),
             scripts: Vec::new(),
             script_refs: Default::default(),
             globals: Vec::new(),

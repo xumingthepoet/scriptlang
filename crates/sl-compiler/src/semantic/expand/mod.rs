@@ -18,7 +18,7 @@ use sl_core::{Form, FormItem, FormValue, ScriptLangError};
 use super::env::ExpandEnv;
 use super::types::SemanticProgram;
 pub(crate) use const_eval::{ConstEnv, ConstLookup, ConstValue, parse_const_value};
-pub(crate) use declared_types::parse_declared_type_form;
+pub(crate) use declared_types::{parse_declared_type_form, parse_declared_type_name};
 use dispatch::{ExpandRuleScope, expand_with_rules};
 pub(crate) use imports::{validate_alias_target, validate_import_target, validate_require_target};
 use macros::collect_program_macros;

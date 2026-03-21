@@ -5,8 +5,8 @@ pub mod runtime;
 pub mod syntax;
 
 pub use compiled::{
-    ChoiceBranch, CompiledArtifact, CompiledScript, CompiledText, CompiledTextPart, GlobalVar,
-    Instruction,
+    ChoiceBranch, CompiledArtifact, CompiledFunction, CompiledScript, CompiledText,
+    CompiledTextPart, GlobalVar, Instruction,
 };
 pub use error::ScriptLangError;
 pub use ids::{GlobalId, LocalId, ScriptId};

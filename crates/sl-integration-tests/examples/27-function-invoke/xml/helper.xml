@@ -1,0 +1,8 @@
+<module name="helper">
+  <function name="add1" args="int:x" return_type="int">
+    return x + 1;
+  </function>
+  <function name="times2" args="int:x" return_type="int">
+    return x * 2;
+  </function>
+</module>

@@ -164,6 +164,14 @@ pub(crate) fn rewrite_expr_with_vars(
     Ok(rewritten)
 }
 
+pub(crate) fn rewrite_expr_function_calls(
+    source: &str,
+    resolver: &ScopeResolver<'_, '_>,
+    shadowed_names: &BTreeSet<String>,
+) -> Result<String, ScriptLangError> {
+    rewrite_expr_function_calls_inner(source, resolver, shadowed_names)
+}
+
 pub(crate) fn rewrite_template_with_vars(
     template: TextTemplate,
     resolver: &ScopeResolver<'_, '_>,
@@ -286,6 +294,94 @@ fn is_property_access(bytes: &[u8], ident_start: usize) -> bool {
         return ch == '.';
     }
     false
+}
+
+fn rewrite_expr_function_calls_inner(
+    source: &str,
+    resolver: &ScopeResolver<'_, '_>,
+    shadowed_names: &BTreeSet<String>,
+) -> Result<String, ScriptLangError> {
+    let bytes = source.as_bytes();
+    let mut rewritten = String::with_capacity(source.len());
+    let mut cursor = 0usize;
+
+    while cursor < bytes.len() {
+        let ch = bytes[cursor] as char;
+        if ch == '"' || ch == '\'' {
+            let end = scan_quoted(bytes, cursor)?;
+            rewritten.push_str(&source[cursor..end]);
+            cursor = end;
+            continue;
+        }
+
+        if is_ident_start(ch) {
+            let ident_start = cursor;
+            let (end, segments) = scan_reference_path(source, cursor);
+            let raw = &source[ident_start..end];
+            let first = segments[0].as_str();
+
+            let mut open = end;
+            while open < bytes.len() && (bytes[open] as char).is_whitespace() {
+                open += 1;
+            }
+            if open < bytes.len() && bytes[open] == b'(' {
+                let close = scan_matching_paren(bytes, open)?;
+                let inner = &source[open + 1..close - 1];
+                let rewritten_inner =
+                    rewrite_expr_function_calls_inner(inner, resolver, shadowed_names)?;
+                let resolved =
+                    if shadowed_names.contains(first) || is_property_access(bytes, ident_start) {
+                        None
+                    } else if segments.len() == 1 {
+                        resolver.resolve_short_function_ref(first)?
+                    } else {
+                        let module_path = segments[..segments.len() - 1].join(".");
+                        let name = segments.last().expect("qualified path");
+                        resolver.resolve_qualified_function_ref(&module_path, name)?
+                    };
+
+                if let Some(target) = resolved {
+                    rewritten.push_str(&format!("__sl_call({target:?}, [{rewritten_inner}])"));
+                } else {
+                    rewritten.push_str(raw);
+                    rewritten.push_str(&source[end..open]);
+                    rewritten.push('(');
+                    rewritten.push_str(&rewritten_inner);
+                    rewritten.push(')');
+                }
+                cursor = close;
+                continue;
+            }
+        }
+
+        rewritten.push(ch);
+        cursor += ch.len_utf8();
+    }
+
+    Ok(rewritten)
+}
+
+fn scan_matching_paren(bytes: &[u8], open: usize) -> Result<usize, ScriptLangError> {
+    let mut cursor = open + 1;
+    let mut depth = 1usize;
+    while cursor < bytes.len() {
+        match bytes[cursor] {
+            b'"' | b'\'' => cursor = scan_quoted(bytes, cursor)?,
+            b'(' => {
+                depth += 1;
+                cursor += 1;
+            }
+            b')' => {
+                depth -= 1;
+                cursor += 1;
+                if depth == 0 {
+                    return Ok(cursor);
+                }
+            }
+            _ => cursor += 1,
+        }
+    }
+    Err(ScriptLangError::message("unterminated function call"))
 }
 
 fn is_map_key(source: &str, ident_end: usize) -> bool {

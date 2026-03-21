@@ -27,6 +27,22 @@ impl ProgramAssembler {
                 });
             }
 
+            for function in &module.functions {
+                let function_ref = qualified_member_name(&module.name, &function.name);
+                if self.functions.contains_key(&function_ref) {
+                    return Err(ScriptLangError::message(format!(
+                        "duplicate function declaration `{function_ref}`"
+                    )));
+                }
+                self.functions.insert(
+                    function_ref,
+                    sl_core::CompiledFunction {
+                        param_names: function.param_names.clone(),
+                        body: function.body.clone(),
+                    },
+                );
+            }
+
             for script in &module.scripts {
                 let script_ref = qualified_member_name(&module.name, &script.name);
                 if self.script_refs.contains_key(&script_ref) {

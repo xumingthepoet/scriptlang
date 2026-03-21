@@ -8,8 +8,17 @@ pub(crate) struct SemanticProgram {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SemanticModule {
     pub(crate) name: String,
+    pub(crate) functions: Vec<SemanticFunction>,
     pub(crate) vars: Vec<SemanticVar>,
     pub(crate) scripts: Vec<SemanticScript>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SemanticFunction {
+    pub(crate) name: String,
+    pub(crate) param_names: Vec<String>,
+    pub(crate) return_type: DeclaredType,
+    pub(crate) body: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

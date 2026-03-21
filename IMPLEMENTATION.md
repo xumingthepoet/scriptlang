@@ -86,7 +86,10 @@
 - `#main.pick` / `#pick` 是 function 字面量；`#pick` 会在编译期展开为当前 module 下的完整 function key
 - `var / temp / const` 的 `type="..."` 现在是必填
 - 当前 MVP 识别的显式类型有 `int / bool / string / script / function / array / object`
-- `<function>` 第一阶段只作为“可声明、可被字面量引用的命名值”存在；当前还不支持 function 调用语义
+- `<function>` 当前支持 `args="type:name,..."` 和 `return_type="type"`；body 是一段 Rhai `code` 风格源码，并通过 `return ...;` 产出结果
+- function 当前只能在 expr / code 路径里被调用，不引入新的 script-level call primitive
+- 直接函数调用当前支持 `main.run(x)` / `run(x)` 这类 expr 内调用；编译期会重写成统一的 builtin 调用
+- 当前也支持 `invoke(fn_var, [args])`；首参要求是 `function` 字符串值
 - runtime 不保留 module 概念，只按 `script_id + pc` 执行
 
 ## Parser / Compiler / Runtime
@@ -203,6 +206,12 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
   - `#m1.pick` 形式的完整字面量
   - `#alias_name.pick` 形式的 alias 字面量
   - 编译期会校验字面量引用的 function 是否存在
+- module function 当前支持：
+  - `<function name="run" args="int:x" return_type="int">return x + 1;</function>`
+  - expr / code 内直接写 `main.run(3)`、`run(3)`、`helper.add1(value)`
+  - `when="main.is_ready(value)"` 这类条件表达式里也可直接调用 function
+  - `invoke(fn_ref, [args])` 用于通过 `function` 值做动态调用
+  - function body 内同样支持 direct call / `invoke(...)`
 - `<goto>` 当前不再做 script ref 名字解析；它只保留表达式并 lower 成运行时动态跳转
 - `kernel.xml` 当前除常量外，已可声明最小 kernel macro；API 单测和 integration example 已覆盖 required module macro 可见性解析，以及基于 `quote / unquote` 的 `say` / `when_text` / `script_text` / `unless` / `if-else` 标准宏
 - `kernel` 当前还提供标准 `<if>` 宏；它通过 non-capturing `<while>` 结构实现，底层已不再保留单独的 builtin `if` lowering
@@ -237,6 +246,8 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 - 使用 Rhai 执行表达式和代码块
 - 首次执行某段 Rhai 源码时编译 AST，并在 runtime 内缓存
 - 对 `JumpScriptExpr` 先求值出 script key 字符串，再通过 `artifact.script_refs` 做跳转
+- 运行时会为 expr / code 注册 `invoke` 和 compiler-internal `__sl_call`
+- module function 当前编译进 `CompiledArtifact.functions`，运行时按函数 key 查找并在独立 Rhai scope 中执行函数体
 
 当前 runtime 不做：
 
@@ -307,6 +318,7 @@ crates/sl-integration-tests/examples/<example>/
 - `26-kernel-if-via-while` 覆盖 `<if>` 经 kernel macro 展开后的运行链路
 - `require` 导入的普通 module macro
 - `function` 字面量 `#foo`
+- `27-function-invoke` 覆盖 module function 定义、direct call、`invoke(fn_var, [args])`，以及 `when="..."` 中的 function 调用
 - kernel `unless` / `if-else` 标准宏
 
 ## Build Commands

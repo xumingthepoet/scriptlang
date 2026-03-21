@@ -1,3 +1,3 @@
 <module name="helper">
-  <function name="pick" />
+  <function name="pick" return_type="int">return 1;</function>
 </module>

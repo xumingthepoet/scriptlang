@@ -1,0 +1,31 @@
+<module name="main">
+  <import name="helper" />
+
+  <function name="run" args="int:x" return_type="int">
+    let step = #helper.add1;
+    let v = invoke(step, [x]);
+    let mul = #helper.times2;
+    return invoke(mul, [v]);
+  </function>
+
+  <function name="from_code" args="int:x" return_type="int">
+    let add = #helper.add1;
+    return main.run(x) + invoke(add, [x]);
+  </function>
+
+  <function name="is_large" args="int:x" return_type="bool">
+    return x > 10;
+  </function>
+
+  <script name="main">
+    <temp name="value" type="int">0</temp>
+    <temp name="add_fn" type="function">#helper.add1</temp>
+    <code>value = main.from_code(3);</code>
+    <code>value = invoke(add_fn, [value]);</code>
+    <text>${value}</text>
+    <if when="main.is_large(value)">
+      <text>large</text>
+    </if>
+    <end />
+  </script>
+</module>

@@ -6,9 +6,9 @@ use super::{
     ConstCatalog, ConstEnv, ModuleCatalog, ModuleScope, ScopeResolver, parse_declared_type_form,
 };
 use crate::semantic::expr::{
-    parse_text_template, rewrite_expr_with_consts, rewrite_expr_with_vars,
-    rewrite_special_literals, rewrite_template_special_literals, rewrite_template_with_consts,
-    rewrite_template_with_vars,
+    parse_text_template, rewrite_expr_function_calls, rewrite_expr_with_consts,
+    rewrite_expr_with_vars, rewrite_special_literals, rewrite_template_special_literals,
+    rewrite_template_with_consts, rewrite_template_with_vars,
 };
 use crate::semantic::types::{SemanticChoiceOption, SemanticScript, SemanticStmt};
 use crate::semantic::{attr, body_expr, body_template, child_forms, error_at, required_attr};
@@ -228,7 +228,26 @@ pub(super) fn rewrite_var_expr(
         shadowed_names,
     )?;
     let rewritten = rewrite_special_literals(&rewritten, resolver)?;
+    let rewritten = rewrite_expr_function_calls(&rewritten, resolver, shadowed_names)?;
     rewrite_expr_with_vars(&rewritten, resolver, shadowed_names)
+}
+
+pub(super) fn rewrite_function_body(
+    source: &str,
+    const_env: &ConstEnv,
+    resolver: &mut ScopeResolver<'_, '_>,
+    remaining_const_names: &BTreeSet<String>,
+    shadowed_names: &BTreeSet<String>,
+) -> Result<String, ScriptLangError> {
+    let rewritten = rewrite_expr_with_consts(
+        source,
+        const_env,
+        resolver,
+        remaining_const_names,
+        shadowed_names,
+    )?;
+    let rewritten = rewrite_special_literals(&rewritten, resolver)?;
+    rewrite_expr_function_calls(&rewritten, resolver, shadowed_names)
 }
 
 fn rewrite_var_template(
@@ -318,7 +337,11 @@ mod tests {
             node(
                 "module",
                 vec![("name", "helper")],
-                vec![child(node("function", vec![("name", "pick")], vec![]))],
+                vec![child(node(
+                    "function",
+                    vec![("name", "pick"), ("return_type", "int")],
+                    vec![text("return 1;")],
+                ))],
             ),
             node(
                 "module",

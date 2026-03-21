@@ -330,6 +330,62 @@ impl<'a, 'b> ScopeResolver<'a, 'b> {
             )))
         }
     }
+
+    pub(crate) fn resolve_short_function_ref(
+        &self,
+        name: &str,
+    ) -> Result<Option<String>, ScriptLangError> {
+        if self
+            .modules
+            .exports(self.scope.current_module())?
+            .functions
+            .contains_declared(name)
+        {
+            return Ok(Some(format!("{}.{}", self.scope.current_module(), name)));
+        }
+        for import in self.scope.imports().iter().rev() {
+            if self
+                .modules
+                .exports(import.as_str())?
+                .functions
+                .contains_exported(name)
+            {
+                return Ok(Some(format!("{}.{}", import.as_str(), name)));
+            }
+        }
+        Ok(None)
+    }
+
+    pub(crate) fn resolve_qualified_function_ref(
+        &self,
+        module_path: &str,
+        name: &str,
+    ) -> Result<Option<String>, ScriptLangError> {
+        let module_path = self.scope.normalize_module_path(module_path);
+        if !self.modules.contains(module_path) {
+            return Ok(None);
+        }
+        if !self.scope.can_access_module(module_path) {
+            return Err(ScriptLangError::message(format!(
+                "module `{module_path}` is not imported into `{}`",
+                self.scope.current_module()
+            )));
+        }
+        let exports = self.modules.exports(module_path)?;
+        if module_path == self.scope.current_module() {
+            if exports.functions.contains_declared(name) {
+                return Ok(Some(format!("{module_path}.{name}")));
+            }
+            return Ok(None);
+        }
+        if exports.functions.contains_exported(name) {
+            Ok(Some(format!("{module_path}.{name}")))
+        } else {
+            Err(ScriptLangError::message(format!(
+                "module `{module_path}` does not export function `{name}`"
+            )))
+        }
+    }
 }
 
 impl ConstLookup for ScopeResolver<'_, '_> {
