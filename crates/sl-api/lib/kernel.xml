@@ -1,6 +1,6 @@
 <module name="kernel">
   <const name="zero" type="int">0</const>
-  <macro name="say" scope="statement" attributes="text:string">
+  <macro name="say" attributes="text:string">
     <let name="text_value" type="string">
       <get-attribute name="text"/>
     </let>
@@ -8,7 +8,7 @@
       <text>${text_value}</text>
     </quote>
   </macro>
-  <macro name="when_text" scope="statement" attributes="when:expr" content="ast">
+  <macro name="when_text" attributes="when:expr" content="ast">
     <let name="when_expr" type="expr">
       <get-attribute name="when"/>
     </let>
@@ -21,7 +21,7 @@
       </if>
     </quote>
   </macro>
-  <macro name="script_text" scope="module" attributes="name:string,text:string">
+  <macro name="script_text" attributes="name:string,text:string">
     <let name="script_name" type="string">
       <get-attribute name="name"/>
     </let>
@@ -35,7 +35,7 @@
       </script>
     </quote>
   </macro>
-  <macro name="unless" scope="statement" attributes="when:expr" content="ast">
+  <macro name="unless" attributes="when:expr" content="ast">
     <let name="when_expr" type="expr">
       <get-attribute name="when"/>
     </let>
@@ -51,7 +51,7 @@
       </if>
     </quote>
   </macro>
-  <macro name="if-else" scope="statement" attributes="when:expr" content="ast">
+  <macro name="if-else" attributes="when:expr" content="ast">
     <let name="when_expr" type="expr">
       <get-attribute name="when"/>
     </let>

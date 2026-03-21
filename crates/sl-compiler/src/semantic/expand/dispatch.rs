@@ -2,7 +2,7 @@ use sl_core::{Form, FormField, FormItem, FormValue, ScriptLangError};
 
 use super::macros::expand_macro_hook;
 use super::string_attr;
-use crate::semantic::env::{ExpandEnv, MacroScope};
+use crate::semantic::env::ExpandEnv;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ExpandRuleScope {
@@ -67,7 +67,7 @@ impl ExpandRegistry {
     fn dispatch(self, form: &Form, env: &ExpandEnv, scope: ExpandRuleScope) -> ExpandDispatch {
         if self.has_builtin_rule(form, scope) {
             ExpandDispatch::Builtin
-        } else if env.resolve_macro(&form.head, macro_scope(scope)).is_some() {
+        } else if env.resolve_macro(&form.head).is_some() {
             ExpandDispatch::MacroHook
         } else {
             ExpandDispatch::Builtin
@@ -176,27 +176,12 @@ fn expand_sequence_items(
     Ok(rewritten)
 }
 
-pub(super) fn macro_scope(scope: ExpandRuleScope) -> MacroScope {
-    match scope {
-        ExpandRuleScope::ModuleChild => MacroScope::ModuleChild,
-        ExpandRuleScope::Statement => MacroScope::Statement,
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{ExpandRuleScope, macro_scope};
-    use crate::semantic::env::MacroScope;
+    use super::ExpandRuleScope;
 
     #[test]
-    fn macro_scope_maps_rule_scope_variants() {
-        assert_eq!(
-            macro_scope(ExpandRuleScope::ModuleChild),
-            MacroScope::ModuleChild
-        );
-        assert_eq!(
-            macro_scope(ExpandRuleScope::Statement),
-            MacroScope::Statement
-        );
+    fn expand_rule_scope_variants_remain_distinct() {
+        assert_ne!(ExpandRuleScope::ModuleChild, ExpandRuleScope::Statement);
     }
 }

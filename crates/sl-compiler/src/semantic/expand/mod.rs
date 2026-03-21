@@ -88,7 +88,7 @@ mod tests {
     use sl_core::{Form, FormField, FormItem, FormMeta, FormValue, SourcePosition};
 
     use crate::semantic::child_forms;
-    use crate::semantic::env::{ExpandEnv, MacroScope};
+    use crate::semantic::env::ExpandEnv;
     use crate::semantic::types::DeclaredType;
 
     use super::{collect_program_macros, expand_forms, expand_raw_forms};
@@ -317,7 +317,6 @@ mod tests {
                         "macro",
                         vec![
                             attr("name", "say"),
-                            attr("scope", "statement"),
                             children(vec![
                                 child(form(
                                     "let",
@@ -351,7 +350,7 @@ mod tests {
 
         assert!(
             env.program
-                .resolve_macro(Some("main"), &[], "say", MacroScope::Statement)
+                .resolve_macro(Some("main"), &[], "say")
                 .is_some()
         );
         let children = child_forms(&expanded[0]).expect("module children");
@@ -370,7 +369,6 @@ mod tests {
                         "macro",
                         vec![
                             attr("name", "mk"),
-                            attr("scope", "module"),
                             children(vec![
                                 child(form(
                                     "let",
@@ -418,18 +416,13 @@ mod tests {
 
         assert!(
             env.program
-                .resolve_macro(
-                    Some("main"),
-                    &["helper".to_string()],
-                    "mk",
-                    MacroScope::ModuleChild
-                )
+                .resolve_macro(Some("main"), &["helper".to_string()], "mk")
                 .is_some()
         );
     }
 
     #[test]
-    fn program_macro_registry_allows_same_name_for_different_scopes() {
+    fn program_macro_registry_rejects_same_name_duplicates() {
         let forms = vec![form(
             "module",
             vec![
@@ -439,7 +432,6 @@ mod tests {
                         "macro",
                         vec![
                             attr("name", "dup"),
-                            attr("scope", "statement"),
                             children(vec![child(form("end", vec![children(vec![])]))]),
                         ],
                     )),
@@ -447,7 +439,6 @@ mod tests {
                         "macro",
                         vec![
                             attr("name", "dup"),
-                            attr("scope", "module"),
                             children(vec![
                                 child(form(
                                     "let",
@@ -481,17 +472,7 @@ mod tests {
         )];
 
         let mut env = ExpandEnv::default();
-        collect_program_macros(&forms, &mut env).expect("collect macros");
-
-        assert!(
-            env.program
-                .resolve_macro(Some("helper"), &[], "dup", MacroScope::Statement)
-                .is_some()
-        );
-        assert!(
-            env.program
-                .resolve_macro(Some("helper"), &[], "dup", MacroScope::ModuleChild)
-                .is_some()
-        );
+        let err = collect_program_macros(&forms, &mut env).expect_err("duplicate macro");
+        assert!(err.to_string().contains("duplicate macro declaration"));
     }
 }

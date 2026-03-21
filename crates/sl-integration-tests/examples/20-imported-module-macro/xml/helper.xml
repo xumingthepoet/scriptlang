@@ -1,5 +1,5 @@
 <module name="helper">
-  <macro name="mk" scope="module" attributes="name:string">
+  <macro name="mk" attributes="name:string">
     <let name="script_name" type="string">
       <get-attribute name="name"/>
     </let>

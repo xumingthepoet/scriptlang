@@ -176,7 +176,7 @@ mod tests {
             vec![
                 child(node(
                     "macro",
-                    vec![("name", "helper"), ("scope", "statement")],
+                    vec![("name", "helper")],
                     vec![child(node("end", vec![], vec![]))],
                 )),
                 child(node("import", vec![("name", "helper")], vec![])),

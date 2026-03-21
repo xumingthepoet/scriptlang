@@ -126,7 +126,6 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 - `semantic/expr/` 统一承载 expr 前端处理；`script literal` 会先经过统一 token 扫描，模板 `${...}` 的洞会先落到 `ExprSource` 外壳后再回到当前 `TextTemplate` 主路径
 - builtin form 的 expand 处理当前已收敛到 [`semantic/expand/dispatch.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/dispatch.rs) 的统一调度；macro 定义和宏展开细节则收敛到 [`semantic/expand/macros.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/macros.rs)
 - `ExpandRegistry` 当前已经提供 builtin / macro 共用的统一分发入口；macro 当前支持：
-  - 当前支持 `scope="statement"` 和 `scope="module"`
   - 当前宏展开要求产出恰好一个根 form
 - 当前宏系统以 `quote / unquote + MacroEnv` 为主路径：
   - 现在已经支持最小的 `quote / unquote`
@@ -138,7 +137,9 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
   - 当前已有显式 `MacroEnv`
   - 当前 compile-time values 至少覆盖 `string / expr / ast / bool / int`
 - program 级 macro registry 当前按 module 归档定义；expand dispatch 会按“当前 module -> 已 import modules -> 隐式 kernel”顺序解析可见宏
-- 同名 macro 当前允许在不同 `scope` 下共存；分派时会按 `(name, scope)` 而不是只按名字解析
+- `<macro>` 声明当前不再带 `scope`；宏定义本身不感知 module/script/statement 这类后续语义位置
+- expand dispatch 仍然保留“当前调用位置”的内部上下文，但它只用于 builtin 分派和展开结果消费，不再参与宏声明注册
+- 同名 macro 当前在同一 module 内不允许重复声明；registry 只按名字注册和解析
 - 当前宏统一通过 compile-time 路径展开：`<let> + <quote> + <unquote>`
 - 当前 compile-time 宏路径已可支撑标准 `unless`、`if-else`、`say`、`when_text` 和 `script_text` 宏；`kernel.xml` 中已有真实示例
 - 在 form semantics 阶段完成 MVP 标签校验、属性校验、`<import>` 上下文推进、统一名称解析、`<const>` 编译期求值和结构下沉
@@ -173,7 +174,7 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
   - `@m1.entry` 形式的完整字面量
   - 编译期会校验字面量引用的 script 是否存在
 - `<goto>` 当前不再做 script ref 名字解析；它只保留表达式并 lower 成运行时动态跳转
-- `kernel.xml` 当前除常量外，已可声明最小 kernel macro；API 单测和 integration example 已覆盖 statement-scope 与 module-scope 的基本宏展开路径、imported module macro 可见性解析，以及基于 `quote / unquote` 的 `say` / `when_text` / `script_text` / `unless` / `if-else` 标准宏
+- `kernel.xml` 当前除常量外，已可声明最小 kernel macro；API 单测和 integration example 已覆盖 imported module macro 可见性解析，以及基于 `quote / unquote` 的 `say` / `when_text` / `script_text` / `unless` / `if-else` 标准宏
 
 当前 IR 指令包括：
 

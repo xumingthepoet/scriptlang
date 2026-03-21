@@ -60,7 +60,7 @@ pub(crate) struct ModuleExports {
 pub(crate) struct ProgramState {
     pub(crate) modules: BTreeMap<String, ModuleState>,
     pub(crate) module_order: Vec<String>,
-    pub(crate) module_macros: BTreeMap<String, BTreeMap<String, Vec<MacroDefinition>>>,
+    pub(crate) module_macros: BTreeMap<String, BTreeMap<String, MacroDefinition>>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -75,14 +75,7 @@ pub(crate) struct ExpandEnv {
 pub(crate) struct MacroDefinition {
     pub(crate) module_name: String,
     pub(crate) name: String,
-    pub(crate) scope: MacroScope,
     pub(crate) body: Vec<FormItem>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum MacroScope {
-    ModuleChild,
-    Statement,
 }
 
 impl ExpandEnv {
@@ -171,10 +164,10 @@ impl ExpandEnv {
         self.module.exports.vars.insert(name.into(), exported)
     }
 
-    pub(crate) fn resolve_macro(&self, name: &str, scope: MacroScope) -> Option<&MacroDefinition> {
+    pub(crate) fn resolve_macro(&self, name: &str) -> Option<&MacroDefinition> {
         let current_module = self.module.module_name.as_deref();
         self.program
-            .resolve_macro(current_module, &self.module.imports, name, scope)
+            .resolve_macro(current_module, &self.module.imports, name)
     }
 }
 
@@ -184,17 +177,13 @@ impl ProgramState {
             .module_macros
             .entry(definition.module_name.clone())
             .or_default();
-        let macros = module_macros.entry(definition.name.clone()).or_default();
-        if macros
-            .iter()
-            .any(|existing| existing.scope == definition.scope)
-        {
+        if module_macros.contains_key(&definition.name) {
             return Err(format!(
-                "duplicate macro declaration `{}.{}` for scope `{:?}`",
-                definition.module_name, definition.name, definition.scope
+                "duplicate macro declaration `{}.{}`",
+                definition.module_name, definition.name
             ));
         }
-        macros.push(definition);
+        module_macros.insert(definition.name.clone(), definition);
         Ok(())
     }
 
@@ -203,16 +192,10 @@ impl ProgramState {
         current_module: Option<&str>,
         imports: &[String],
         name: &str,
-        scope: MacroScope,
     ) -> Option<&'a MacroDefinition> {
         if let Some(definition) = current_module
             .and_then(|module_name| self.module_macros.get(module_name))
             .and_then(|macros| macros.get(name))
-            .and_then(|definitions| {
-                definitions
-                    .iter()
-                    .find(|definition| definition.scope == scope)
-            })
         {
             return Some(definition);
         }
@@ -222,11 +205,6 @@ impl ProgramState {
                 .module_macros
                 .get(import)
                 .and_then(|macros| macros.get(name))
-                .and_then(|definitions| {
-                    definitions
-                        .iter()
-                        .find(|definition| definition.scope == scope)
-                })
             {
                 return Some(definition);
             }
@@ -236,12 +214,7 @@ impl ProgramState {
             return self
                 .module_macros
                 .get("kernel")
-                .and_then(|macros| macros.get(name))
-                .and_then(|definitions| {
-                    definitions
-                        .iter()
-                        .find(|definition| definition.scope == scope)
-                });
+                .and_then(|macros| macros.get(name));
         }
 
         None

@@ -1,9 +1,9 @@
 use sl_core::{Form, FormItem, FormValue, ScriptLangError};
 
-use super::dispatch::{ExpandRuleScope, expand_generated_items, macro_scope};
+use super::dispatch::{ExpandRuleScope, expand_generated_items};
 use super::macro_eval::evaluate_macro_items;
 use crate::semantic::env::{ExpandEnv, MacroDefinition};
-use crate::semantic::{attr, child_forms, error_at, required_attr};
+use crate::semantic::{child_forms, error_at, required_attr};
 
 pub(super) fn collect_program_macros(
     forms: &[Form],
@@ -35,8 +35,7 @@ pub(super) fn expand_macro_hook(
     env: &mut ExpandEnv,
     scope: ExpandRuleScope,
 ) -> Result<Vec<FormItem>, ScriptLangError> {
-    let macro_scope = macro_scope(scope);
-    let definition = env.resolve_macro(&form.head, macro_scope).cloned();
+    let definition = env.resolve_macro(&form.head).cloned();
     let Some(definition) = definition else {
         return Ok(vec![FormItem::Form(form.clone())]);
     };
@@ -48,16 +47,6 @@ fn parse_macro_definition(
     module_name: &str,
 ) -> Result<MacroDefinition, ScriptLangError> {
     let name = required_attr(form, "name")?.to_string();
-    let scope = match attr(form, "scope") {
-        Some("module") => crate::semantic::env::MacroScope::ModuleChild,
-        None | Some("statement") => crate::semantic::env::MacroScope::Statement,
-        Some(other) => {
-            return Err(error_at(
-                form,
-                format!("unsupported macro scope `{other}` in MVP"),
-            ));
-        }
-    };
     let body = form
         .fields
         .iter()
@@ -69,7 +58,6 @@ fn parse_macro_definition(
     Ok(MacroDefinition {
         module_name: module_name.to_string(),
         name,
-        scope,
         body,
     })
 }
@@ -95,7 +83,8 @@ mod tests {
     use sl_core::{FormField, FormMeta, SourcePosition};
 
     use super::*;
-    use crate::semantic::env::{ExpandEnv, MacroScope};
+    use crate::semantic::attr;
+    use crate::semantic::env::ExpandEnv;
     use crate::semantic::expand::dispatch::{expand_form_items, expand_with_rules};
 
     fn meta() -> sl_core::FormMeta {
@@ -143,25 +132,18 @@ mod tests {
         FormItem::Form(form(head, fields))
     }
 
-    fn register_macro(
-        env: &mut ExpandEnv,
-        module_name: &str,
-        name: &str,
-        scope: MacroScope,
-        body: Vec<FormItem>,
-    ) {
+    fn register_macro(env: &mut ExpandEnv, module_name: &str, name: &str, body: Vec<FormItem>) {
         env.program
             .register_macro(MacroDefinition {
                 module_name: module_name.to_string(),
                 name: name.to_string(),
-                scope,
                 body,
             })
             .expect("register macro");
     }
 
     #[test]
-    fn expand_with_rules_dispatches_same_name_macros_by_scope() {
+    fn duplicate_macro_names_are_rejected_at_registration_time() {
         let mut env = ExpandEnv::default();
         env.begin_module(Some("main".to_string()), None)
             .expect("module");
@@ -170,18 +152,37 @@ mod tests {
             &mut env,
             "kernel",
             "dup",
-            MacroScope::Statement,
             vec![form_item(
                 "quote",
                 vec![],
                 vec![form_item("end", vec![], vec![])],
             )],
         );
+        let err = env
+            .program
+            .register_macro(MacroDefinition {
+                module_name: "kernel".to_string(),
+                name: "dup".to_string(),
+                body: vec![form_item(
+                    "quote",
+                    vec![],
+                    vec![form_item("script", vec![("name", "main")], vec![])],
+                )],
+            })
+            .expect_err("duplicate macro");
+        assert!(err.contains("duplicate macro declaration"));
+    }
+
+    #[test]
+    fn expand_with_rules_uses_same_macro_name_in_module_and_statement_positions() {
+        let mut env = ExpandEnv::default();
+        env.begin_module(Some("main".to_string()), None)
+            .expect("module");
+
         register_macro(
             &mut env,
             "kernel",
             "dup",
-            MacroScope::ModuleChild,
             vec![
                 form_item(
                     "let",
@@ -212,12 +213,18 @@ mod tests {
         assert_eq!(module_expanded.head, "script");
 
         let statement_expanded = expand_with_rules(
-            &form("dup", vec![children_field(vec![])]),
+            &form(
+                "dup",
+                vec![
+                    attr_field("name", "statement_only"),
+                    children_field(vec![form_item("end", vec![], vec![])]),
+                ],
+            ),
             &mut env,
             ExpandRuleScope::Statement,
         )
-        .expect("statement macro");
-        assert_eq!(statement_expanded.head, "end");
+        .expect("statement expansion");
+        assert_eq!(statement_expanded.head, "script");
     }
 
     #[test]
@@ -230,7 +237,6 @@ mod tests {
             &mut env,
             "kernel",
             "wrap",
-            MacroScope::Statement,
             vec![
                 form_item(
                     "let",
@@ -290,7 +296,6 @@ mod tests {
             &mut env,
             "kernel",
             "many",
-            MacroScope::Statement,
             vec![form_item(
                 "quote",
                 vec![],
@@ -304,7 +309,6 @@ mod tests {
             &mut env,
             "kernel",
             "texty",
-            MacroScope::Statement,
             vec![form_item("quote", vec![], vec![text_item("just text")])],
         );
 
