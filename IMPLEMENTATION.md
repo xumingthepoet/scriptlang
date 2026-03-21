@@ -2,6 +2,8 @@
 
 本文档只描述当前代码库中已经落地的实现，不描述长期目标。长期架构原则仍以 `AGENTS.md` 为准。
 
+注意：当前仓库正在进入“macro enhancement”阶段，目标是在保留现有 env-driven expand 主线的前提下，补上 `quote / unquote`、编译期环境和最小 hygiene。当前计划见 [`MACRO_ENHANCEMENT_PLAN.md`](/Users/xuming/work/scriptlang-new/MACRO_ENHANCEMENT_PLAN.md)。
+
 ## Workspace Layout
 
 当前项目已经拆成多 crate workspace：
@@ -110,6 +112,12 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
   - 宏体支持 `{{attr_name}}` 属性替换
   - 宏体支持 `<yield/>` 把调用点 children 拼接进宏体
   - 当前宏展开要求产出恰好一个根 form
+- 当前宏系统仍是 MVP：
+  - `scope / {{attr_name}} / <yield/>` 这套宏表层语法是过渡方案；长期目标是以 `quote / unquote + MacroEnv` 取代它
+  - 还不支持 `quote / unquote`
+  - 还没有显式 `MacroEnv`
+  - 还没有 compile-time `let`
+  - 还没有最小 hygiene
 - program 级 macro registry 当前按 module 归档定义；expand dispatch 会按“当前 module -> 已 import modules -> 隐式 kernel”顺序解析可见宏
 - 同名 macro 当前允许在不同 `scope` 下共存；分派时会按 `(name, scope)` 而不是只按名字解析
 - 在 form semantics 阶段完成 MVP 标签校验、属性校验、`<import>` 上下文推进、统一名称解析、`<const>` 编译期求值和结构下沉
