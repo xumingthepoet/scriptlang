@@ -404,3 +404,279 @@ pub(crate) fn validate_import_target(
         ))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use sl_core::{FormField, FormItem, FormMeta, FormValue, SourcePosition};
+
+    use super::*;
+    fn meta() -> FormMeta {
+        FormMeta {
+            source_name: Some("main.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 20 },
+            start_byte: 0,
+            end_byte: 20,
+        }
+    }
+
+    fn form(head: &str, fields: Vec<FormField>) -> Form {
+        Form {
+            head: head.to_string(),
+            meta: meta(),
+            fields,
+        }
+    }
+
+    fn attr(name: &str, value: &str) -> FormField {
+        FormField {
+            name: name.to_string(),
+            value: FormValue::String(value.to_string()),
+        }
+    }
+
+    fn children(items: Vec<FormItem>) -> FormField {
+        FormField {
+            name: "children".to_string(),
+            value: FormValue::Sequence(items),
+        }
+    }
+
+    fn text(value: &str) -> FormItem {
+        FormItem::Text(value.to_string())
+    }
+
+    fn const_form(name: &str, value: &str) -> Form {
+        form(
+            "const",
+            vec![
+                attr("name", name),
+                attr("type", "int"),
+                children(vec![text(value)]),
+            ],
+        )
+    }
+
+    fn module_state_with(
+        module_name: &str,
+        exports: ModuleExports,
+        children: Vec<Form>,
+    ) -> ModuleState {
+        ModuleState {
+            module_name: Some(module_name.to_string()),
+            imports: Vec::new(),
+            const_decls: BTreeMap::new(),
+            exports,
+            children,
+            locals: Default::default(),
+        }
+    }
+
+    fn exports_with(
+        consts: &[(&str, bool)],
+        vars: &[(&str, bool)],
+        scripts: &[(&str, bool)],
+    ) -> ModuleExports {
+        let mut result = ModuleExports::default();
+        for (name, exported) in consts {
+            result.consts.insert((*name).to_string(), *exported);
+        }
+        for (name, exported) in vars {
+            result.vars.insert((*name).to_string(), *exported);
+        }
+        for (name, exported) in scripts {
+            result.scripts.insert((*name).to_string(), *exported);
+        }
+        result
+    }
+
+    fn program_state() -> ProgramState {
+        ProgramState {
+            modules: BTreeMap::from([
+                (
+                    "kernel".to_string(),
+                    module_state_with(
+                        "kernel",
+                        exports_with(&[("zero", true)], &[], &[]),
+                        vec![const_form("zero", "0")],
+                    ),
+                ),
+                (
+                    "helper".to_string(),
+                    module_state_with(
+                        "helper",
+                        exports_with(
+                            &[("answer", true), ("hidden", false)],
+                            &[("value", true), ("priv", false)],
+                            &[("entry", true)],
+                        ),
+                        vec![const_form("answer", "42"), const_form("hidden", "7")],
+                    ),
+                ),
+                (
+                    "main".to_string(),
+                    module_state_with(
+                        "main",
+                        exports_with(&[("local", true)], &[("value", true)], &[("main", true)]),
+                        vec![const_form("local", "1")],
+                    ),
+                ),
+            ]),
+            module_order: vec![
+                "kernel".to_string(),
+                "helper".to_string(),
+                "main".to_string(),
+            ],
+            module_macros: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn module_catalog_and_scope_cover_basic_lookup_paths() {
+        let program = program_state();
+        let catalog = ModuleCatalog::build(&program).expect("catalog");
+        let scope = ModuleScope::initial(&catalog, "main");
+
+        assert!(catalog.contains("kernel"));
+        assert_eq!(scope.current_module(), "main");
+        assert!(scope.can_access_module("kernel"));
+        assert!(!scope.can_access_module("helper"));
+        assert_eq!(
+            catalog
+                .resolve_script_literal("main", "@main")
+                .expect("script"),
+            "main.main"
+        );
+        assert_eq!(
+            catalog
+                .resolve_script_literal("main", "@helper.entry")
+                .expect("qualified"),
+            "helper.entry"
+        );
+    }
+
+    #[test]
+    fn module_catalog_and_import_validation_report_errors() {
+        let mut broken = program_state();
+        broken.module_order.push("missing".to_string());
+        let build_error = ModuleCatalog::build(&broken).err().expect("missing module");
+        assert!(
+            build_error
+                .to_string()
+                .contains("missing expand-time state")
+        );
+
+        let program = program_state();
+        let catalog = ModuleCatalog::build(&program).expect("catalog");
+        let import_form = form("import", vec![attr("name", "helper"), children(vec![])]);
+        assert!(validate_import_target(&catalog, &import_form, "main", "helper").is_ok());
+        let self_error =
+            validate_import_target(&catalog, &import_form, "main", "main").expect_err("self");
+        assert!(self_error.to_string().contains("cannot import itself"));
+        let missing_error =
+            validate_import_target(&catalog, &import_form, "main", "nope").expect_err("missing");
+        assert!(missing_error.to_string().contains("does not exist"));
+        let script_error = catalog
+            .resolve_script_literal("main", "@helper.nope")
+            .expect_err("unknown script");
+        assert!(script_error.to_string().contains("unknown script"));
+    }
+
+    #[test]
+    fn scope_resolver_covers_var_and_const_visibility_paths() {
+        let program = program_state();
+        let catalog = ModuleCatalog::build(&program).expect("catalog");
+        let mut const_catalog = ConstCatalog::new(&catalog);
+        let mut scope = ModuleScope::initial(&catalog, "main");
+        scope.add_import("helper");
+        let mut resolver = ScopeResolver::new(&catalog, &mut const_catalog, &scope);
+
+        assert!(matches!(
+            resolver.resolve_short_var_ref("value").expect("short local"),
+            Some(reference) if reference.qualified_name() == "main.value"
+        ));
+        assert!(matches!(
+            resolver.resolve_qualified_var_ref("helper", "value").expect("qualified import"),
+            Some(reference) if reference.qualified_name() == "helper.value"
+        ));
+        let hidden_var = resolver
+            .resolve_qualified_var_ref("helper", "priv")
+            .expect_err("private var");
+        assert!(
+            hidden_var
+                .to_string()
+                .contains("does not export var `priv`")
+        );
+        let hidden_module = resolver
+            .resolve_qualified_const("nope", "x")
+            .expect("missing module");
+        assert!(matches!(hidden_module, QualifiedConstLookup::NotModulePath));
+        let hidden_import = resolver
+            .resolve_qualified_const("helper", "hidden")
+            .expect("hidden const");
+        assert!(matches!(hidden_import, QualifiedConstLookup::UnknownConst));
+        assert!(matches!(
+            resolver.resolve_short_const("answer").expect("short const"),
+            Some(ConstValue::Integer(42))
+        ));
+        assert!(matches!(
+            resolver
+                .resolve_qualified_const("helper", "answer")
+                .expect("qualified const"),
+            QualifiedConstLookup::Value(ConstValue::Integer(42))
+        ));
+        assert_eq!(
+            resolver
+                .resolve_script_literal("@main")
+                .expect("script literal"),
+            "main.main"
+        );
+    }
+
+    #[test]
+    fn const_catalog_covers_cache_miss_and_cycle_detection() {
+        let cyclic_program = ProgramState {
+            modules: BTreeMap::from([(
+                "main".to_string(),
+                module_state_with(
+                    "main",
+                    exports_with(&[("a", true), ("b", true)], &[], &[]),
+                    vec![
+                        form(
+                            "const",
+                            vec![
+                                attr("name", "a"),
+                                attr("type", "int"),
+                                children(vec![text("b")]),
+                            ],
+                        ),
+                        form(
+                            "const",
+                            vec![
+                                attr("name", "b"),
+                                attr("type", "int"),
+                                children(vec![text("a")]),
+                            ],
+                        ),
+                    ],
+                ),
+            )]),
+            module_order: vec!["main".to_string()],
+            module_macros: BTreeMap::new(),
+        };
+        let catalog = ModuleCatalog::build(&cyclic_program).expect("catalog");
+        let mut const_catalog = ConstCatalog::new(&catalog);
+
+        let none = const_catalog
+            .resolve_const("main", "missing")
+            .expect("missing const");
+        assert!(none.is_none());
+
+        let cycle = const_catalog.resolve_const("main", "a").expect_err("cycle");
+        assert!(
+            cycle
+                .to_string()
+                .contains("cannot be referenced before it is defined")
+        );
+    }
+}

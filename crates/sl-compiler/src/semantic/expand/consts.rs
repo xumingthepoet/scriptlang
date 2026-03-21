@@ -61,3 +61,140 @@ fn is_private(form: &Form) -> Result<bool, ScriptLangError> {
         )),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use sl_core::{FormField, FormItem, FormMeta, FormValue, SourcePosition};
+
+    use super::*;
+    use crate::semantic::env::ExpandEnv;
+
+    fn meta() -> FormMeta {
+        FormMeta {
+            source_name: Some("main.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 20 },
+            start_byte: 0,
+            end_byte: 20,
+        }
+    }
+
+    fn form(head: &str, fields: Vec<FormField>) -> Form {
+        Form {
+            head: head.to_string(),
+            meta: meta(),
+            fields,
+        }
+    }
+
+    fn attr(name: &str, value: &str) -> FormField {
+        FormField {
+            name: name.to_string(),
+            value: FormValue::String(value.to_string()),
+        }
+    }
+
+    fn children(items: Vec<FormItem>) -> FormField {
+        FormField {
+            name: "children".to_string(),
+            value: FormValue::Sequence(items),
+        }
+    }
+
+    fn text(value: &str) -> FormItem {
+        FormItem::Text(value.to_string())
+    }
+
+    #[test]
+    fn parse_declared_type_name_covers_supported_and_error_paths() {
+        assert_eq!(
+            parse_declared_type_name(Some("int"), "var", ScriptLangError::message).expect("int"),
+            DeclaredType::Int
+        );
+        assert_eq!(
+            parse_declared_type_name(Some("array"), "var", ScriptLangError::message)
+                .expect("array"),
+            DeclaredType::Array
+        );
+        assert_eq!(
+            parse_declared_type_name(Some("object"), "var", ScriptLangError::message)
+                .expect("object"),
+            DeclaredType::Object
+        );
+        assert!(
+            parse_declared_type_name(None, "var", ScriptLangError::message)
+                .expect_err("missing")
+                .to_string()
+                .contains("<var> requires `type`")
+        );
+        assert!(
+            parse_declared_type_name(Some("number"), "var", ScriptLangError::message)
+                .expect_err("unsupported")
+                .to_string()
+                .contains("unsupported type `number`")
+        );
+    }
+
+    #[test]
+    fn expand_const_form_tracks_decl_and_rejects_invalid_cases() {
+        let mut env = ExpandEnv::default();
+        env.begin_module(Some("main".to_string()), None)
+            .expect("module");
+
+        let const_decl = form(
+            "const",
+            vec![
+                attr("name", "answer"),
+                attr("type", "int"),
+                attr("private", "true"),
+                children(vec![text("42")]),
+            ],
+        );
+        expand_const_form(&const_decl, &mut env).expect("const");
+        assert!(env.module.exports.consts.contains_declared("answer"));
+        assert!(!env.module.exports.consts.contains_exported("answer"));
+        assert_eq!(
+            env.module
+                .const_decls
+                .get("answer")
+                .expect("decl")
+                .raw_expr
+                .as_deref(),
+            Some("42")
+        );
+
+        let duplicate = expand_const_form(&const_decl, &mut env).expect_err("duplicate");
+        assert!(
+            duplicate
+                .to_string()
+                .contains("duplicate const declaration")
+        );
+
+        let invalid_private = form(
+            "const",
+            vec![
+                attr("name", "bad"),
+                attr("type", "int"),
+                attr("private", "maybe"),
+                children(vec![text("1")]),
+            ],
+        );
+        assert!(
+            expand_const_form(&invalid_private, &mut env)
+                .expect_err("private")
+                .to_string()
+                .contains("invalid boolean value `maybe`")
+        );
+
+        let missing_name = form(
+            "const",
+            vec![attr("type", "int"), children(vec![text("1")])],
+        );
+        assert!(
+            expand_const_form(&missing_name, &mut env)
+                .expect_err("name")
+                .to_string()
+                .contains("<const> requires `name`")
+        );
+    }
+}
