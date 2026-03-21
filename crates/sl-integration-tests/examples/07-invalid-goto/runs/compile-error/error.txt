@@ -1,1 +1,1 @@
-does not exist
+unknown script `missing.nope`

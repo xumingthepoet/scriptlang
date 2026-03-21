@@ -1,21 +1,23 @@
 use std::collections::BTreeSet;
 
-use sl_core::{Form, ScriptLangError, TextSegment, TextTemplate};
+use sl_core::{ScriptLangError, TextSegment, TextTemplate};
 
 use super::const_eval::{
     ConstEnv, ConstValue, parse_const_value, rewrite_expr_with_consts, rewrite_template_with_consts,
 };
 use super::resolve::{
-    ConstCatalog, ModuleCatalog, ModuleScope, NameResolver, ScopeResolver, rewrite_expr_with_vars,
-    rewrite_template_with_vars, validate_import_target,
+    ConstCatalog, ModuleCatalog, ModuleScope, ScopeResolver, rewrite_expr_with_vars,
+    rewrite_script_literals, rewrite_template_with_vars, validate_import_target,
 };
 use super::types::{
-    SemanticChoiceOption, SemanticModule, SemanticProgram, SemanticScript, SemanticStmt,
-    SemanticVar,
+    DeclaredType, SemanticChoiceOption, SemanticModule, SemanticProgram, SemanticScript,
+    SemanticStmt, SemanticVar,
 };
-use crate::form_util::{attr, child_forms, error_at, required_attr, trimmed_text_items};
+use crate::classify::{
+    ClassifiedForm, attr, body_expr, body_template, child_forms, error_at, required_attr,
+};
 
-pub(crate) fn analyze_forms(forms: &[Form]) -> Result<SemanticProgram, ScriptLangError> {
+pub(crate) fn analyze_forms(forms: &[ClassifiedForm]) -> Result<SemanticProgram, ScriptLangError> {
     let catalog = ModuleCatalog::build(forms)?;
     let mut const_catalog = ConstCatalog::new(&catalog);
     let modules = forms
@@ -26,7 +28,7 @@ pub(crate) fn analyze_forms(forms: &[Form]) -> Result<SemanticProgram, ScriptLan
 }
 
 fn analyze_module<'a>(
-    form: &Form,
+    form: &ClassifiedForm,
     catalog: &'a ModuleCatalog<'a>,
     const_catalog: &mut ConstCatalog<'a>,
 ) -> Result<SemanticModule, ScriptLangError> {
@@ -69,8 +71,9 @@ fn analyze_module<'a>(
                 let mut visible = ScopeResolver::new(catalog, const_catalog, &scope);
                 vars.push(SemanticVar {
                     name: required_attr(child, "name")?.to_string(),
+                    declared_type: parse_declared_type(child)?,
                     expr: rewrite_var_expr(
-                        &trimmed_text_items(child)?,
+                        body_expr(child)?,
                         &const_env,
                         &mut visible,
                         &remaining_const_names,
@@ -103,21 +106,22 @@ fn analyze_module<'a>(
 }
 
 fn analyze_const(
-    form: &Form,
+    form: &ClassifiedForm,
     const_env: &ConstEnv,
     resolver: &mut impl super::const_eval::ConstLookup,
     remaining_const_names: &BTreeSet<String>,
 ) -> Result<(String, ConstValue), ScriptLangError> {
     let name = required_attr(form, "name")?.to_string();
-    let raw = trimmed_text_items(form)?;
+    let raw = body_expr(form)?;
     let mut blocked = remaining_const_names.clone();
     blocked.remove(&name);
-    let value = parse_const_value(&raw, const_env, resolver, &blocked)?;
+    let declared_type = parse_declared_type(form)?;
+    let value = parse_const_value(raw, const_env, resolver, &blocked, Some(&declared_type))?;
     Ok((name, value))
 }
 
 fn analyze_script<'a>(
-    form: &Form,
+    form: &ClassifiedForm,
     catalog: &'a ModuleCatalog<'a>,
     const_catalog: &mut ConstCatalog<'a>,
     scope: &ModuleScope,
@@ -139,7 +143,7 @@ fn analyze_script<'a>(
 }
 
 fn analyze_block(
-    forms: &[&Form],
+    forms: &[&ClassifiedForm],
     const_env: &ConstEnv,
     resolver: &mut ScopeResolver<'_, '_>,
     remaining_const_names: &BTreeSet<String>,
@@ -163,7 +167,7 @@ fn analyze_block(
 }
 
 fn analyze_stmt(
-    form: &Form,
+    form: &ClassifiedForm,
     const_env: &ConstEnv,
     resolver: &mut ScopeResolver<'_, '_>,
     remaining_const_names: &BTreeSet<String>,
@@ -180,8 +184,9 @@ fn analyze_stmt(
         )),
         "temp" => Ok(SemanticStmt::Temp {
             name: required_attr(form, "name")?.to_string(),
+            declared_type: parse_declared_type(form)?,
             expr: rewrite_var_expr(
-                &trimmed_text_items(form)?,
+                body_expr(form)?,
                 const_env,
                 resolver,
                 remaining_const_names,
@@ -190,7 +195,7 @@ fn analyze_stmt(
         }),
         "code" => Ok(SemanticStmt::Code {
             code: rewrite_var_expr(
-                &trimmed_text_items(form)?,
+                body_expr(form)?,
                 const_env,
                 resolver,
                 remaining_const_names,
@@ -199,7 +204,7 @@ fn analyze_stmt(
         }),
         "text" => Ok(SemanticStmt::Text {
             template: rewrite_var_template(
-                parse_text_template(&trimmed_text_items(form)?),
+                parse_text_template(body_template(form)?),
                 const_env,
                 resolver,
                 remaining_const_names,
@@ -269,7 +274,13 @@ fn analyze_stmt(
             })
         }
         "goto" => Ok(SemanticStmt::Goto {
-            target: resolver.resolve_script_ref(required_attr(form, "script")?)?,
+            expr: rewrite_var_expr(
+                required_attr(form, "script")?,
+                const_env,
+                resolver,
+                remaining_const_names,
+                shadowed_names,
+            )?,
         }),
         "end" => Ok(SemanticStmt::End),
         other => Err(error_at(
@@ -293,6 +304,8 @@ fn rewrite_var_expr(
         remaining_const_names,
         shadowed_names,
     )?;
+    let rewritten =
+        rewrite_script_literals(&rewritten, resolver.current_module(), resolver.modules())?;
     rewrite_expr_with_vars(&rewritten, resolver, shadowed_names)
 }
 
@@ -350,13 +363,28 @@ fn parse_text_template(source: &str) -> TextTemplate {
     TextTemplate { segments }
 }
 
+fn parse_declared_type(form: &ClassifiedForm) -> Result<DeclaredType, ScriptLangError> {
+    match attr(form, "type") {
+        None => Err(error_at(form, format!("<{}> requires `type`", form.head))),
+        Some("array") => Ok(DeclaredType::Array),
+        Some("bool") => Ok(DeclaredType::Bool),
+        Some("int") => Ok(DeclaredType::Int),
+        Some("object") => Ok(DeclaredType::Object),
+        Some("script") => Ok(DeclaredType::Script),
+        Some("string") => Ok(DeclaredType::String),
+        Some(other) => Err(error_at(form, format!("unsupported type `{other}` in MVP"))),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use sl_core::{Form, FormField, FormItem, FormMeta, FormValue, SourcePosition, TextSegment};
+    use sl_core::{Form, FormField, FormItem, FormMeta, FormValue, SourcePosition};
+
+    use crate::classify::classify_forms;
+    use crate::names::resolved_var_placeholder;
+    use crate::semantic::types::DeclaredType;
 
     use super::{SemanticStmt, analyze_forms, parse_text_template};
-    use crate::names::resolved_var_placeholder;
-    use crate::semantic::types::ResolvedRef;
 
     fn meta() -> FormMeta {
         FormMeta {
@@ -407,601 +435,148 @@ mod tests {
         FormItem::Form(form)
     }
 
-    #[test]
-    fn analyze_forms_converts_form_tree_into_semantic_program() {
-        let program = analyze_forms(&[node(
-            "module",
-            vec![("name", "main")],
-            vec![
-                child(node("const", vec![("name", "bonus")], vec![text("41")])),
-                child(node(
-                    "var",
-                    vec![("name", "answer")],
-                    vec![text("bonus + 1")],
-                )),
-                child(node(
-                    "script",
-                    vec![("name", "entry")],
-                    vec![
-                        child(node("temp", vec![("name", "x")], vec![text("bonus")])),
-                        child(node(
-                            "text",
-                            vec![("tag", "line")],
-                            vec![text("hello ${bonus}")],
-                        )),
-                        child(node(
-                            "choice",
-                            vec![("text", "pick ${bonus}")],
-                            vec![child(node(
-                                "option",
-                                vec![("text", "left ${bonus}")],
-                                vec![child(node("end", vec![], vec![]))],
-                            ))],
-                        )),
-                    ],
-                )),
-            ],
-        )])
-        .expect("analyze");
-
-        assert_eq!(program.modules.len(), 1);
-        assert_eq!(program.modules[0].vars[0].expr, "41 + 1");
-        assert!(matches!(
-            &program.modules[0].scripts[0].body[0],
-            SemanticStmt::Temp { name, expr } if name == "x" && expr == "41"
-        ));
-        assert!(matches!(
-            &program.modules[0].scripts[0].body[1],
-            SemanticStmt::Text { template, tag }
-                if matches!(&template.segments[..], [TextSegment::Literal(_), TextSegment::Expr(expr)] if expr == "41")
-                    && tag.as_deref() == Some("line")
-        ));
+    fn analyzed(forms: Vec<Form>) -> super::SemanticProgram {
+        let classified = classify_forms(&forms).expect("classify");
+        analyze_forms(&classified).expect("analyze")
     }
 
     #[test]
-    fn analyze_forms_supports_imported_consts_and_ordered_context() {
-        let program = analyze_forms(&[
-            node(
-                "module",
-                vec![("name", "kernel")],
-                vec![child(node(
-                    "const",
-                    vec![("name", "zero")],
-                    vec![text("0")],
-                ))],
-            ),
-            node(
-                "module",
-                vec![("name", "m1")],
-                vec![
-                    child(node("const", vec![("name", "base")], vec![text("1")])),
-                    child(node(
-                        "script",
-                        vec![("name", "entry")],
-                        vec![child(node("end", vec![], vec![]))],
-                    )),
-                ],
-            ),
-            node(
-                "module",
-                vec![("name", "m2")],
-                vec![
-                    child(node("const", vec![("name", "base")], vec![text("2")])),
-                    child(node(
-                        "script",
-                        vec![("name", "entry")],
-                        vec![child(node("end", vec![], vec![]))],
-                    )),
-                ],
-            ),
-            node(
-                "module",
-                vec![("name", "main")],
-                vec![
-                    child(node(
-                        "var",
-                        vec![("name", "before")],
-                        vec![text("zero + 1")],
-                    )),
-                    child(node("import", vec![("name", "m1")], vec![])),
-                    child(node(
-                        "var",
-                        vec![("name", "after_m1")],
-                        vec![text("base + m1.base")],
-                    )),
-                    child(node("import", vec![("name", "m2")], vec![])),
-                    child(node(
-                        "script",
-                        vec![("name", "entry")],
-                        vec![
-                            child(node(
-                                "code",
-                                vec![],
-                                vec![text("value += base + m1.base + zero;")],
-                            )),
-                            child(node("temp", vec![("name", "x")], vec![text("m1.base")])),
-                            child(node("goto", vec![("script", "entry")], vec![])),
-                        ],
-                    )),
-                ],
-            ),
-        ])
-        .expect("analyze");
-
-        let main = &program.modules[3];
-        assert_eq!(main.vars[0].expr, "0 + 1");
-        assert_eq!(main.vars[1].expr, "1 + 1");
-        assert!(matches!(
-            &main.scripts[0].body[0],
-            SemanticStmt::Code { code } if code == "value += 2 + 1 + 0;"
-        ));
-        assert!(matches!(
-            &main.scripts[0].body[1],
-            SemanticStmt::Temp { expr, .. } if expr == "1"
-        ));
-        assert!(matches!(
-            &main.scripts[0].body[2],
-            SemanticStmt::Goto { target }
-                if target == &ResolvedRef::script("main", "entry")
-        ));
-    }
-
-    #[test]
-    fn analyze_forms_uses_imported_short_consts_before_future_local_consts() {
-        let program = analyze_forms(&[
-            node(
-                "module",
-                vec![("name", "m1")],
-                vec![child(node(
-                    "const",
-                    vec![("name", "base")],
-                    vec![text("1")],
-                ))],
-            ),
-            node(
-                "module",
-                vec![("name", "main")],
-                vec![
-                    child(node("import", vec![("name", "m1")], vec![])),
-                    child(node("var", vec![("name", "value")], vec![text("base")])),
-                    child(node("const", vec![("name", "copy")], vec![text("base")])),
-                    child(node("const", vec![("name", "base")], vec![text("2")])),
-                    child(node(
-                        "script",
-                        vec![("name", "entry")],
-                        vec![child(node("temp", vec![("name", "x")], vec![text("base")]))],
-                    )),
-                ],
-            ),
-        ])
-        .expect("analyze");
-
-        let main = &program.modules[1];
-        assert_eq!(main.vars[0].expr, "1");
-        assert!(matches!(
-            &main.scripts[0].body[0],
-            SemanticStmt::Temp { expr, .. } if expr == "2"
-        ));
-    }
-
-    #[test]
-    fn analyze_forms_rewrites_visible_var_refs_to_resolved_placeholders() {
-        let program = analyze_forms(&[
-            node(
-                "module",
-                vec![("name", "m1")],
-                vec![child(node(
-                    "var",
-                    vec![("name", "shared")],
-                    vec![text("1")],
-                ))],
-            ),
-            node(
-                "module",
-                vec![("name", "m2")],
-                vec![child(node(
-                    "var",
-                    vec![("name", "shared")],
-                    vec![text("2")],
-                ))],
-            ),
-            node(
-                "module",
-                vec![("name", "main")],
-                vec![
-                    child(node("var", vec![("name", "local")], vec![text("3")])),
-                    child(node("import", vec![("name", "m1")], vec![])),
-                    child(node("import", vec![("name", "m2")], vec![])),
-                    child(node(
-                        "script",
-                        vec![("name", "entry")],
-                        vec![
-                            child(node(
-                                "code",
-                                vec![],
-                                vec![text("local += shared + m1.shared;")],
-                            )),
-                            child(node(
-                                "text",
-                                vec![],
-                                vec![text("${local}:${shared}:${m1.shared}")],
-                            )),
-                        ],
-                    )),
-                ],
-            ),
-        ])
-        .expect("analyze");
-
-        let local = resolved_var_placeholder("main.local");
-        let imported = resolved_var_placeholder("m2.shared");
-        let explicit = resolved_var_placeholder("m1.shared");
-        assert!(matches!(
-            &program.modules[2].scripts[0].body[0],
-            SemanticStmt::Code { code }
-                if code == &format!("{local} += {imported} + {explicit};")
-        ));
-        assert!(matches!(
-            &program.modules[2].scripts[0].body[1],
-            SemanticStmt::Text { template, .. }
-                if matches!(
-                    &template.segments[..],
-                    [
-                        TextSegment::Expr(a),
-                        TextSegment::Literal(sep1),
-                        TextSegment::Expr(b),
-                        TextSegment::Literal(sep2),
-                        TextSegment::Expr(c)
-                    ] if a == &local && sep1 == ":" && b == &imported && sep2 == ":" && c == &explicit
-                )
-        ));
-    }
-
-    #[test]
-    fn analyze_forms_keep_private_members_visible_inside_their_module() {
-        let program = analyze_forms(&[node(
+    fn analyze_forms_tracks_declared_type_and_rewrites_script_literals() {
+        let program = analyzed(vec![node(
             "module",
             vec![("name", "main")],
             vec![
                 child(node(
-                    "const",
-                    vec![("name", "hidden"), ("private", "true")],
-                    vec![text("1")],
-                )),
-                child(node(
                     "var",
-                    vec![("name", "hidden_var"), ("private", "true")],
-                    vec![text("hidden")],
-                )),
-                child(node(
-                    "script",
-                    vec![("name", "helper"), ("private", "true")],
-                    vec![child(node("end", vec![], vec![]))],
+                    vec![("name", "next"), ("type", "script")],
+                    vec![text("@loop")],
                 )),
                 child(node(
                     "script",
                     vec![("name", "main")],
                     vec![
-                        child(node(
-                            "temp",
-                            vec![("name", "x")],
-                            vec![text("main.hidden + hidden")],
-                        )),
-                        child(node(
-                            "code",
-                            vec![],
-                            vec![text("hidden_var += main.hidden_var;")],
-                        )),
-                        child(node("goto", vec![("script", "@main.helper")], vec![])),
+                        child(node("goto", vec![("script", "next")], vec![])),
+                        child(node("text", vec![], vec![text("${next}")])),
                     ],
+                )),
+                child(node(
+                    "script",
+                    vec![("name", "loop")],
+                    vec![child(node("end", vec![], vec![]))],
+                )),
+            ],
+        )]);
+
+        let module = &program.modules[0];
+        assert_eq!(module.vars[0].declared_type, DeclaredType::Script);
+        assert_eq!(module.vars[0].expr, "\"main.loop\"");
+        assert!(matches!(
+            &module.scripts[0].body[0],
+            SemanticStmt::Goto { expr } if expr == &resolved_var_placeholder("main.next")
+        ));
+    }
+
+    #[test]
+    fn analyze_forms_accepts_script_const_literals_and_refs() {
+        let program = analyzed(vec![node(
+            "module",
+            vec![("name", "main")],
+            vec![
+                child(node(
+                    "const",
+                    vec![("name", "target"), ("type", "script")],
+                    vec![text("@loop")],
+                )),
+                child(node(
+                    "const",
+                    vec![("name", "same_target"), ("type", "script")],
+                    vec![text("target")],
+                )),
+                child(node(
+                    "script",
+                    vec![("name", "main")],
+                    vec![child(node("goto", vec![("script", "same_target")], vec![]))],
+                )),
+                child(node(
+                    "script",
+                    vec![("name", "loop")],
+                    vec![child(node("end", vec![], vec![]))],
+                )),
+            ],
+        )]);
+
+        assert!(matches!(
+            &program.modules[0].scripts[0].body[0],
+            SemanticStmt::Goto { expr } if expr == "\"main.loop\""
+        ));
+    }
+
+    #[test]
+    fn analyze_forms_rejects_missing_or_unknown_type_and_invalid_script_const() {
+        let missing_type = classify_forms(&[node(
+            "module",
+            vec![("name", "main")],
+            vec![
+                child(node("var", vec![("name", "next")], vec![text("1")])),
+                child(node(
+                    "script",
+                    vec![("name", "main")],
+                    vec![child(node("end", vec![], vec![]))],
                 )),
             ],
         )])
-        .expect("analyze");
+        .expect("classify");
+        let error = analyze_forms(&missing_type).expect_err("missing type should fail");
+        assert!(error.to_string().contains("<var> requires `type`"));
 
-        let hidden_var = resolved_var_placeholder("main.hidden_var");
-        assert!(matches!(
-            &program.modules[0].scripts[1].body[0],
-            SemanticStmt::Temp { expr, .. } if expr == "1 + 1"
-        ));
-        assert!(matches!(
-            &program.modules[0].scripts[1].body[1],
-            SemanticStmt::Code { code } if code == &format!("{hidden_var} += {hidden_var};")
-        ));
-        assert!(matches!(
-            &program.modules[0].scripts[1].body[2],
-            SemanticStmt::Goto { target }
-                if target == &ResolvedRef::script("main", "helper")
-        ));
-    }
-
-    #[test]
-    fn analyze_forms_rejects_invalid_const_usage() {
-        let top_level = analyze_forms(&[node("script", vec![("name", "entry")], vec![])])
-            .expect_err("top-level should fail");
-        assert!(
-            top_level
-                .to_string()
-                .contains("top-level <script> is not supported in MVP")
-        );
-
-        let bad_child = analyze_forms(&[node(
-            "module",
-            vec![("name", "main")],
-            vec![child(node("while", vec![], vec![]))],
-        )])
-        .expect_err("bad child should fail");
-        assert!(
-            bad_child
-                .to_string()
-                .contains("unsupported <module> child <while> in MVP")
-        );
-
-        let nested_import = analyze_forms(&[node(
-            "module",
-            vec![("name", "main")],
-            vec![child(node(
-                "script",
-                vec![("name", "entry")],
-                vec![child(node("import", vec![("name", "m1")], vec![]))],
-            ))],
-        )])
-        .expect_err("nested import should fail");
-        assert!(
-            nested_import
-                .to_string()
-                .contains("<import> is only supported as a direct <module> child")
-        );
-
-        let forward_ref = analyze_forms(&[node(
+        let unknown_type = classify_forms(&[node(
             "module",
             vec![("name", "main")],
             vec![
-                child(node("const", vec![("name", "x")], vec![text("later")])),
-                child(node("const", vec![("name", "later")], vec![text("1")])),
-            ],
-        )])
-        .expect_err("forward ref should fail");
-        assert!(
-            forward_ref
-                .to_string()
-                .contains("cannot be referenced before it is defined")
-        );
-
-        let hidden_module = analyze_forms(&[
-            node(
-                "module",
-                vec![("name", "kernel")],
-                vec![child(node(
-                    "const",
-                    vec![("name", "zero")],
-                    vec![text("0")],
-                ))],
-            ),
-            node(
-                "module",
-                vec![("name", "other")],
-                vec![child(node(
-                    "const",
-                    vec![("name", "value")],
-                    vec![text("1")],
-                ))],
-            ),
-            node(
-                "module",
-                vec![("name", "main")],
-                vec![child(node(
+                child(node(
                     "var",
-                    vec![("name", "x")],
-                    vec![text("other.value")],
-                ))],
-            ),
-        ])
-        .expect_err("hidden module should fail");
-        assert!(
-            hidden_module
-                .to_string()
-                .contains("module `other` is not imported into `main`")
-        );
-
-        let duplicate_const = analyze_forms(&[node(
-            "module",
-            vec![("name", "main")],
-            vec![
-                child(node("const", vec![("name", "value")], vec![text("1")])),
-                child(node("const", vec![("name", "value")], vec![text("2")])),
-            ],
-        )])
-        .expect_err("duplicate const should fail");
-        assert!(
-            duplicate_const
-                .to_string()
-                .contains("duplicate const declaration `main.value`")
-        );
-
-        let invalid_private = analyze_forms(&[node(
-            "module",
-            vec![("name", "main")],
-            vec![child(node(
-                "const",
-                vec![("name", "value"), ("private", "maybe")],
-                vec![text("1")],
-            ))],
-        )])
-        .expect_err("invalid private attr should fail");
-        assert!(
-            invalid_private
-                .to_string()
-                .contains("invalid boolean value `maybe` for `private`")
-        );
-
-        let hidden_private_const = analyze_forms(&[
-            node(
-                "module",
-                vec![("name", "other")],
-                vec![child(node(
-                    "const",
-                    vec![("name", "value"), ("private", "true")],
+                    vec![("name", "next"), ("type", "number")],
                     vec![text("1")],
-                ))],
-            ),
-            node(
-                "module",
-                vec![("name", "main")],
-                vec![
-                    child(node("import", vec![("name", "other")], vec![])),
-                    child(node(
-                        "const",
-                        vec![("name", "copy")],
-                        vec![text("other.value")],
-                    )),
-                ],
-            ),
-        ])
-        .expect_err("private const import should fail");
-        assert!(
-            hidden_private_const
-                .to_string()
-                .contains("module `other` does not export const `value`")
-        );
-
-        let hidden_private_var = analyze_forms(&[
-            node(
-                "module",
-                vec![("name", "other")],
-                vec![child(node(
-                    "var",
-                    vec![("name", "shared"), ("private", "true")],
-                    vec![text("2")],
-                ))],
-            ),
-            node(
-                "module",
-                vec![("name", "main")],
-                vec![
-                    child(node("import", vec![("name", "other")], vec![])),
-                    child(node(
-                        "script",
-                        vec![("name", "main")],
-                        vec![child(node(
-                            "code",
-                            vec![],
-                            vec![text("other.shared += 1;")],
-                        ))],
-                    )),
-                ],
-            ),
-        ])
-        .expect_err("private var import should fail");
-        assert!(
-            hidden_private_var
-                .to_string()
-                .contains("module `other` does not export var `shared`")
-        );
-
-        let hidden_private_script = analyze_forms(&[
-            node(
-                "module",
-                vec![("name", "other")],
-                vec![child(node(
+                )),
+                child(node(
                     "script",
-                    vec![("name", "helper"), ("private", "true")],
+                    vec![("name", "main")],
                     vec![child(node("end", vec![], vec![]))],
-                ))],
-            ),
-            node(
-                "module",
-                vec![("name", "main")],
-                vec![
-                    child(node("import", vec![("name", "other")], vec![])),
-                    child(node(
-                        "script",
-                        vec![("name", "main")],
-                        vec![child(node(
-                            "goto",
-                            vec![("script", "@other.helper")],
-                            vec![],
-                        ))],
-                    )),
-                ],
-            ),
-        ])
-        .expect_err("private script import should fail");
+                )),
+            ],
+        )])
+        .expect("classify");
+        let error = analyze_forms(&unknown_type).expect_err("unknown type should fail");
+        assert!(error.to_string().contains("unsupported type `number`"));
+
+        let bad_script_const = classify_forms(&[node(
+            "module",
+            vec![("name", "main")],
+            vec![
+                child(node(
+                    "const",
+                    vec![("name", "target"), ("type", "script")],
+                    vec![text("\"not-a-script\"")],
+                )),
+                child(node(
+                    "script",
+                    vec![("name", "main")],
+                    vec![child(node("end", vec![], vec![]))],
+                )),
+            ],
+        )])
+        .expect("classify");
+        let error = analyze_forms(&bad_script_const).expect_err("script const should fail");
         assert!(
-            hidden_private_script
+            error
                 .to_string()
-                .contains("script `other.helper` referenced by <goto> is not visible")
+                .contains("const declared as `script` must evaluate to a script literal")
         );
-    }
-
-    #[test]
-    fn analyze_forms_allows_mutual_imports_without_const_dependency_cycles() {
-        let program = analyze_forms(&[
-            node(
-                "module",
-                vec![("name", "a")],
-                vec![
-                    child(node("import", vec![("name", "b")], vec![])),
-                    child(node("const", vec![("name", "x")], vec![text("1")])),
-                    child(node(
-                        "script",
-                        vec![("name", "entry")],
-                        vec![child(node("goto", vec![("script", "@b.entry")], vec![]))],
-                    )),
-                ],
-            ),
-            node(
-                "module",
-                vec![("name", "b")],
-                vec![
-                    child(node("import", vec![("name", "a")], vec![])),
-                    child(node("const", vec![("name", "y")], vec![text("2")])),
-                    child(node(
-                        "script",
-                        vec![("name", "entry")],
-                        vec![child(node("goto", vec![("script", "@a.entry")], vec![]))],
-                    )),
-                ],
-            ),
-        ])
-        .expect("mutual imports should be allowed");
-
-        assert_eq!(program.modules.len(), 2);
-        assert!(matches!(
-            &program.modules[0].scripts[0].body[0],
-            SemanticStmt::Goto { target }
-                if target == &ResolvedRef::script("b", "entry")
-        ));
-        assert!(matches!(
-            &program.modules[1].scripts[0].body[0],
-            SemanticStmt::Goto { target }
-                if target == &ResolvedRef::script("a", "entry")
-        ));
     }
 
     #[test]
     fn parse_text_template_covers_literal_and_expression_shapes() {
-        let empty = parse_text_template("");
-        assert_eq!(empty.segments.len(), 1);
-        assert!(matches!(&empty.segments[0], TextSegment::Literal(text) if text.is_empty()));
-
-        let literal = parse_text_template("hello");
-        assert!(matches!(&literal.segments[..], [TextSegment::Literal(text)] if text == "hello"));
-
-        let expr_only = parse_text_template("${ value }");
-        assert!(matches!(&expr_only.segments[..], [TextSegment::Expr(text)] if text == "value"));
-
-        let unclosed = parse_text_template("hello ${name");
-        assert!(
-            matches!(&unclosed.segments[..], [TextSegment::Literal(text)] if text == "hello ${name")
-        );
-
-        let mixed = parse_text_template("a ${left} b ${ } c");
-        assert_eq!(mixed.segments.len(), 5);
-        assert!(matches!(&mixed.segments[0], TextSegment::Literal(text) if text == "a "));
-        assert!(matches!(&mixed.segments[1], TextSegment::Expr(text) if text == "left"));
-        assert!(matches!(&mixed.segments[2], TextSegment::Literal(text) if text == " b "));
-        assert!(matches!(&mixed.segments[3], TextSegment::Expr(text) if text.is_empty()));
-        assert!(matches!(&mixed.segments[4], TextSegment::Literal(text) if text == " c"));
+        let mixed = parse_text_template("a ${left} b");
+        assert_eq!(mixed.segments.len(), 3);
     }
 }

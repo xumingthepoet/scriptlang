@@ -1,5 +1,5 @@
 <module name="main">
-  <var name="local">3</var>
+  <var name="local" type="int">3</var>
   <import name="m1"/>
   <import name="m2"/>
   <script name="main">

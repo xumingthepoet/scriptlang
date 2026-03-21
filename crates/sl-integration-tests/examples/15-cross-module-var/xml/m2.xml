@@ -1,5 +1,5 @@
 <module name="m2">
-  <var name="shared">2</var>
+  <var name="shared" type="int">2</var>
   <script name="entry">
     <end/>
   </script>

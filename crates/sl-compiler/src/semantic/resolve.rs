@@ -1,11 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use sl_core::{Form, ScriptLangError, TextSegment, TextTemplate};
+use sl_core::{ScriptLangError, TextSegment, TextTemplate};
 
 use super::const_eval::{ConstEnv, ConstLookup, ConstValue, parse_const_value};
-use super::types::{ModulePath, ResolvedRef};
-use crate::form_util::{attr, child_forms, error_at, required_attr, trimmed_text_items};
-use crate::names::resolved_var_placeholder;
+use super::types::{DeclaredType, ModulePath, ResolvedRef};
+use crate::classify::{ClassifiedForm, attr, body_expr, child_forms, error_at, required_attr};
+use crate::names::{resolved_var_placeholder, script_literal_key};
 
 pub(crate) const DEFAULT_KERNEL_MODULE: &str = "kernel";
 
@@ -64,7 +64,7 @@ pub(crate) struct ModuleCatalog<'a> {
 }
 
 struct ModuleCatalogEntry<'a> {
-    children: Vec<&'a Form>,
+    children: Vec<&'a ClassifiedForm>,
     exports: ModuleExports,
 }
 
@@ -78,10 +78,6 @@ pub(crate) struct ScopeResolver<'a, 'b> {
     modules: &'a ModuleCatalog<'a>,
     const_catalog: &'b mut ConstCatalog<'a>,
     scope: &'b ModuleScope,
-}
-
-pub(crate) trait NameResolver: ConstLookup {
-    fn resolve_script_ref(&self, raw: &str) -> Result<ResolvedRef, ScriptLangError>;
 }
 
 impl ModulePath {
@@ -124,7 +120,7 @@ impl ModuleScope {
 }
 
 impl<'a> ModuleCatalog<'a> {
-    pub(crate) fn build(forms: &'a [Form]) -> Result<Self, ScriptLangError> {
+    pub(crate) fn build(forms: &'a [ClassifiedForm]) -> Result<Self, ScriptLangError> {
         let mut entries = BTreeMap::new();
         for form in forms {
             if form.head != "module" {
@@ -197,6 +193,29 @@ impl<'a> ModuleCatalog<'a> {
 
     pub(crate) fn exports(&self, module_name: &str) -> Result<&ModuleExports, ScriptLangError> {
         Ok(&self.entry(module_name)?.exports)
+    }
+
+    pub(crate) fn resolve_script_literal(
+        &self,
+        current_module: &str,
+        raw: &str,
+    ) -> Result<String, ScriptLangError> {
+        let qualified = script_literal_key(raw, current_module)
+            .ok_or_else(|| ScriptLangError::message(format!("invalid script literal `{raw}`")))?;
+        let (module_name, script_name) = qualified
+            .rsplit_once('.')
+            .expect("qualified script literal must contain module separator");
+        if !self.contains(module_name)
+            || !self
+                .exports(module_name)?
+                .scripts
+                .contains_declared(script_name)
+        {
+            return Err(ScriptLangError::message(format!(
+                "unknown script `{qualified}`"
+            )));
+        }
+        Ok(qualified)
     }
 
     fn entry(&self, module_name: &str) -> Result<&ModuleCatalogEntry<'a>, ScriptLangError> {
@@ -291,11 +310,18 @@ impl<'a> ConstCatalog<'a> {
                         continue;
                     }
 
-                    let raw = trimmed_text_items(child)?;
+                    let raw = body_expr(child)?;
                     let mut blocked = remaining_const_names.clone();
                     blocked.remove(&const_name);
                     let mut resolver = ScopeResolver::new(self.modules, self, &scope);
-                    let value = parse_const_value(&raw, &const_env, &mut resolver, &blocked)?;
+                    let declared_type = parse_declared_type(child)?;
+                    let value = parse_const_value(
+                        raw,
+                        &const_env,
+                        &mut resolver,
+                        &blocked,
+                        Some(&declared_type),
+                    )?;
                     self.cache_value(module_name, &const_name, value.clone());
                     remaining_const_names.remove(&const_name);
                     const_env.insert(const_name.clone(), value.clone());
@@ -308,6 +334,19 @@ impl<'a> ConstCatalog<'a> {
         }
 
         Ok(const_env.get(target_name).cloned())
+    }
+}
+
+fn parse_declared_type(form: &ClassifiedForm) -> Result<DeclaredType, ScriptLangError> {
+    match attr(form, "type") {
+        None => Err(error_at(form, format!("<{}> requires `type`", form.head))),
+        Some("array") => Ok(DeclaredType::Array),
+        Some("bool") => Ok(DeclaredType::Bool),
+        Some("int") => Ok(DeclaredType::Int),
+        Some("object") => Ok(DeclaredType::Object),
+        Some("script") => Ok(DeclaredType::Script),
+        Some("string") => Ok(DeclaredType::String),
+        Some(other) => Err(error_at(form, format!("unsupported type `{other}` in MVP"))),
     }
 }
 
@@ -324,51 +363,12 @@ impl<'a, 'b> ScopeResolver<'a, 'b> {
         }
     }
 
-    fn resolve_script_ref_impl(&self, raw: &str) -> Result<ResolvedRef, ScriptLangError> {
-        let raw = raw.strip_prefix('@').unwrap_or(raw);
-        if let Some((target_module, script_name)) = raw.rsplit_once('.') {
-            if target_module == self.scope.current_module() {
-                return Ok(ResolvedRef::script(target_module, script_name));
-            }
-            if self.scope.can_access_module(target_module)
-                && self
-                    .modules
-                    .exports(target_module)?
-                    .scripts
-                    .contains_exported(script_name)
-            {
-                return Ok(ResolvedRef::script(target_module, script_name));
-            }
-            if self.modules.contains(target_module) {
-                return Err(ScriptLangError::message(format!(
-                    "script `{raw}` referenced by <goto> is not visible in module `{}`",
-                    self.scope.current_module()
-                )));
-            }
-            return Ok(ResolvedRef::script(target_module, script_name));
-        }
+    pub(crate) fn current_module(&self) -> &str {
+        self.scope.current_module()
+    }
 
-        if self
-            .modules
-            .exports(self.scope.current_module())?
-            .scripts
-            .contains_declared(raw)
-        {
-            return Ok(ResolvedRef::script(self.scope.current_module(), raw));
-        }
-
-        for import in self.scope.imports().iter().rev() {
-            if self
-                .modules
-                .exports(import.as_str())?
-                .scripts
-                .contains_exported(raw)
-            {
-                return Ok(ResolvedRef::script(import.as_str(), raw));
-            }
-        }
-
-        Ok(ResolvedRef::script(self.scope.current_module(), raw))
+    pub(crate) fn modules(&self) -> &'a ModuleCatalog<'a> {
+        self.modules
     }
 
     fn resolve_short_var_ref(&self, name: &str) -> Result<Option<ResolvedRef>, ScriptLangError> {
@@ -488,11 +488,10 @@ impl ConstLookup for ScopeResolver<'_, '_> {
             .expect("checked exports before resolving");
         Ok(QualifiedConstLookup::Value(value))
     }
-}
 
-impl NameResolver for ScopeResolver<'_, '_> {
-    fn resolve_script_ref(&self, raw: &str) -> Result<ResolvedRef, ScriptLangError> {
-        self.resolve_script_ref_impl(raw)
+    fn resolve_script_literal(&mut self, raw: &str) -> Result<String, ScriptLangError> {
+        self.modules
+            .resolve_script_literal(self.scope.current_module(), raw)
     }
 }
 
@@ -573,6 +572,54 @@ pub(crate) fn rewrite_template_with_vars(
     Ok(TextTemplate { segments })
 }
 
+pub(crate) fn rewrite_script_literals(
+    source: &str,
+    current_module: &str,
+    modules: &ModuleCatalog<'_>,
+) -> Result<String, ScriptLangError> {
+    let mut rewritten = String::with_capacity(source.len());
+    let bytes = source.as_bytes();
+    let mut cursor = 0usize;
+
+    while cursor < bytes.len() {
+        let ch = bytes[cursor] as char;
+        if ch == '"' || ch == '\'' {
+            let end = scan_quoted(bytes, cursor)?;
+            rewritten.push_str(&source[cursor..end]);
+            cursor = end;
+            continue;
+        }
+
+        if ch == '@' {
+            let start = cursor;
+            cursor += 1;
+            if cursor >= bytes.len() || !is_ident_start(bytes[cursor] as char) {
+                return Err(ScriptLangError::message(format!(
+                    "invalid script literal `{}`",
+                    &source[start..cursor]
+                )));
+            }
+            while cursor < bytes.len() {
+                let current = bytes[cursor] as char;
+                if is_ident_continue(current) || current == '.' {
+                    cursor += 1;
+                } else {
+                    break;
+                }
+            }
+            let raw = &source[start..cursor];
+            let qualified = modules.resolve_script_literal(current_module, raw)?;
+            rewritten.push_str(&format!("{qualified:?}"));
+            continue;
+        }
+
+        rewritten.push(ch);
+        cursor += ch.len_utf8();
+    }
+
+    Ok(rewritten)
+}
+
 fn scan_quoted(bytes: &[u8], start: usize) -> Result<usize, ScriptLangError> {
     let quote = bytes[start];
     let mut cursor = start + 1;
@@ -643,7 +690,7 @@ fn is_ident_continue(ch: char) -> bool {
 
 pub(crate) fn validate_import_target(
     catalog: &ModuleCatalog<'_>,
-    form: &Form,
+    form: &ClassifiedForm,
     current_module: &str,
     import_name: &str,
 ) -> Result<(), ScriptLangError> {
@@ -663,7 +710,7 @@ pub(crate) fn validate_import_target(
     }
 }
 
-fn is_private(form: &Form) -> Result<bool, ScriptLangError> {
+fn is_private(form: &ClassifiedForm) -> Result<bool, ScriptLangError> {
     match attr(form, "private") {
         None => Ok(false),
         Some("true") => Ok(true),

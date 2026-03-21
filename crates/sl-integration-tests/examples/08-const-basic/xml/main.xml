@@ -1,8 +1,8 @@
 <module name="main">
-  <const name="bonus">41</const>
-  <var name="score">bonus + 1</var>
+  <const name="bonus" type="int">41</const>
+  <var name="score" type="int">bonus + 1</var>
   <script name="main">
-    <temp name="hp">bonus</temp>
+    <temp name="hp" type="int">bonus</temp>
     <code>hp += score;</code>
     <text>${hp}</text>
     <end/>

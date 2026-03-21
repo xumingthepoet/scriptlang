@@ -57,6 +57,9 @@ pub enum Instruction {
     JumpScript {
         target_script_id: ScriptId,
     },
+    JumpScriptExpr {
+        expr: String,
+    },
     End,
 }
 
@@ -124,6 +127,9 @@ mod tests {
             Instruction::Jump { target_pc: 11 },
             Instruction::JumpScript {
                 target_script_id: 1,
+            },
+            Instruction::JumpScriptExpr {
+                expr: "\"main.entry\"".to_string(),
             },
             Instruction::End,
         ];
@@ -210,6 +216,10 @@ mod tests {
             &instructions[8],
             Instruction::JumpScript { target_script_id } if *target_script_id == 1
         ));
-        assert!(matches!(&instructions[9], Instruction::End));
+        assert!(matches!(
+            &instructions[9],
+            Instruction::JumpScriptExpr { expr } if expr == "\"main.entry\""
+        ));
+        assert!(matches!(&instructions[10], Instruction::End));
     }
 }

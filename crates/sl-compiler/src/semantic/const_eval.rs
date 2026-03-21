@@ -3,12 +3,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use sl_core::{ScriptLangError, TextSegment, TextTemplate};
 
 use super::resolve::QualifiedConstLookup;
+use super::types::DeclaredType;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ConstValue {
     Bool(bool),
     Integer(i64),
     String(String),
+    Script(String),
     Array(Vec<ConstValue>),
     Object(BTreeMap<String, ConstValue>),
 }
@@ -23,6 +25,7 @@ pub(crate) trait ConstLookup {
         module_path: &str,
         name: &str,
     ) -> Result<QualifiedConstLookup, ScriptLangError>;
+    fn resolve_script_literal(&mut self, raw: &str) -> Result<String, ScriptLangError>;
 }
 
 pub(crate) fn parse_const_value<R: ConstLookup>(
@@ -30,6 +33,7 @@ pub(crate) fn parse_const_value<R: ConstLookup>(
     local_env: &ConstEnv,
     resolver: &mut R,
     blocked_names: &BTreeSet<String>,
+    expected_type: Option<&DeclaredType>,
 ) -> Result<ConstValue, ScriptLangError> {
     let mut parser = ConstParser {
         source,
@@ -37,8 +41,10 @@ pub(crate) fn parse_const_value<R: ConstLookup>(
         local_env,
         resolver,
         blocked_names,
+        expected_type,
     };
     let value = parser.parse_value()?;
+    let value = parser.check_declared_type(value)?;
     parser.skip_ws();
     if !parser.is_eof() {
         return Err(ScriptLangError::message(format!(
@@ -154,6 +160,7 @@ impl ConstValue {
             Self::Bool(value) => value.to_string(),
             Self::Integer(value) => value.to_string(),
             Self::String(value) => format!("{value:?}"),
+            Self::Script(value) => format!("{value:?}"),
             Self::Array(items) => format!(
                 "[{}]",
                 items
@@ -180,6 +187,7 @@ struct ConstParser<'a, R: ConstLookup> {
     local_env: &'a ConstEnv,
     resolver: &'a mut R,
     blocked_names: &'a BTreeSet<String>,
+    expected_type: Option<&'a DeclaredType>,
 }
 
 impl<'a, R: ConstLookup> ConstParser<'a, R> {
@@ -189,6 +197,7 @@ impl<'a, R: ConstLookup> ConstParser<'a, R> {
             return Err(ScriptLangError::message("empty const expression"));
         };
         match ch {
+            '@' => self.parse_script_literal(),
             '"' | '\'' => Ok(ConstValue::String(self.parse_string()?)),
             '[' => self.parse_array(),
             '#' => self.parse_object(),
@@ -326,6 +335,54 @@ impl<'a, R: ConstLookup> ConstParser<'a, R> {
                     ))),
                 }
             }
+        }
+    }
+
+    fn parse_script_literal(&mut self) -> Result<ConstValue, ScriptLangError> {
+        self.expect_char('@')?;
+        let mut literal = String::from("@");
+        literal.push_str(&self.parse_ident()?);
+        while self.consume_char('.') {
+            literal.push('.');
+            literal.push_str(&self.parse_ident()?);
+        }
+        let resolved = self.resolver.resolve_script_literal(&literal)?;
+        Ok(ConstValue::Script(resolved))
+    }
+
+    fn check_declared_type(&self, value: ConstValue) -> Result<ConstValue, ScriptLangError> {
+        match self.expected_type {
+            Some(DeclaredType::Array) if !matches!(value, ConstValue::Array(_)) => {
+                Err(ScriptLangError::message(
+                    "const declared as `array` must evaluate to an array literal",
+                ))
+            }
+            Some(DeclaredType::Bool) if !matches!(value, ConstValue::Bool(_)) => {
+                Err(ScriptLangError::message(
+                    "const declared as `bool` must evaluate to a boolean literal",
+                ))
+            }
+            Some(DeclaredType::Int) if !matches!(value, ConstValue::Integer(_)) => {
+                Err(ScriptLangError::message(
+                    "const declared as `int` must evaluate to an integer literal",
+                ))
+            }
+            Some(DeclaredType::Object) if !matches!(value, ConstValue::Object(_)) => {
+                Err(ScriptLangError::message(
+                    "const declared as `object` must evaluate to an object literal",
+                ))
+            }
+            Some(DeclaredType::Script) if !matches!(value, ConstValue::Script(_)) => {
+                Err(ScriptLangError::message(
+                    "const declared as `script` must evaluate to a script literal",
+                ))
+            }
+            Some(DeclaredType::String) if !matches!(value, ConstValue::String(_)) => {
+                Err(ScriptLangError::message(
+                    "const declared as `string` must evaluate to a string literal",
+                ))
+            }
+            _ => Ok(value),
         }
     }
 
@@ -493,6 +550,7 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
     use crate::semantic::resolve::QualifiedConstLookup;
+    use crate::semantic::types::DeclaredType;
     use sl_core::{ScriptLangError, TextSegment, TextTemplate};
 
     use super::{
@@ -536,6 +594,15 @@ mod tests {
                 Ok(QualifiedConstLookup::NotModulePath)
             }
         }
+
+        fn resolve_script_literal(&mut self, raw: &str) -> Result<String, ScriptLangError> {
+            let raw = raw.strip_prefix('@').expect("script literal");
+            Ok(if raw.contains('.') {
+                raw.to_string()
+            } else {
+                format!("{}.{}", self.current_module, raw)
+            })
+        }
     }
 
     fn visible() -> TestResolver {
@@ -560,7 +627,8 @@ mod tests {
                 r#"[local, answer, true, "ok"]"#,
                 &local_env,
                 &mut visible,
-                &BTreeSet::new()
+                &BTreeSet::new(),
+                None,
             )
             .expect("parse"),
             ConstValue::Array(vec![
@@ -575,7 +643,8 @@ mod tests {
                 "#{foo: lib.math.zero}",
                 &local_env,
                 &mut visible,
-                &BTreeSet::new()
+                &BTreeSet::new(),
+                None,
             )
             .expect("parse"),
             ConstValue::Object(BTreeMap::from([(
@@ -591,34 +660,61 @@ mod tests {
         let mut visible = visible();
 
         assert!(
-            parse_const_value("later", &BTreeMap::new(), &mut visible, &blocked)
+            parse_const_value("later", &BTreeMap::new(), &mut visible, &blocked, None)
                 .expect_err("forward ref")
                 .to_string()
                 .contains("cannot be referenced before it is defined")
         );
         assert!(
-            parse_const_value("call()", &BTreeMap::new(), &mut visible, &BTreeSet::new())
-                .expect_err("call")
-                .to_string()
-                .contains("unsupported const reference `call`")
+            parse_const_value(
+                "call()",
+                &BTreeMap::new(),
+                &mut visible,
+                &BTreeSet::new(),
+                None
+            )
+            .expect_err("call")
+            .to_string()
+            .contains("unsupported const reference `call`")
         );
         assert!(
             parse_const_value(
                 "hidden.zero",
                 &BTreeMap::new(),
                 &mut visible,
-                &BTreeSet::new()
+                &BTreeSet::new(),
+                None,
             )
             .expect_err("hidden")
             .to_string()
             .contains("module `hidden` is not imported")
         );
         assert!(
-            parse_const_value("1.5", &BTreeMap::new(), &mut visible, &BTreeSet::new())
-                .expect_err("float")
-                .to_string()
-                .contains("float const literals are not supported")
+            parse_const_value(
+                "1.5",
+                &BTreeMap::new(),
+                &mut visible,
+                &BTreeSet::new(),
+                None
+            )
+            .expect_err("float")
+            .to_string()
+            .contains("float const literals are not supported")
         );
+    }
+
+    #[test]
+    fn parse_const_value_supports_script_literals_for_script_type() {
+        let mut visible = visible();
+        let value = parse_const_value(
+            "@loop",
+            &BTreeMap::new(),
+            &mut visible,
+            &BTreeSet::new(),
+            Some(&DeclaredType::Script),
+        )
+        .expect("script literal");
+        assert_eq!(value, ConstValue::Script("main.loop".to_string()));
     }
 
     #[test]

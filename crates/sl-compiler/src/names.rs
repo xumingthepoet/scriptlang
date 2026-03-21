@@ -20,6 +20,21 @@ pub(crate) fn resolved_var_placeholder(qualified_name: &str) -> String {
     format!("{RESOLVED_VAR_PREFIX}{qualified_name})")
 }
 
+pub(crate) fn script_literal_key(raw: &str, current_module: &str) -> Option<String> {
+    let raw = raw.strip_prefix('@')?;
+    if raw.is_empty() {
+        return None;
+    }
+    if let Some((module_name, script_name)) = raw.rsplit_once('.') {
+        if module_name.is_empty() || script_name.is_empty() {
+            return None;
+        }
+        Some(qualified_member_name(module_name, script_name))
+    } else {
+        Some(qualified_member_name(current_module, raw))
+    }
+}
+
 pub(crate) fn lower_resolved_vars_to_runtime_names(source: &str) -> String {
     let mut lowered = String::with_capacity(source.len());
     let bytes = source.as_bytes();
@@ -68,6 +83,7 @@ fn scan_quoted(bytes: &[u8], start: usize) -> usize {
 mod tests {
     use super::{
         lower_resolved_vars_to_runtime_names, resolved_var_placeholder, runtime_global_name,
+        script_literal_key,
     };
 
     #[test]
@@ -84,5 +100,18 @@ mod tests {
                 runtime_global_name("m1.shared"),
             )
         );
+    }
+
+    #[test]
+    fn script_literal_key_supports_short_and_qualified_forms() {
+        assert_eq!(
+            script_literal_key("@loop", "main"),
+            Some("main.loop".to_string())
+        );
+        assert_eq!(
+            script_literal_key("@other.loop", "main"),
+            Some("other.loop".to_string())
+        );
+        assert_eq!(script_literal_key("@", "main"), None);
     }
 }

@@ -1,5 +1,5 @@
 <module name="main">
-  <var name="answer">zero + 2</var>
+  <var name="answer" type="int">zero + 2</var>
   <script name="main">
     <text>${answer}</text>
     <end/>

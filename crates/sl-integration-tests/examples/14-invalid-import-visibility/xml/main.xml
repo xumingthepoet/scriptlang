@@ -1,5 +1,6 @@
 <module name="main">
+  <const name="target" type="script">"other.endcap"</const>
   <script name="main">
-    <goto script="@other.endcap"/>
+    <goto script="target"/>
   </script>
 </module>

@@ -1,6 +1,6 @@
 <module name="main">
-  <const name="seed" private="true">1</const>
-  <var name="counter" private="true">seed + 2</var>
+  <const name="seed" type="int" private="true">1</const>
+  <var name="counter" type="int" private="true">seed + 2</var>
   <script name="helper" private="true">
     <text>tag</text>
     <end/>

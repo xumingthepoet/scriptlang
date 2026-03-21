@@ -1,6 +1,6 @@
 <module name="main">
-  <const name="first">later</const>
-  <const name="later">1</const>
+  <const name="first" type="int">later</const>
+  <const name="later" type="int">1</const>
   <script name="main">
     <end/>
   </script>

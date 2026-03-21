@@ -1,5 +1,5 @@
 <module name="main">
-  <var name="counter">0</var>
+  <var name="counter" type="int">0</var>
   <script name="main">
     <code>counter += 1;</code>
     <text>${counter}</text>

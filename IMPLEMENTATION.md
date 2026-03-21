@@ -57,9 +57,12 @@
 当前语义约束：
 
 - `<if>` 只有单分支，没有 `else`
-- `<goto>` 可以跳到可解析的其他 script，包括跨 module script
+- `<goto script="">` 现在是表达式槽位，运行时要求其结果为 script key 字符串
 - `<import>` 只能出现在 `<module>` 下，并按源码顺序向后影响当前 module 的编译期上下文
 - `private="true"` 目前只影响 module 边界导出；同一 module 内仍可直接引用 private const / var / script
+- `@main.loop` / `@loop` 是 script 字面量；`@loop` 会在编译期展开为当前 module 下的完整 script key
+- `var / temp / const` 的 `type="..."` 现在是必填
+- 当前 MVP 识别的显式类型有 `int / bool / string / script / array / object`
 - runtime 不保留 module 概念，只按 `script_id + pc` 执行
 
 ## Parser / Compiler / Runtime
@@ -82,18 +85,19 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 
 - 以显式 pipeline 执行编译：
   - `Form -> macro expansion`
-  - `expanded Form -> module/script/var/stmt 语义结构`
+  - `expanded Form -> slot classification`
+  - `classified Form -> module/script/var/stmt 语义结构`
   - `semantic program -> runtime IR`
 - 源码目录当前按阶段分成：
-  - 顶层 `expand.rs` / `pipeline.rs`
-  - 顶层 `form_util.rs`：`Form` 读取和定位报错辅助
+  - 顶层 `expand.rs` / `pipeline.rs` / `classify.rs`
   - `semantic/`：名称解析、`<const>` 编译期求值、文本模板解析、语义下沉
   - `assemble/`：声明收集、lowering、boot script、`CompiledArtifact` 装配
 - 当前 macro expansion 阶段已经独立成单独步骤，但仍是 no-op passthrough
+- `classify` 当前会把开放 `Form` 上的内建槽位标成 `expr / template / plain text / ident / statements`，供后续 semantic 使用；它不是闭合 typed AST
 - 在 form semantics 阶段完成 MVP 标签校验、属性校验、`<import>` 上下文推进、统一名称解析、`<const>` 编译期求值和结构下沉
 - `<const>` 只在 semantic analyze 阶段内存在；进入 `SemanticProgram` 后不再保留 const 声明
 - compiler 当前为每个 module 隐式提供最早生效的 `import kernel` 上下文
-- semantic 当前会先建立 module 导出目录和作用域，再把 const / goto 等名字解析成规范目标
+- semantic 当前会先建立 module 导出目录和作用域，再解析 const / var 引用并处理 script 字面量
 - semantic 当前会区分“module 内声明存在”和“对 import 暴露的导出成员”；`private="true"` 会从导出目录中隐藏该声明
 - `assemble` 不再消费 import / scope / context 信息；它只消费已经解析好的语义结果
 - semantic 中的 var 引用当前会先重写成“已解析变量占位符”；真正的 runtime global 命名只在 assemble 阶段生成
@@ -103,8 +107,10 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 - 生成 boot script，先执行全局初始化，再跳转到默认入口
 - 默认入口当前固定为 `main.main`；若不存在则编译报错
 - `<const>` 当前只支持 module 级，且只支持 builtin 常量值与对前面已定义 const 的引用
+- `<const>` 会按声明类型做编译期校验；当前已覆盖 `int / bool / string / script / array / object`
+- `type="script"` 的 `<const>` 只允许 script 字面量或前置 script const 引用
 - `<const>` 在 compiler 内消解为源码替换，不进入 runtime，也不会出现在 `CompiledArtifact.globals`
-- `<var>` 当前支持跨 module 引用；semantic 先把可见 var 引用解析成规范占位符，assemble 再统一 lower 成 runtime global 名，而不是把 import 可见性规则泄漏到 runtime
+- `<var>` / `<temp>` 当前要求显式类型，但除 `script` 外暂不做完整表达式静态类型流转；semantic 先把可见 var 引用解析成规范占位符，assemble 再统一 lower 成 runtime 名
 - const 名字解析当前支持：
   - 当前 module 的短名 const
   - imported module 的短名 const
@@ -115,12 +121,11 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
   - imported module 的短名 var
   - `m1.value` 形式的显式模块限定 var
   - imported private var 不可见，会报 `does not export var`
-- `<goto>` 当前支持：
-  - 当前 module 短名 script
-  - imported module 的短名 script
-  - `@m1.entry` 形式的显式模块限定 script
-  - 显式模块限定目标若 module 已存在但未 import，会在 semantic 阶段报可见性错误
-  - imported private script 不可见，会报 script visibility 错误
+- `script` 字面量当前支持：
+  - `@loop` 当前 module 下的短字面量
+  - `@m1.entry` 形式的完整字面量
+  - 编译期会校验字面量引用的 script 是否存在
+- `<goto>` 当前不再做 script ref 名字解析；它只保留表达式并 lower 成运行时动态跳转
 
 当前 IR 指令包括：
 
@@ -133,6 +138,7 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 - `JumpIfFalse`
 - `Jump`
 - `JumpScript`
+- `JumpScriptExpr`
 - `End`
 
 `<choice>` 当前会 lower 成：
@@ -150,6 +156,7 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 - 提供 `start(entry_script_ref) / step / choose / snapshot / resume`
 - 使用 Rhai 执行表达式和代码块
 - 首次执行某段 Rhai 源码时编译 AST，并在 runtime 内缓存
+- 对 `JumpScriptExpr` 先求值出 script key 字符串，再通过 `artifact.script_refs` 做跳转
 
 当前 runtime 不做：
 
@@ -158,6 +165,7 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 - AST 节点解释执行
 - 宏展开
 - `import` / module var 可见性处理
+- script ref 级别的 compile-time 可见性规则
 
 ## API
 

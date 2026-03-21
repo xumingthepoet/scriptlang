@@ -1,5 +1,5 @@
 <module name="main">
-  <var name="flag">true</var>
+  <var name="flag" type="bool">true</var>
   <script name="main">
     <if when="flag">
       <text>yes</text>

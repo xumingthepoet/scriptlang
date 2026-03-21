@@ -15,6 +15,7 @@ pub(crate) struct SemanticModule {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SemanticVar {
     pub(crate) name: String,
+    pub(crate) declared_type: DeclaredType,
     pub(crate) expr: String,
 }
 
@@ -22,8 +23,17 @@ pub(crate) struct SemanticVar {
 pub(crate) struct ModulePath(pub(crate) String);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum MemberKind {
+pub(crate) enum DeclaredType {
+    Array,
+    Bool,
+    Int,
+    Object,
     Script,
+    String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum MemberKind {
     Var,
 }
 
@@ -47,10 +57,6 @@ impl ResolvedRef {
         }
     }
 
-    pub(crate) fn script(module_path: impl Into<String>, member_name: impl Into<String>) -> Self {
-        Self::new(module_path, member_name, MemberKind::Script)
-    }
-
     pub(crate) fn qualified_name(&self) -> String {
         format!("{}.{}", self.module_path.0, self.member_name)
     }
@@ -66,6 +72,7 @@ pub(crate) struct SemanticScript {
 pub(crate) enum SemanticStmt {
     Temp {
         name: String,
+        declared_type: DeclaredType,
         expr: String,
     },
     Code {
@@ -84,7 +91,7 @@ pub(crate) enum SemanticStmt {
         options: Vec<SemanticChoiceOption>,
     },
     Goto {
-        target: ResolvedRef,
+        expr: String,
     },
     End,
 }

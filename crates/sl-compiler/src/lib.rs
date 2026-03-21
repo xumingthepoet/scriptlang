@@ -1,6 +1,6 @@
 mod assemble;
+mod classify;
 mod expand;
-mod form_util;
 mod names;
 mod pipeline;
 mod semantic;

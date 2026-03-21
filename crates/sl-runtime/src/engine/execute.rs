@@ -111,6 +111,12 @@ impl Engine {
                 self.jump_to_script(next_script_id);
                 Ok(StepResult::Progress)
             }
+            Instruction::JumpScriptExpr { expr } => {
+                let script_key = self.eval_script_key(&expr)?;
+                let next_script_id = self.resolve_script_id(&script_key)?;
+                self.jump_to_script(next_script_id);
+                Ok(StepResult::Progress)
+            }
             Instruction::End => {
                 self.state.halted = true;
                 Ok(StepResult::Completed(Completion::End))

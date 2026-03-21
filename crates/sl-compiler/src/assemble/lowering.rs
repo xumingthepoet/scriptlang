@@ -35,7 +35,9 @@ pub(crate) fn lower_script(
     lower_block(script_refs, draft, &script.body)?;
     if !matches!(
         draft.instructions.last(),
-        Some(Instruction::End | Instruction::JumpScript { .. })
+        Some(
+            Instruction::End | Instruction::JumpScript { .. } | Instruction::JumpScriptExpr { .. }
+        )
     ) {
         draft.instructions.push(Instruction::End);
     }
@@ -49,7 +51,11 @@ fn lower_block(
 ) -> Result<(), ScriptLangError> {
     for stmt in body {
         match stmt {
-            SemanticStmt::Temp { name, expr } => {
+            SemanticStmt::Temp {
+                name,
+                declared_type: _,
+                expr,
+            } => {
                 let local_id = assign_local_id(draft, name);
                 draft.instructions.push(Instruction::EvalTemp {
                     local_id,
@@ -84,16 +90,10 @@ fn lower_block(
             SemanticStmt::Choice { prompt, options } => {
                 lower_choice(script_refs, draft, prompt.as_ref(), options)?;
             }
-            SemanticStmt::Goto { target } => {
-                let resolved = target.qualified_name();
-                let target_script_id = script_refs.get(&resolved).copied().ok_or_else(|| {
-                    ScriptLangError::message(format!(
-                        "script `{resolved}` referenced by <goto> does not exist"
-                    ))
-                })?;
-                draft
-                    .instructions
-                    .push(Instruction::JumpScript { target_script_id });
+            SemanticStmt::Goto { expr } => {
+                draft.instructions.push(Instruction::JumpScriptExpr {
+                    expr: lower_resolved_vars_to_runtime_names(expr),
+                });
             }
             SemanticStmt::End => draft.instructions.push(Instruction::End),
         }
@@ -171,7 +171,7 @@ mod tests {
     use sl_core::{CompiledTextPart, Instruction, TextSegment, TextTemplate};
 
     use crate::assemble::ScriptDraft;
-    use crate::semantic::types::ResolvedRef;
+    use crate::semantic::types::DeclaredType;
     use crate::semantic::{SemanticChoiceOption, SemanticScript, SemanticStmt};
 
     use super::{lower_script, lower_text_template};
@@ -187,12 +187,12 @@ mod tests {
     #[test]
     fn lower_script_emits_expected_instructions_from_semantic_script() {
         let mut draft = draft();
-        let script_refs = BTreeMap::from([("main.target".to_string(), 1usize)]);
         let script = SemanticScript {
             name: "entry".to_string(),
             body: vec![
                 SemanticStmt::Temp {
                     name: "x".to_string(),
+                    declared_type: DeclaredType::Int,
                     expr: "1".to_string(),
                 },
                 SemanticStmt::Choice {
@@ -204,14 +204,14 @@ mod tests {
                             segments: vec![TextSegment::Literal("left".to_string())],
                         },
                         body: vec![SemanticStmt::Goto {
-                            target: ResolvedRef::script("main", "target"),
+                            expr: "\"main.target\"".to_string(),
                         }],
                     }],
                 },
             ],
         };
 
-        lower_script(&script_refs, &mut draft, &script).expect("lower");
+        lower_script(&BTreeMap::new(), &mut draft, &script).expect("lower");
 
         assert!(matches!(
             &draft.instructions[0],
@@ -224,75 +224,26 @@ mod tests {
         ));
         assert!(matches!(
             &draft.instructions[2],
-            Instruction::JumpScript { target_script_id } if *target_script_id == 1
+            Instruction::JumpScriptExpr { expr } if expr == "\"main.target\""
         ));
     }
 
     #[test]
-    fn lower_script_rejects_missing_goto_target() {
+    fn lower_script_rewrites_runtime_globals_inside_goto_expression() {
         let mut draft = draft();
-        let error = lower_script(
-            &BTreeMap::new(),
-            &mut draft,
-            &SemanticScript {
-                name: "entry".to_string(),
-                body: vec![SemanticStmt::Goto {
-                    target: ResolvedRef::script("main", "missing"),
-                }],
-            },
-        )
-        .expect_err("missing target should fail");
-
-        assert!(
-            error
-                .to_string()
-                .contains("script `main.missing` referenced by <goto> does not exist")
-        );
-    }
-
-    #[test]
-    fn lower_script_uses_resolved_goto_targets() {
-        let mut draft = draft();
-        let script_refs = BTreeMap::from([
-            ("main.entry".to_string(), 0usize),
-            ("m1.shared".to_string(), 1usize),
-            ("m2.shared".to_string(), 2usize),
-        ]);
         let script = SemanticScript {
             name: "entry".to_string(),
             body: vec![SemanticStmt::Goto {
-                target: ResolvedRef::script("m2", "shared"),
+                expr: "__sl_var__(main.next)".to_string(),
             }],
         };
 
-        lower_script(&script_refs, &mut draft, &script).expect("lower");
+        lower_script(&BTreeMap::new(), &mut draft, &script).expect("lower");
 
         assert!(matches!(
             &draft.instructions[0],
-            Instruction::JumpScript { target_script_id } if *target_script_id == 2
+            Instruction::JumpScriptExpr { expr } if expr == "__sl_globalmain_next"
         ));
-    }
-
-    #[test]
-    fn lower_script_reports_missing_resolved_targets() {
-        let mut draft = draft();
-        let error = lower_script(
-            &BTreeMap::from([("other.entry".to_string(), 1usize)]),
-            &mut draft,
-            &SemanticScript {
-                name: "entry".to_string(),
-                body: vec![SemanticStmt::Goto {
-                    target: ResolvedRef::script("main", "missing"),
-                }],
-            },
-        )
-        .expect_err("missing target should fail");
-
-        assert!(
-            error
-                .to_string()
-                .contains("script `main.missing` referenced by <goto> does not exist")
-        );
     }
 
     #[test]

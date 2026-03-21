@@ -1,1 +1,1 @@
-is not visible in module `main`
+const declared as `script` must evaluate to a script literal

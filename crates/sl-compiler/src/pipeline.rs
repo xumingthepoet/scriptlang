@@ -1,12 +1,14 @@
 use sl_core::{CompiledArtifact, Form, ScriptLangError};
 
 use crate::assemble::assemble_artifact;
+use crate::classify::classify_forms;
 use crate::expand::expand_macros;
 use crate::semantic::analyze_forms;
 
 pub fn compile_artifact(forms: &[Form]) -> Result<CompiledArtifact, ScriptLangError> {
     let expanded_forms = expand_macros(forms)?;
-    let semantic_program = analyze_forms(&expanded_forms)?;
+    let classified_forms = classify_forms(&expanded_forms)?;
+    let semantic_program = analyze_forms(&classified_forms)?;
     assemble_artifact(&semantic_program)
 }
 

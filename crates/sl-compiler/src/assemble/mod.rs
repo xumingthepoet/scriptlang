@@ -68,8 +68,7 @@ pub(crate) fn assemble_artifact(
 mod tests {
     use sl_core::{Instruction, TextSegment, TextTemplate};
 
-    use crate::semantic::types::ResolvedRef;
-    use crate::semantic::types::SemanticVar;
+    use crate::semantic::types::{DeclaredType, SemanticVar};
     use crate::semantic::{
         SemanticChoiceOption, SemanticModule, SemanticProgram, SemanticScript, SemanticStmt,
     };
@@ -116,6 +115,7 @@ mod tests {
             name: "main".to_string(),
             vars: vec![SemanticVar {
                 name: "answer".to_string(),
+                declared_type: DeclaredType::Int,
                 expr: "40 + 2".to_string(),
             }],
             scripts: vec![
@@ -124,6 +124,7 @@ mod tests {
                     body: vec![
                         SemanticStmt::Temp {
                             name: "x".to_string(),
+                            declared_type: DeclaredType::Int,
                             expr: "1".to_string(),
                         },
                         SemanticStmt::Choice {
@@ -136,7 +137,7 @@ mod tests {
                                         segments: vec![TextSegment::Literal("left".to_string())],
                                     },
                                     body: vec![SemanticStmt::Goto {
-                                        target: ResolvedRef::script("main", "target"),
+                                        expr: "\"main.target\"".to_string(),
                                     }],
                                 },
                                 SemanticChoiceOption {
@@ -198,6 +199,7 @@ mod tests {
                 name: "main".to_string(),
                 vars: vec![SemanticVar {
                     name: "name".to_string(),
+                    declared_type: DeclaredType::Int,
                     expr: "1".to_string(),
                 }],
                 scripts: vec![SemanticScript {
@@ -209,6 +211,7 @@ mod tests {
                 name: "b".to_string(),
                 vars: vec![SemanticVar {
                     name: "name".to_string(),
+                    declared_type: DeclaredType::Int,
                     expr: "2".to_string(),
                 }],
                 scripts: vec![SemanticScript {

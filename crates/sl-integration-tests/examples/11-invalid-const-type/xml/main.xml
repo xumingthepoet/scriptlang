@@ -1,5 +1,5 @@
 <module name="main">
-  <const name="bad">call()</const>
+  <const name="bad" type="int">call()</const>
   <script name="main">
     <end/>
   </script>

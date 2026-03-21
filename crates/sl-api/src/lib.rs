@@ -73,7 +73,7 @@ mod tests {
             "main.xml".to_string(),
             r#"
             <module name="main">
-              <var name="answer">zero + 1</var>
+              <var name="answer" type="int">zero + 1</var>
               <script name="main">
                 <text>${answer}</text>
                 <end/>

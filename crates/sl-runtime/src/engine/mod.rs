@@ -169,6 +169,17 @@ impl Engine {
         Ok(())
     }
 
+    pub(crate) fn eval_script_key(&mut self, expr: &str) -> Result<String, ScriptLangError> {
+        let value = self.eval_expression(expr)?;
+        if let Some(value) = value.clone().try_cast::<String>() {
+            Ok(value)
+        } else {
+            Err(ScriptLangError::message(
+                "goto expression must evaluate to a script string",
+            ))
+        }
+    }
+
     fn get_or_compile_ast(&mut self, source: &str) -> Result<AST, ScriptLangError> {
         if !self.ast_cache.contains_key(source) {
             let ast = self.rhai.compile(source)?;
@@ -430,8 +441,8 @@ mod tests {
             Instruction::JumpIfFalse { target_pc: 6 },
             Instruction::Jump { target_pc: 7 },
             Instruction::End,
-            Instruction::JumpScript {
-                target_script_id: 0,
+            Instruction::JumpScriptExpr {
+                expr: "\"main.entry\"".to_string(),
             },
         ]);
 
@@ -483,6 +494,34 @@ mod tests {
             StepResult::Progress
         ));
         assert_eq!(engine.current_pc(), 0);
+    }
+
+    #[test]
+    fn jump_script_expr_requires_string_and_known_target() {
+        let mut wrong_type = simple_engine(vec![Instruction::JumpScriptExpr {
+            expr: "1 + 2".to_string(),
+        }]);
+        wrong_type.start(None).expect("start should work");
+        wrong_type.state.script_id = 0;
+        wrong_type.state.pc = 0;
+        wrong_type.state.locals = vec![Dynamic::UNIT, Dynamic::UNIT];
+
+        let error = wrong_type.step().expect_err("should fail");
+        assert_eq!(
+            error.to_string(),
+            "goto expression must evaluate to a script string"
+        );
+
+        let mut missing = simple_engine(vec![Instruction::JumpScriptExpr {
+            expr: "\"main.missing\"".to_string(),
+        }]);
+        missing.start(None).expect("start should work");
+        missing.state.script_id = 0;
+        missing.state.pc = 0;
+        missing.state.locals = vec![Dynamic::UNIT, Dynamic::UNIT];
+
+        let error = missing.step().expect_err("should fail");
+        assert_eq!(error.to_string(), "unknown script `main.missing`");
     }
 
     #[test]
@@ -737,6 +776,12 @@ mod tests {
         assert_eq!(first.clone_cast::<i64>(), 10);
         assert_eq!(second.clone_cast::<i64>(), 10);
         assert_eq!(engine.ast_cache.len(), 1);
+        assert_eq!(
+            engine
+                .eval_script_key("\"main.entry\"")
+                .expect("script key should work"),
+            "main.entry"
+        );
 
         let error = engine
             .eval_expression("answer =")
@@ -752,6 +797,13 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "condition expression must evaluate to a boolean"
+        );
+        let error = engine
+            .eval_script_key("1")
+            .expect_err("script key should fail");
+        assert_eq!(
+            error.to_string(),
+            "goto expression must evaluate to a script string"
         );
         assert_eq!(dynamic_to_text(&Dynamic::UNIT), "");
         assert_eq!(dynamic_to_text(&Dynamic::from(9_i64)), "9");
