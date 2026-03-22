@@ -385,6 +385,19 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
   - 文件内容按 REPL transcript 解释：顶层以 `:` 开头的行会被当成 host command，其余内容按 XML fragment 多行配平后提交
   - 因此一个文件里可以混合 `:load`、`:choose` 和多行 XML 片段
 
+仓库级别另外提供了一个便捷脚本 [`scripts/repl-run.sh`](/Users/xuming/work/scriptlang-new/scripts/repl-run.sh)：
+
+- 不带参数时
+  - 会直接执行仓库里写死的 [`scripts/repl-target.xml`](/Users/xuming/work/scriptlang-new/scripts/repl-target.xml)
+  - 这个文件本身就是普通 XML fragment，可以直接反复修改它来观察效果
+- 传入 `.xml` 文件时
+  - 如果文件根节点是 `<module>`，它会自动把该文件所在目录作为 `:load` 目标载入
+  - 然后向 REPL session 注入对应的 `<import>`，再默认执行 `@main.main`
+  - 也可以用 `--entry module.script` 指定入口
+  - 如果文件不是 module，而是普通 REPL XML fragment，则直接按 `sl-repl --file` 方式提交执行
+- 传入非 `.xml` 文件时
+  - 它会把该文件当成 REPL transcript，转发给 `sl-repl --file`
+
 当前支持的 host-side helper commands 有：
 
 - `:help`
