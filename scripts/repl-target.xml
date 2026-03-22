@@ -1,1 +1,10 @@
 <text>edit scripts/repl-target.xml and rerun scripts/repl-run.sh</text>
+
+<module name="A">
+  <script name="run">
+      <text>1</text>
+      <end/>
+  </script>
+</module>
+
+<goto script="@A.run"/>
