@@ -3,7 +3,7 @@ use sl_core::{Form, FormItem, FormValue, ScriptLangError};
 use super::dispatch::{ExpandRuleScope, expand_generated_items};
 use super::macro_eval::evaluate_macro_items;
 use crate::names::qualified_member_name;
-use crate::semantic::env::{ExpandEnv, MacroDefinition};
+use crate::semantic::env::{ExpandEnv, MacroDefinition, MacroParam};
 use crate::semantic::{child_forms, error_at, required_attr};
 
 pub(super) fn collect_program_macros(
@@ -63,6 +63,8 @@ fn parse_macro_definition(
     form: &Form,
     module_name: &str,
 ) -> Result<MacroDefinition, ScriptLangError> {
+    use crate::semantic::env::MacroDefinition;
+
     let name = required_attr(form, "name")?.to_string();
     let body = form
         .fields
@@ -72,11 +74,166 @@ fn parse_macro_definition(
             _ => None,
         })
         .ok_or_else(|| error_at(form, "<macro> requires `children` field"))?;
+
+    // Parse new explicit params protocol
+    let params = form
+        .fields
+        .iter()
+        .find(|field| field.name == "params")
+        .and_then(|field| match &field.value {
+            FormValue::String(params_str) => Some(params_str.as_str()),
+            _ => None,
+        })
+        .map(|params_str| parse_params_declaration(params_str, form))
+        .transpose()?;
+
+    // Parse legacy attributes/content protocol for backward compatibility
+    let legacy_protocol = if params.is_none() {
+        parse_legacy_protocol(form)?
+    } else {
+        None
+    };
+
     Ok(MacroDefinition {
         module_name: module_name.to_string(),
         name,
+        params,
+        legacy_protocol,
         body,
     })
+}
+
+/// Parse params declaration string like "expr:when,ast:body"
+fn parse_params_declaration(
+    params_str: &str,
+    form: &Form,
+) -> Result<Vec<MacroParam>, ScriptLangError> {
+    use crate::semantic::env::{MacroParam, MacroParamType};
+
+    let mut params = Vec::new();
+    for param_decl in params_str.split(',') {
+        let param_decl = param_decl.trim();
+        if param_decl.is_empty() {
+            continue;
+        }
+
+        let parts: Vec<&str> = param_decl.split(':').collect();
+        if parts.len() != 2 {
+            return Err(error_at(
+                form,
+                format!(
+                    "invalid param declaration `{}`: expected format `type:name`",
+                    param_decl
+                ),
+            ));
+        }
+
+        let type_str = parts[0].trim();
+        let name = parts[1].trim().to_string();
+
+        let param_type = match type_str {
+            "expr" => MacroParamType::Expr,
+            "ast" => MacroParamType::Ast,
+            "string" => MacroParamType::String,
+            "bool" => MacroParamType::Bool,
+            "int" => MacroParamType::Int,
+            "keyword" => MacroParamType::Keyword,
+            "module" => MacroParamType::Module,
+            _ => {
+                return Err(error_at(
+                    form,
+                    format!(
+                        "unknown param type `{}`: expected one of expr, ast, string, bool, int, keyword, module",
+                        type_str
+                    ),
+                ));
+            }
+        };
+
+        params.push(MacroParam { param_type, name });
+    }
+
+    Ok(params)
+}
+
+/// Parse legacy attributes/content protocol
+fn parse_legacy_protocol(
+    form: &Form,
+) -> Result<Option<crate::semantic::env::LegacyProtocol>, ScriptLangError> {
+    use crate::semantic::env::LegacyProtocol;
+
+    let attributes_str = form
+        .fields
+        .iter()
+        .find(|field| field.name == "attributes")
+        .and_then(|field| match &field.value {
+            FormValue::String(s) => Some(s.as_str()),
+            _ => None,
+        });
+
+    let content_str = form
+        .fields
+        .iter()
+        .find(|field| field.name == "content")
+        .and_then(|field| match &field.value {
+            FormValue::String(s) => Some(s.as_str()),
+            _ => None,
+        });
+
+    if attributes_str.is_none() && content_str.is_none() {
+        return Ok(None);
+    }
+
+    // Parse attributes="name:var:is_expr,..."
+    let mut attributes = Vec::new();
+    if let Some(attrs_str) = attributes_str {
+        for attr_decl in attrs_str.split(',') {
+            let attr_decl = attr_decl.trim();
+            if attr_decl.is_empty() {
+                continue;
+            }
+
+            let parts: Vec<&str> = attr_decl.split(':').collect();
+            if parts.len() < 2 || parts.len() > 3 {
+                return Err(error_at(
+                    form,
+                    format!(
+                        "invalid attribute declaration `{}`: expected format `attr:var` or `attr:var:expr`",
+                        attr_decl
+                    ),
+                ));
+            }
+
+            let attr_name = parts[0].trim().to_string();
+            let var_name = parts[1].trim().to_string();
+            let is_expr = parts.get(2).map(|s| *s == "expr").unwrap_or(false);
+
+            attributes.push((attr_name, var_name, is_expr));
+        }
+    }
+
+    // Parse content="var" or content="var:head"
+    let content = if let Some(content_decl) = content_str {
+        let parts: Vec<&str> = content_decl.split(':').collect();
+        if parts.is_empty() || parts[0].trim().is_empty() {
+            return Err(error_at(
+                form,
+                format!("invalid content declaration `{}`", content_decl),
+            ));
+        }
+
+        let var_name = parts[0].trim().to_string();
+        let head_filter = parts.get(1).map(|s| s.trim().to_string());
+
+        Some((var_name, head_filter))
+    } else {
+        None
+    };
+
+    Ok(Some(LegacyProtocol {
+        attributes,
+        content,
+    }))
 }
 
 fn expand_macro_invocation(
@@ -85,7 +242,9 @@ fn expand_macro_invocation(
     env: &mut ExpandEnv,
     scope: ExpandRuleScope,
 ) -> Result<Vec<FormItem>, ScriptLangError> {
-    let expanded_items = evaluate_macro_items(&definition.body, invocation, env, scope)?
+    // Use new parameter binder
+    let runtime = super::macro_params::bind_macro_params(&definition, invocation, env)?;
+    let expanded_items = evaluate_macro_items(&definition.body, invocation, env, scope, runtime)?
         .into_iter()
         .filter(|item| match item {
             FormItem::Text(text) => !text.trim().is_empty(),
@@ -154,6 +313,8 @@ mod tests {
             .register_macro(MacroDefinition {
                 module_name: module_name.to_string(),
                 name: name.to_string(),
+                params: None,
+                legacy_protocol: None,
                 body,
             })
             .expect("register macro");
@@ -180,6 +341,8 @@ mod tests {
             .register_macro(MacroDefinition {
                 module_name: "kernel".to_string(),
                 name: "dup".to_string(),
+                params: None,
+                legacy_protocol: None,
                 body: vec![form_item(
                     "quote",
                     vec![],

@@ -511,3 +511,64 @@ crates/sl-integration-tests/examples/<example>/
 - `make gate`
 
 `make gate` 会按整个 workspace 执行 `fmt + test + lint`。
+
+## Step 2: 显式宏参数协议（2026-03-22）
+
+完成状态：已完成
+
+### 宩架构变更
+
+#### MacroDefinition 扩展
+
+- 新增字段：
+  - `params: Option<Vec<MacroParam>>` - 新的显式参数协议
+  - `legacy_protocol: Option<LegacyProtocol>` - 旧 attributes/content 协议（向后兼容）
+- 新增结构：
+  - `MacroParam`: 宏参数定义（param_type, name）
+  - `MacroParamType`: 参数类型枚举（Expr/Ast/String/Bool/Int/Keyword/Module）
+  - `LegacyProtocol`: 旧协议结构（attributes/content 绑定信息）
+
+#### MacroValue 扩展
+
+- 新增变体：
+  - `MacroValue::Keyword(Vec<(String, MacroValue)>)` - keyword 参数类型
+  - `MacroValue::Nil` - 缺失值
+
+#### 新增模块
+
+- [`macro_params.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/macro_params.rs)
+  - 职责：宏参数绑定器
+  - 主函数：`bind_macro_params(definition, invocation, env)` - 绑定宏参数并创建 MacroEnv
+  - 支持新的显式 `params` 协议
+  - 支持旧的 `attributes/content` 协议（向后兼容）
+
+### 参数类型转换规则
+
+- `expr` -> 编译期表达式源码（MacroValue::Expr）
+- `ast` -> AST 节点（MacroValue::AstItems）
+- `string` -> 字符串值（MacroValue::String）
+- `bool` -> 布尔值（MacroValue::Bool，解析 "true"/"false"）
+- `int` -> 整数值（MacroValue::Int，解析数字）
+- `keyword` -> 有序键值对（MacroValue::Keyword）
+- `module` -> 模块引用（MacroValue::String，待后续扩展）
+
+### 宏展开集成
+
+- [`macros.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/macros.rs)
+  - `parse_macro_definition` 更新：解析 `params` 和 `legacy_protocol` 字段
+  - `expand_macro_invocation` 更新：使用 `bind_macro_params` 创建 MacroEnv
+  - `evaluate_macro_items` 更新：接收预绑定的 MacroEnv 参数
+  - 保持向后兼容：现有宏继续工作
+
+### 测试状态
+
+- 所有现有测试通过（113 compiler unit tests + 7 runtime tests + 9 integration tests）
+- Coverage: 92.87% lines, 93.85% functions
+- `make gate` 通过
+
+### 下一步计划
+
+Step 2 已完成，后续工作：
+- Step 3: 重写 module expand 为"定义期 reducer"
+- Step 4: 支持远程 macro 调用和更完整的 caller env
+- Step 5: 实现 `__using__` 协议和 kernel `use` 宏

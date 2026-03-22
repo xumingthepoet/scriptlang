@@ -4,6 +4,7 @@ mod dispatch;
 mod imports;
 pub(crate) mod macro_env;
 mod macro_eval;
+mod macro_params;
 mod macro_values;
 mod macros;
 mod module;

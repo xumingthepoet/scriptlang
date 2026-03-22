@@ -2,9 +2,11 @@ use sl_core::FormItem;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum MacroValue {
+    Nil,
+    Bool(bool),
+    Int(i64),
     String(String),
     Expr(String),
     AstItems(Vec<FormItem>),
-    Bool(bool),
-    Int(i64),
+    Keyword(Vec<(String, MacroValue)>),
 }

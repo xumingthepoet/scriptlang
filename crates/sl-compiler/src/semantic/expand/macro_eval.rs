@@ -13,13 +13,8 @@ pub(crate) fn evaluate_macro_items(
     invocation: &Form,
     env: &mut ExpandEnv,
     scope: ExpandRuleScope,
+    mut runtime: MacroEnv,
 ) -> Result<Vec<FormItem>, ScriptLangError> {
-    let mut runtime = MacroEnv::from_invocation(
-        env,
-        &invocation.head,
-        invocation_attributes(invocation),
-        invocation_children(invocation),
-    );
     let forms = meaningful_macro_forms(body)?;
     let mut quoted = None;
 
@@ -41,6 +36,23 @@ pub(crate) fn evaluate_macro_items(
     }
 
     quoted.ok_or_else(|| ScriptLangError::message("macro evaluator requires one <quote> block"))
+}
+
+/// Helper for tests: evaluate macro items with automatic MacroEnv creation.
+#[cfg(test)]
+fn evaluate_macro_items_for_test(
+    body: &[FormItem],
+    invocation: &Form,
+    env: &mut ExpandEnv,
+    scope: ExpandRuleScope,
+) -> Result<Vec<FormItem>, ScriptLangError> {
+    let runtime = MacroEnv::from_invocation(
+        env,
+        &invocation.head,
+        invocation_attributes(invocation),
+        invocation_children(invocation),
+    );
+    evaluate_macro_items(body, invocation, env, scope, runtime)
 }
 
 fn meaningful_macro_forms(body: &[FormItem]) -> Result<Vec<&Form>, ScriptLangError> {
@@ -191,6 +203,7 @@ fn form_children(form: &Form) -> Result<&[FormItem], ScriptLangError> {
         .ok_or_else(|| error_at(form, format!("<{}> requires `children`", form.head)))
 }
 
+#[cfg(test)]
 fn invocation_children(invocation: &Form) -> Vec<FormItem> {
     invocation
         .fields
@@ -202,6 +215,7 @@ fn invocation_children(invocation: &Form) -> Vec<FormItem> {
         .unwrap_or_default()
 }
 
+#[cfg(test)]
 fn invocation_attributes(invocation: &Form) -> std::collections::BTreeMap<String, String> {
     invocation
         .fields
@@ -335,8 +349,9 @@ mod tests {
         ];
 
         let mut env = ExpandEnv::default();
-        let items = evaluate_macro_items(&body, &invocation, &mut env, ExpandRuleScope::Statement)
-            .expect("macro eval");
+        let items =
+            evaluate_macro_items_for_test(&body, &invocation, &mut env, ExpandRuleScope::Statement)
+                .expect("macro eval");
         assert_eq!(items.len(), 2);
         let first = match &items[0] {
             FormItem::Form(form) => form,
@@ -395,8 +410,9 @@ mod tests {
         ];
 
         let mut env = ExpandEnv::default();
-        let items = evaluate_macro_items(&body, &invocation, &mut env, ExpandRuleScope::Statement)
-            .expect("macro eval");
+        let items =
+            evaluate_macro_items_for_test(&body, &invocation, &mut env, ExpandRuleScope::Statement)
+                .expect("macro eval");
         assert_eq!(items.len(), 2);
         let first = match &items[0] {
             FormItem::Form(form) => form,
@@ -416,7 +432,7 @@ mod tests {
     fn macro_evaluator_rejects_missing_quote_and_unexpected_top_level_text() {
         let invocation = node("m", vec![], vec![]);
 
-        let missing_quote = evaluate_macro_items(
+        let missing_quote = evaluate_macro_items_for_test(
             &[],
             &invocation,
             &mut ExpandEnv::default(),
@@ -429,7 +445,7 @@ mod tests {
                 .contains("requires one <quote> block")
         );
 
-        let text_error = evaluate_macro_items(
+        let text_error = evaluate_macro_items_for_test(
             &[text_item("unexpected")],
             &invocation,
             &mut ExpandEnv::default(),
@@ -477,7 +493,7 @@ mod tests {
             )),
         ];
 
-        let items = evaluate_macro_items(
+        let items = evaluate_macro_items_for_test(
             &body,
             &invocation,
             &mut ExpandEnv::default(),
@@ -491,7 +507,7 @@ mod tests {
         assert_eq!(attr(text_form, "tag"), Some("neo"));
         assert_eq!(raw_body_text(text_form).as_deref(), Some("7:true"));
 
-        let bad_bool = evaluate_macro_items(
+        let bad_bool = evaluate_macro_items_for_test(
             &[
                 child(node(
                     "let",
@@ -511,7 +527,7 @@ mod tests {
                 .contains("cannot parse `neo` as macro bool attribute")
         );
 
-        let bad_type = evaluate_macro_items(
+        let bad_type = evaluate_macro_items_for_test(
             &[
                 child(node(
                     "let",
@@ -531,7 +547,7 @@ mod tests {
         .expect_err("bad type");
         assert!(bad_type.to_string().contains("unsupported macro let type"));
 
-        let bad_provider = evaluate_macro_items(
+        let bad_provider = evaluate_macro_items_for_test(
             &[
                 child(node(
                     "let",
@@ -560,7 +576,7 @@ mod tests {
             vec![child(node("text", vec![], vec![text_item("hello")]))],
         );
 
-        let quoted_provider = evaluate_macro_items(
+        let quoted_provider = evaluate_macro_items_for_test(
             &[
                 child(node(
                     "let",
@@ -588,7 +604,7 @@ mod tests {
         };
         assert_eq!(raw_body_text(quoted_text).as_deref(), Some("quoted"));
 
-        let multi_child = evaluate_macro_items(
+        let multi_child = evaluate_macro_items_for_test(
             &[
                 child(node(
                     "let",
@@ -611,7 +627,7 @@ mod tests {
                 .contains("requires exactly one meaningful child")
         );
 
-        let missing_attr = evaluate_macro_items(
+        let missing_attr = evaluate_macro_items_for_test(
             &[
                 child(node(
                     "let",
@@ -640,7 +656,7 @@ mod tests {
     fn macro_evaluator_covers_unsupported_forms_and_helper_errors() {
         let invocation = node("m", vec![("name", "neo")], vec![text_item("plain")]);
 
-        let unsupported = evaluate_macro_items(
+        let unsupported = evaluate_macro_items_for_test(
             &[
                 child(node("if", vec![], vec![])),
                 child(node("quote", vec![], vec![])),
@@ -676,7 +692,7 @@ mod tests {
                 .contains("unknown macro local `missing`")
         );
 
-        let expected_form = evaluate_macro_items(
+        let expected_form = evaluate_macro_items_for_test(
             &[
                 child(node(
                     "let",
@@ -692,7 +708,7 @@ mod tests {
         .expect_err("text child");
         assert!(expected_form.to_string().contains("expected child form"));
 
-        let missing_children = evaluate_macro_items(
+        let missing_children = evaluate_macro_items_for_test(
             &[
                 child(form(
                     "let",
@@ -738,7 +754,7 @@ mod tests {
     fn macro_evaluator_covers_missing_attributes_and_single_child_edge_cases() {
         let invocation = node("m", vec![], vec![]);
 
-        let missing_expr = evaluate_macro_items(
+        let missing_expr = evaluate_macro_items_for_test(
             &[
                 child(node(
                     "let",
@@ -758,7 +774,7 @@ mod tests {
                 .contains("missing invocation attribute `when`")
         );
 
-        let bad_bool = evaluate_macro_items(
+        let bad_bool = evaluate_macro_items_for_test(
             &[
                 child(node(
                     "let",
@@ -778,7 +794,7 @@ mod tests {
                 .contains("cannot parse `maybe` as macro bool attribute")
         );
 
-        let bad_int = evaluate_macro_items(
+        let bad_int = evaluate_macro_items_for_test(
             &[
                 child(node(
                     "let",

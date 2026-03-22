@@ -76,10 +76,49 @@ pub(crate) struct ExpandEnv {
     pub(crate) macro_invocation_counters: BTreeMap<String, usize>,
 }
 
+/// Macro parameter type in the new explicit parameter protocol.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum MacroParamType {
+    /// Compile-time expression source
+    Expr,
+    /// Child AST nodes
+    Ast,
+    /// Compile-time string value
+    String,
+    /// Compile-time boolean value
+    Bool,
+    /// Compile-time integer value
+    Int,
+    /// Ordered key-value pairs
+    Keyword,
+    /// Module reference (before alias expansion)
+    Module,
+}
+
+/// Single macro parameter declaration.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct MacroParam {
+    pub(crate) param_type: MacroParamType,
+    pub(crate) name: String,
+}
+
+/// Legacy macro attribute/content protocol for backward compatibility.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct LegacyProtocol {
+    /// Attribute bindings: (attribute_name, local_var_name, is_expr)
+    pub(crate) attributes: Vec<(String, String, bool)>,
+    /// Content binding: (local_var_name, optional_head_filter)
+    pub(crate) content: Option<(String, Option<String>)>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct MacroDefinition {
     pub(crate) module_name: String,
     pub(crate) name: String,
+    /// New explicit parameter protocol (Step 2)
+    pub(crate) params: Option<Vec<MacroParam>>,
+    /// Legacy attribute/content protocol for backward compatibility
+    pub(crate) legacy_protocol: Option<LegacyProtocol>,
     pub(crate) body: Vec<FormItem>,
 }
 
