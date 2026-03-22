@@ -370,7 +370,7 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 - `<end>` 会真实结束 REPL
 - `<goto>` 如果跳到别的 script，则沿着目标 script 跑到真实 `End`；由于 `goto` 已放弃当前 session script 上下文，所以目标 script 结束时 REPL 也结束
 
-当前 `sl-repl` crate 还带一个交互式 binary。CLI 会持续读入多行，直到当前 XML fragment 标签配平后再提交。
+当前 `sl-repl` crate 还带一个交互式 binary。CLI 会持续读入多行，直到当前 XML fragment 标签配平后再提交；输入层使用 readline 风格终端编辑，因此方向键移动、history 和基础行内编辑都由终端库处理，不会把 `^[[D` 这类控制序列直接回显到 REPL。
 
 当前支持的 host-side helper commands 有：
 
@@ -387,6 +387,15 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 当前 REPL 的定位已经不是“手动 step runtime 的调试壳”，而是让 macro / lowering / runtime 行为都能以接近 IEx 的交互方式直接验证，同时保留 `:ast / :semantic / :ir` 这种中间态观察能力。
 
 ## Integration Tests
+
+当前 `make gate` 里的 coverage gate 只统计核心语言实现 crate：
+
+- `sl-core`
+- `sl-parser`
+- `sl-compiler`
+- `sl-runtime`
+
+像 `sl-repl` 这种工具型 crate 当前不纳入 coverage 阈值；它仍然会参加 workspace `check / test / clippy`，但不会影响 `llvm-cov` 的行覆盖率和函数覆盖率门禁。
 
 集成测试已经迁移到独立 crate：`sl-integration-tests`。
 

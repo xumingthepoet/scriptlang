@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 rhai.workspace = true
+rustyline = "17.0.2"
 sl-api = { path = "../sl-api" }
 sl-compiler = { path = "../sl-compiler" }
 sl-core = { path = "../sl-core" }

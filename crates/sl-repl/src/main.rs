@@ -1,39 +1,59 @@
-use std::io::{self, Write};
-
+use rustyline::{DefaultEditor, error::ReadlineError};
 use sl_repl::{ExecutionResult, ExecutionState, InspectTarget, ReplSession};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut editor = DefaultEditor::new()?;
     let mut session = ReplSession::new()?;
     let mut buffer = String::new();
 
     while !session.is_exited() {
-        print!(
-            "{}",
-            if buffer.is_empty() {
-                "sl-repl> "
-            } else {
-                "...> "
+        let prompt = if buffer.is_empty() {
+            "sl-repl> "
+        } else {
+            "...> "
+        };
+        let line = match editor.readline(prompt) {
+            Ok(line) => line,
+            Err(ReadlineError::Interrupted) => {
+                if buffer.is_empty() {
+                    println!();
+                } else {
+                    buffer.clear();
+                    eprintln!("error: current xml fragment discarded");
+                }
+                continue;
             }
-        );
-        io::stdout().flush()?;
-
-        let mut line = String::new();
-        if io::stdin().read_line(&mut line)? == 0 {
-            if buffer.trim().is_empty() {
-                break;
+            Err(ReadlineError::Eof) => {
+                if buffer.trim().is_empty() {
+                    break;
+                }
+                if !xml_fragment_is_balanced(&buffer) {
+                    eprintln!("error: incomplete xml fragment");
+                    break;
+                }
+                let input = std::mem::take(&mut buffer);
+                if let Err(error) = editor.add_history_entry(input.trim()) {
+                    eprintln!("error: failed to store history entry: {error}");
+                }
+                match session.submit_xml(&input) {
+                    Ok(result) => print_submission(result),
+                    Err(error) => eprintln!("error: {error}"),
+                }
+                continue;
             }
-            if !xml_fragment_is_balanced(&buffer) {
-                eprintln!("error: incomplete xml fragment");
-                break;
-            }
-        }
+            Err(error) => return Err(error.into()),
+        };
 
         if !buffer.is_empty() || !line.trim_start().starts_with(':') {
             buffer.push_str(&line);
+            buffer.push('\n');
             if !xml_fragment_is_balanced(&buffer) {
                 continue;
             }
             let input = std::mem::take(&mut buffer);
+            if let Err(error) = editor.add_history_entry(input.trim()) {
+                eprintln!("error: failed to store history entry: {error}");
+            }
             match session.submit_xml(&input) {
                 Ok(result) => print_submission(result),
                 Err(error) => eprintln!("error: {error}"),
@@ -42,6 +62,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         let trimmed = line.trim();
+        if !trimmed.is_empty()
+            && let Err(error) = editor.add_history_entry(trimmed)
+        {
+            eprintln!("error: failed to store history entry: {error}");
+        }
         match handle_command(&mut session, trimmed) {
             Ok(Some(output)) if !output.is_empty() => println!("{output}"),
             Ok(_) => {}
