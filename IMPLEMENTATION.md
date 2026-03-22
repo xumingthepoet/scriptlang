@@ -370,7 +370,20 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 - `<end>` 会真实结束 REPL
 - `<goto>` 如果跳到别的 script，则沿着目标 script 跑到真实 `End`；由于 `goto` 已放弃当前 session script 上下文，所以目标 script 结束时 REPL 也结束
 
-当前 `sl-repl` crate 还带一个交互式 binary。CLI 会持续读入多行，直到当前 XML fragment 标签配平后再提交；输入层使用 readline 风格终端编辑，因此方向键移动、history 和基础行内编辑都由终端库处理，不会把 `^[[D` 这类控制序列直接回显到 REPL。
+当前 `sl-repl` crate 还带一个 binary，支持三种入口模式：
+
+- 交互模式
+  - 不带参数直接启动
+  - CLI 会持续读入多行，直到当前 XML fragment 标签配平后再提交
+  - 输入层使用 readline 风格终端编辑，因此方向键移动、history 和基础行内编辑都由终端库处理，不会把 `^[[D` 这类控制序列直接回显到 REPL
+- 命令执行模式
+  - `sl-repl --command '<text>hello</text>'`
+  - `--command` 可以重复出现，按顺序执行多条 REPL 输入
+  - 每条输入仍然走和交互模式相同的命令 / XML 提交语义
+- 文件执行模式
+  - `sl-repl --file path/to/session.repl`
+  - 文件内容按 REPL transcript 解释：顶层以 `:` 开头的行会被当成 host command，其余内容按 XML fragment 多行配平后提交
+  - 因此一个文件里可以混合 `:load`、`:choose` 和多行 XML 片段
 
 当前支持的 host-side helper commands 有：
 

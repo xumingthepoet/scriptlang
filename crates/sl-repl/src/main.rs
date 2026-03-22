@@ -1,9 +1,28 @@
+use std::{env, fs, path::PathBuf};
+
 use rustyline::{DefaultEditor, error::ReadlineError};
-use sl_repl::{ExecutionResult, ExecutionState, InspectTarget, ReplSession};
+use sl_core::ScriptLangError;
+use sl_repl::{ExecutionResult, ExecutionState, InspectTarget, ReplSession, SubmissionResult};
+
+#[derive(Debug)]
+enum CliMode {
+    Interactive,
+    Commands(Vec<String>),
+    File(PathBuf),
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut editor = DefaultEditor::new()?;
     let mut session = ReplSession::new()?;
+    match parse_cli_mode(env::args().skip(1))? {
+        CliMode::Interactive => run_interactive(&mut session)?,
+        CliMode::Commands(commands) => run_commands(&mut session, &commands)?,
+        CliMode::File(path) => run_file(&mut session, &path)?,
+    }
+    Ok(())
+}
+
+fn run_interactive(session: &mut ReplSession) -> Result<(), Box<dyn std::error::Error>> {
+    let mut editor = DefaultEditor::new()?;
     let mut buffer = String::new();
 
     while !session.is_exited() {
@@ -35,10 +54,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Err(error) = editor.add_history_entry(input.trim()) {
                     eprintln!("error: failed to store history entry: {error}");
                 }
-                match session.submit_xml(&input) {
-                    Ok(result) => print_submission(result),
-                    Err(error) => eprintln!("error: {error}"),
-                }
+                submit_and_print(session, &input);
                 continue;
             }
             Err(error) => return Err(error.into()),
@@ -54,10 +70,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Err(error) = editor.add_history_entry(input.trim()) {
                 eprintln!("error: failed to store history entry: {error}");
             }
-            match session.submit_xml(&input) {
-                Ok(result) => print_submission(result),
-                Err(error) => eprintln!("error: {error}"),
-            }
+            submit_and_print(session, &input);
             continue;
         }
 
@@ -67,7 +80,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         {
             eprintln!("error: failed to store history entry: {error}");
         }
-        match handle_command(&mut session, trimmed) {
+        match handle_command(session, trimmed) {
             Ok(Some(output)) if !output.is_empty() => println!("{output}"),
             Ok(_) => {}
             Err(error) => eprintln!("error: {error}"),
@@ -75,6 +88,130 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+fn run_commands(
+    session: &mut ReplSession,
+    commands: &[String],
+) -> Result<(), Box<dyn std::error::Error>> {
+    for command in commands {
+        run_repl_input(session, command)?;
+        if session.is_exited() {
+            break;
+        }
+    }
+    Ok(())
+}
+
+fn run_file(session: &mut ReplSession, path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+    let source = fs::read_to_string(path)?;
+    run_transcript(session, &source)?;
+    Ok(())
+}
+
+fn run_repl_input(session: &mut ReplSession, input: &str) -> Result<(), ScriptLangError> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Ok(());
+    }
+    if trimmed.starts_with(':') {
+        if let Some(output) = handle_command(session, trimmed)?
+            && !output.is_empty()
+        {
+            println!("{output}");
+        }
+    } else {
+        print_submission(session.submit_xml(trimmed)?);
+    }
+    Ok(())
+}
+
+fn run_transcript(session: &mut ReplSession, source: &str) -> Result<(), ScriptLangError> {
+    let mut buffer = String::new();
+    for line in source.lines() {
+        if session.is_exited() {
+            break;
+        }
+        let trimmed = line.trim();
+        if buffer.is_empty() && trimmed.starts_with(':') {
+            run_repl_input(session, trimmed)?;
+            continue;
+        }
+        if buffer.is_empty() && trimmed.is_empty() {
+            continue;
+        }
+        buffer.push_str(line);
+        buffer.push('\n');
+        if xml_fragment_is_balanced(&buffer) {
+            let input = std::mem::take(&mut buffer);
+            run_repl_input(session, &input)?;
+        }
+    }
+
+    if !buffer.trim().is_empty() {
+        if !xml_fragment_is_balanced(&buffer) {
+            return Err(ScriptLangError::message(
+                "incomplete xml fragment in repl input file",
+            ));
+        }
+        let input = std::mem::take(&mut buffer);
+        run_repl_input(session, &input)?;
+    }
+
+    Ok(())
+}
+
+fn parse_cli_mode<I>(mut args: I) -> Result<CliMode, ScriptLangError>
+where
+    I: Iterator<Item = String>,
+{
+    let mut commands = Vec::new();
+    let mut file = None::<PathBuf>;
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "-c" | "--command" => {
+                let command = args.next().ok_or_else(|| {
+                    ScriptLangError::message(format!("`{arg}` requires a following argument"))
+                })?;
+                commands.push(command);
+            }
+            "-f" | "--file" => {
+                let path = args.next().ok_or_else(|| {
+                    ScriptLangError::message(format!("`{arg}` requires a following path"))
+                })?;
+                if file.replace(PathBuf::from(path)).is_some() {
+                    return Err(ScriptLangError::message(
+                        "repl file mode only accepts one path",
+                    ));
+                }
+            }
+            "-h" | "--help" => {
+                println!("{}", cli_help_text());
+                std::process::exit(0);
+            }
+            other => {
+                return Err(ScriptLangError::message(format!(
+                    "unknown argument `{other}`\n{}",
+                    cli_help_text()
+                )));
+            }
+        }
+    }
+
+    if !commands.is_empty() && file.is_some() {
+        return Err(ScriptLangError::message(
+            "cannot combine `--command` and `--file` modes",
+        ));
+    }
+
+    if let Some(path) = file {
+        Ok(CliMode::File(path))
+    } else if commands.is_empty() {
+        Ok(CliMode::Interactive)
+    } else {
+        Ok(CliMode::Commands(commands))
+    }
 }
 
 fn handle_command(
@@ -138,14 +275,25 @@ fn split_command(input: &str) -> (&str, Option<&str>) {
     }
 }
 
-fn print_submission(result: sl_repl::SubmissionResult) {
+fn submit_and_print(session: &mut ReplSession, input: &str) {
+    match session.submit_xml(input) {
+        Ok(result) => print_submission(result),
+        Err(error) => eprintln!("error: {error}"),
+    }
+}
+
+fn print_submission(result: SubmissionResult) {
     match result {
-        sl_repl::SubmissionResult::ContextUpdated => println!("context updated"),
-        sl_repl::SubmissionResult::ModuleUpdated { module_name } => {
+        SubmissionResult::ContextUpdated => println!("context updated"),
+        SubmissionResult::ModuleUpdated { module_name } => {
             println!("module {module_name} updated");
         }
-        sl_repl::SubmissionResult::Executed(execution) => print_execution(&execution),
+        SubmissionResult::Executed(execution) => print_execution(&execution),
     }
+}
+
+fn cli_help_text() -> &'static str {
+    "usage: sl-repl [--command INPUT ...] [--file PATH]\n\nmodes:\n  no args               start interactive repl\n  -c, --command INPUT   execute one repl input, may be repeated\n  -f, --file PATH       execute repl inputs from a transcript file\n  -h, --help            show this help"
 }
 
 fn print_execution(result: &ExecutionResult) {
@@ -273,4 +421,69 @@ fn find_tag_end(input: &str, start: usize) -> Option<usize> {
 
 fn parse_tag_name(raw: &str) -> &str {
     raw.split_whitespace().next().unwrap_or("")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CliMode, parse_cli_mode, run_transcript};
+    use sl_repl::ReplSession;
+    use std::path::PathBuf;
+
+    #[test]
+    fn parse_cli_mode_supports_command_and_file_variants() {
+        let command_mode = parse_cli_mode(
+            ["--command", "<text>hi</text>"]
+                .into_iter()
+                .map(str::to_string),
+        )
+        .expect("command mode should parse");
+        match command_mode {
+            CliMode::Commands(commands) => assert_eq!(commands, vec!["<text>hi</text>"]),
+            _ => panic!("expected command mode"),
+        }
+
+        let file_mode = parse_cli_mode(
+            ["--file", "runs/session.repl"]
+                .into_iter()
+                .map(str::to_string),
+        )
+        .expect("file mode should parse");
+        match file_mode {
+            CliMode::File(path) => assert_eq!(path, PathBuf::from("runs/session.repl")),
+            _ => panic!("expected file mode"),
+        }
+    }
+
+    #[test]
+    fn parse_cli_mode_rejects_mixing_command_and_file() {
+        let error = parse_cli_mode(
+            [
+                "--command",
+                "<text>hi</text>",
+                "--file",
+                "runs/session.repl",
+            ]
+            .into_iter()
+            .map(str::to_string),
+        )
+        .expect_err("mixed modes should fail");
+        assert!(
+            error
+                .to_string()
+                .contains("cannot combine `--command` and `--file` modes")
+        );
+    }
+
+    #[test]
+    fn transcript_runner_supports_commands_and_multiline_xml() {
+        let mut session = ReplSession::new().expect("session should build");
+        run_transcript(
+            &mut session,
+            ":help\n<temp name=\"hero\" type=\"int\">1</temp>\n<text>{@hero}</text>\n",
+        )
+        .expect("transcript should execute");
+
+        let bindings = session.inspect(sl_repl::InspectTarget::Bindings);
+        assert!(bindings.contains("hero"));
+    }
 }
