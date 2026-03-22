@@ -50,6 +50,48 @@ fn convert_form_to_stmt(form: &Form) -> Result<CtStmt, ScriptLangError> {
         "set" => convert_set_form(form),
         "if" => convert_if_form(form),
         "return" => convert_return_form(form),
+        // Step 5: support standalone builtins as statements (for side effects)
+        "require_module" => {
+            // <require_module><attr name="module"/></require_module>
+            let child = single_child_form(form)?;
+            let arg = convert_expr_form(&child)?;
+            Ok(CtStmt::Expr {
+                expr: CtExpr::BuiltinCall {
+                    name: "require_module".to_string(),
+                    args: vec![arg],
+                },
+            })
+        }
+        "expand_alias" => {
+            let child = single_child_form(form)?;
+            let arg = convert_expr_form(&child)?;
+            Ok(CtStmt::Expr {
+                expr: CtExpr::BuiltinCall {
+                    name: "expand_alias".to_string(),
+                    args: vec![arg],
+                },
+            })
+        }
+        "keyword_attr" => {
+            let name = required_attr(form, "name")?;
+            Ok(CtStmt::Expr {
+                expr: CtExpr::BuiltinCall {
+                    name: "keyword_attr".to_string(),
+                    args: vec![CtExpr::Literal(CtValue::String(name.to_string()))],
+                },
+            })
+        }
+        "invoke_macro" => {
+            let expr = convert_expr_form(form)?;
+            Ok(CtStmt::Return { value: expr })
+        }
+        // Step 5: <quote> at top level returns QuoteForms
+        "quote" => {
+            let children = extract_form_children(form)?;
+            Ok(CtStmt::Return {
+                value: CtExpr::QuoteForms { items: children },
+            })
+        }
         other => Err(error_at(
             form,
             format!("unsupported compile-time macro form <{}>", other),
@@ -72,6 +114,19 @@ fn convert_let_form(form: &Form) -> Result<CtStmt, ScriptLangError> {
             args: vec![],
         };
         return Ok(CtStmt::Let { name, value });
+    }
+
+    // Handle <require_module> as a let provider (returns expanded module name as string)
+    if provider.head.as_str() == "require_module" {
+        let inner = single_child_form(&provider)?;
+        let arg = convert_expr_form(&inner)?;
+        return Ok(CtStmt::Let {
+            name,
+            value: CtExpr::BuiltinCall {
+                name: "require_module".to_string(),
+                args: vec![arg],
+            },
+        });
     }
 
     let value = convert_provider_to_expr(&provider, type_name)?;
@@ -278,6 +333,13 @@ fn convert_expr_form(form: &Form) -> Result<CtExpr, ScriptLangError> {
                 args: vec![CtExpr::Literal(CtValue::String(attr_name.to_string()))],
             })
         }
+        // Step 5: <var name="X"/> -> CtExpr::Var (reference a bound macro parameter)
+        "var" => {
+            let var_name = required_attr(form, "name")?;
+            Ok(CtExpr::Var {
+                name: var_name.to_string(),
+            })
+        }
         "get-content" => {
             let head_filter = attr(form, "head");
             let args = if let Some(head) = head_filter {
@@ -299,6 +361,121 @@ fn convert_expr_form(form: &Form) -> Result<CtExpr, ScriptLangError> {
                 name: "caller_module".to_string(),
                 args: vec![],
             })
+        }
+        // Step 5: <require_module><child_expr/></require_module> -> builtin_call
+        "require_module" => {
+            let child = single_child_form(form)?;
+            let arg = convert_expr_form(&child)?;
+            Ok(CtExpr::BuiltinCall {
+                name: "require_module".to_string(),
+                args: vec![arg],
+            })
+        }
+        // Step 5: <expand_alias><child_expr/></expand_alias> -> builtin_call
+        "expand_alias" => {
+            let child = single_child_form(form)?;
+            let arg = convert_expr_form(&child)?;
+            Ok(CtExpr::BuiltinCall {
+                name: "expand_alias".to_string(),
+                args: vec![arg],
+            })
+        }
+        // Step 5: <keyword_attr name="x"/> -> builtin_call
+        "keyword_attr" => {
+            let name = required_attr(form, "name")?;
+            Ok(CtExpr::BuiltinCall {
+                name: "keyword_attr".to_string(),
+                args: vec![CtExpr::Literal(CtValue::String(name.to_string()))],
+            })
+        }
+        // Step 5: <invoke_macro module="..." macro_name="__using__" opts="opts"/> -> builtin_call
+        "invoke_macro" => {
+            // module: if it's a bound variable name (module, resolved, etc.), use CtExpr::Var;
+            // otherwise treat as a literal string (attr() builtin)
+            let module_expr = if let Ok(module_attr) = required_attr(form, "module") {
+                // Check if it looks like a variable name (alphanumeric + underscore)
+                if module_attr.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                    // Bound variable: use CtExpr::Var
+                    CtExpr::Var {
+                        name: module_attr.to_string(),
+                    }
+                } else {
+                    // Literal string: use attr() builtin
+                    CtExpr::BuiltinCall {
+                        name: "attr".to_string(),
+                        args: vec![CtExpr::Literal(CtValue::String(module_attr.to_string()))],
+                    }
+                }
+            } else {
+                // Fallback: expect <var name="module"/> or <get-attribute name="module"/> as child
+                let children = extract_form_children(form)?;
+                if let Some(FormItem::Form(child)) = children.first() {
+                    if child.head == "var" {
+                        let var_name = attr(child, "name").unwrap_or("module");
+                        Ok(CtExpr::Var {
+                            name: var_name.to_string(),
+                        })
+                    } else if child.head == "get-attribute" {
+                        convert_expr_form(child)
+                    } else {
+                        Err(error_at(
+                            form,
+                            "<invoke_macro> child must be <var> or <get-attribute>",
+                        ))
+                    }?
+                } else {
+                    return Err(error_at(
+                        form,
+                        "<invoke_macro> requires module attribute or <var>/<get-attribute> child",
+                    ));
+                }
+            };
+            // macro_name attribute: "__using__"
+            let macro_name = required_attr(form, "macro_name")?;
+            // opts variable reference: look for opts="opts" attribute -> CtExpr::Var { name: "opts" }
+            let opts_attr = attr(form, "opts");
+            let opts_expr = if let Some(opts_name) = opts_attr {
+                if opts_name == "opts" {
+                    CtExpr::Var {
+                        name: "opts".to_string(),
+                    }
+                } else {
+                    return Err(error_at(
+                        form,
+                        format!(
+                            "<invoke_macro> opts attribute must be 'opts', got '{}'",
+                            opts_name
+                        ),
+                    ));
+                }
+            } else {
+                // Fallback: <keyword_attr name="opts"/>
+                let children = extract_form_children(form)?;
+                if let Some(FormItem::Form(child)) = children
+                    .iter()
+                    .find(|c| matches!(c, FormItem::Form(f) if f.head == "keyword_attr"))
+                {
+                    convert_expr_form(child)?
+                } else {
+                    return Err(error_at(
+                        form,
+                        "<invoke_macro> requires opts=\"opts\" attribute or <keyword_attr name=\"opts\"/> child",
+                    ));
+                }
+            };
+            Ok(CtExpr::BuiltinCall {
+                name: "invoke_macro".to_string(),
+                args: vec![
+                    module_expr,
+                    CtExpr::Literal(CtValue::String(macro_name.to_string())),
+                    opts_expr,
+                ],
+            })
+        }
+        // Step 5: <quote>...</quote> as expression: produce QuoteForms
+        "quote" => {
+            let children = extract_form_children(form)?;
+            Ok(CtExpr::QuoteForms { items: children })
         }
         other => Err(error_at(
             form,

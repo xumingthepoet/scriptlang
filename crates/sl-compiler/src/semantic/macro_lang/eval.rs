@@ -226,3 +226,21 @@ fn ct_value_to_macro_value(ct: &CtValue) -> MacroValue {
         CtValue::CallerEnv => MacroValue::String("<caller_env>".to_string()),
     }
 }
+
+/// Convert a MacroValue to a CtValue so macro parameters (stored in MacroEnv.locals)
+/// are accessible as CtExpr::Var references in the compile-time evaluator.
+pub(crate) fn macro_value_to_ct_value(mv: &MacroValue) -> CtValue {
+    match mv {
+        MacroValue::Nil => CtValue::Nil,
+        MacroValue::Bool(b) => CtValue::Bool(*b),
+        MacroValue::Int(i) => CtValue::Int(*i),
+        MacroValue::String(s) => CtValue::String(s.clone()),
+        MacroValue::Expr(s) => CtValue::String(s.clone()),
+        MacroValue::AstItems(items) => CtValue::Ast(items.clone()),
+        MacroValue::Keyword(kv) => CtValue::Keyword(
+            kv.iter()
+                .map(|(k, v)| (k.clone(), macro_value_to_ct_value(v)))
+                .collect(),
+        ),
+    }
+}

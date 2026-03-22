@@ -85,6 +85,8 @@ impl Default for BuiltinRegistry {
 // ============================================================================
 
 /// `attr(name)`: Get macro invocation attribute value.
+/// Falls back to checking keyword parameters in macro_env.locals when the
+/// attribute is not found in macro_env.attributes (handles keyword:opts protocol).
 fn builtin_attr(
     args: &[CtValue],
     macro_env: &MacroEnv,
@@ -106,12 +108,32 @@ fn builtin_attr(
         }
     };
 
-    macro_env
-        .get_attribute(&attr_name)
-        .map(|s| CtValue::String(s.clone()))
-        .ok_or_else(|| ScriptLangError::Message {
-            message: format!("Attribute '{}' not found", attr_name),
-        })
+    // First check invocation attributes (legacy protocol and explicit attribute params)
+    if let Some(s) = macro_env.get_attribute(&attr_name) {
+        return Ok(CtValue::String(s.clone()));
+    }
+
+    // Fall back: check keyword parameters in macro_env.locals
+    // (for keyword:opts protocol, invocation attrs are stored as keyword in locals)
+    for value in macro_env.locals.values() {
+        if let MacroValue::Keyword(kv) = value {
+            for (k, v) in kv {
+                if k == &attr_name {
+                    let s = match v {
+                        MacroValue::String(s) => s.clone(),
+                        MacroValue::Expr(s) => s.clone(),
+                        MacroValue::Nil => String::new(),
+                        _ => format!("{:?}", v),
+                    };
+                    return Ok(CtValue::String(s));
+                }
+            }
+        }
+    }
+
+    Err(ScriptLangError::Message {
+        message: format!("Attribute '{}' not found", attr_name),
+    })
 }
 
 /// `content()` or `content(head="...")`: Get macro invocation content.
@@ -194,6 +216,7 @@ fn builtin_content(
 }
 
 /// `has_attr(name)`: Check if macro invocation has an attribute.
+/// Also checks keyword parameters in macro_env.locals (for keyword:opts protocol).
 fn builtin_has_attr(
     args: &[CtValue],
     macro_env: &MacroEnv,
@@ -218,7 +241,23 @@ fn builtin_has_attr(
         }
     };
 
-    Ok(CtValue::Bool(macro_env.has_attribute(&attr_name)))
+    // Check invocation attributes first
+    if macro_env.has_attribute(&attr_name) {
+        return Ok(CtValue::Bool(true));
+    }
+
+    // Also check keyword parameters in macro_env.locals
+    for value in macro_env.locals.values() {
+        if let MacroValue::Keyword(kv) = value {
+            for (k, _v) in kv {
+                if k == &attr_name {
+                    return Ok(CtValue::Bool(true));
+                }
+            }
+        }
+    }
+
+    Ok(CtValue::Bool(false))
 }
 
 /// `keyword_get(keyword, key)`: Get a value from a keyword list.
@@ -647,20 +686,25 @@ fn builtin_require_module(
         }
     };
 
-    // Check if already required
-    if !macro_env.requires.contains(&module_ref) {
-        // Expand alias if needed
-        let full_name = macro_env
-            .aliases
-            .get(&module_ref)
-            .cloned()
-            .unwrap_or(module_ref.clone());
+    // Expand alias if needed (e.g. "H" -> "helper")
+    let full_name = macro_env
+        .aliases
+        .get(&module_ref)
+        .cloned()
+        .unwrap_or_else(|| module_ref.clone());
 
+    // Also check expand_env.module.requires for the expanded name (in case already added)
+    let already_required = macro_env.requires.contains(&module_ref)
+        || macro_env.requires.contains(&full_name)
+        || expand_env.module.requires.contains(&full_name);
+
+    if !already_required {
         // Add to expand_env requires (this affects subsequent macro resolution)
-        expand_env.add_require(full_name);
+        expand_env.add_require(full_name.clone());
     }
 
-    Ok(CtValue::Nil)
+    // Return the expanded module name so callers (like invoke_macro) use the resolved name
+    Ok(CtValue::String(full_name))
 }
 
 /// `define_import(module_ref)`: Add an import to the current module.
@@ -836,12 +880,15 @@ fn builtin_invoke_macro(
         .unwrap_or(module_ref.clone());
 
     // Check that the module is required (or is the current module)
+    // Also check expand_env.module.requires since require_module() adds to expand_env
     let is_current_module = macro_env
         .current_module
         .as_ref()
         .map(|m| m == &resolved_module)
         .unwrap_or(false);
-    let is_required = macro_env.requires.contains(&resolved_module);
+    let is_required_in_macro = macro_env.requires.contains(&resolved_module);
+    let is_required_in_expand = expand_env.module.requires.contains(&resolved_module);
+    let is_required = is_required_in_macro || is_required_in_expand;
 
     if !is_current_module && !is_required {
         return Err(ScriptLangError::Message {

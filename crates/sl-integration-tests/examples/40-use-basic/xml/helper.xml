@@ -1,0 +1,10 @@
+<module name="helper">
+  <macro name="__using__" params="keyword:opts">
+    <quote>
+      <script name="main">
+        <text>hello from use</text>
+        <end/>
+      </script>
+    </quote>
+  </macro>
+</module>

@@ -124,9 +124,29 @@ fn process_form(
             Ok(ProcessedItem::Output(vec![FormItem::Form(form.clone())]))
         }
         "alias" => {
-            let alias_target = required_attr(form, "name")?;
-            let alias_name = alias_name(form)?;
-            env.add_alias(alias_name, alias_target.to_string())
+            // Support two syntaxes:
+            // 1. <alias name="module" as="alias_name"/> (Elixir-style: name=module, as=alias)
+            //    -> add_alias(alias_name, module)
+            // 2. <alias name="alias_name" target="module"/> (explicit: name=alias, target=module)
+            //    -> add_alias(alias_name, module)
+            let alias_name_str = if let Some(as_name) = attr(form, "as") {
+                // Syntax 1: name=module, as=alias
+                as_name.to_string()
+            } else if attr(form, "target").is_some() {
+                // Syntax 2: name=alias, target=module
+                required_attr(form, "name")?.to_string()
+            } else {
+                // Fallback: name=module (last segment becomes alias)
+                alias_name(form)?.to_string()
+            };
+            let target_str = if let Some(target) = attr(form, "target") {
+                // Syntax 2: target=module
+                target.to_string()
+            } else {
+                // Syntax 1 or fallback: name=module
+                required_attr(form, "name")?.to_string()
+            };
+            env.add_alias(alias_name_str, target_str)
                 .map_err(|message| error_at(form, message))?;
             Ok(ProcessedItem::Output(vec![FormItem::Form(form.clone())]))
         }

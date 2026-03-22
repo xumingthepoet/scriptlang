@@ -1,0 +1,6 @@
+<module name="helper">
+  <script name="main">
+    <text>hello</text>
+    <end/>
+  </script>
+</module>

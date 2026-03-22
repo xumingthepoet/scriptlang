@@ -1,0 +1,3 @@
+<module name="main">
+  <use module="helper"/>
+</module>

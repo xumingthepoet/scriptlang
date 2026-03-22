@@ -626,7 +626,8 @@ mod ct_lang_tests {
             &mut expand_env,
         )
         .expect("require_module");
-        assert_eq!(result, CtValue::Nil);
+        // Returns the expanded module name (helper has no alias, so returns "helper")
+        assert_eq!(result, CtValue::String("helper".to_string()));
 
         // Verify it was added
         assert!(expand_env.module.requires.contains(&"helper".to_string()));
@@ -639,7 +640,8 @@ mod ct_lang_tests {
             &mut expand_env,
         )
         .expect("require_module idempotent");
-        assert_eq!(result, CtValue::Nil);
+        // Returns the expanded name even when already required
+        assert_eq!(result, CtValue::String("helper".to_string()));
     }
 
     #[test]

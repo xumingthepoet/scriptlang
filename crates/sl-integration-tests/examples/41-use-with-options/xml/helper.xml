@@ -1,0 +1,23 @@
+<module name="helper">
+  <macro name="__using__" params="keyword:opts">
+    <if>
+      <get-attribute name="async"/>
+      <then>
+        <quote>
+          <script name="main">
+            <text>async mode</text>
+            <end/>
+          </script>
+        </quote>
+      </then>
+      <else>
+        <quote>
+          <script name="main">
+            <text>sync mode</text>
+            <end/>
+          </script>
+        </quote>
+      </else>
+    </if>
+  </macro>
+</module>

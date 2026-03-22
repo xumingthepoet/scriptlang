@@ -68,7 +68,16 @@ fn analyze_module<'a>(
                 validate_require_target(catalog, child, &name, &require_name)?;
             }
             "alias" => {
-                let alias_target = required_attr(child, "name")?.to_string();
+                // Support two syntaxes:
+                // 1. <alias name="module" as="alias_name"/> (name=module, as=alias)
+                // 2. <alias name="alias_name" target="module"/> (name=alias, target=module)
+                let alias_target = if let Some(target) = attr(child, "target") {
+                    // Syntax 2: target is the module
+                    target.to_string()
+                } else {
+                    // Syntax 1 or default: name is the module
+                    required_attr(child, "name")?.to_string()
+                };
                 validate_alias_target(catalog, child, &name, &alias_target)?;
                 scope.add_alias(&alias_name(child)?, &alias_target);
             }

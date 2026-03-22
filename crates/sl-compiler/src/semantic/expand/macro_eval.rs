@@ -8,7 +8,7 @@ use super::raw_body_text;
 use crate::semantic::env::ExpandEnv;
 use crate::semantic::macro_lang::BuiltinRegistry;
 use crate::semantic::macro_lang::convert::convert_macro_body;
-use crate::semantic::macro_lang::eval::eval_block;
+use crate::semantic::macro_lang::eval::{eval_block, macro_value_to_ct_value};
 use crate::semantic::{attr, error_at, required_attr};
 
 /// Evaluate macro items using the NEW compile-time evaluator (Step 4).
@@ -28,16 +28,19 @@ pub(crate) fn evaluate_macro_items(
     let block = convert_macro_body(_body)?;
     let builtins = BuiltinRegistry::new();
 
-    let result = eval_block(
-        &block,
-        &runtime,
-        &mut crate::semantic::macro_lang::CtEnv::new(),
-        &builtins,
-        env,
-    )
-    .map_err(|e: ScriptLangError| ScriptLangError::Message {
-        message: e.to_string(),
-    })?;
+    // Pre-populate ct_env from macro params stored in macro_env.locals (MacroValue).
+    // This makes macro parameters (e.g. `opts` from `keyword:opts`) accessible as
+    // CtExpr::Var references in the compile-time evaluator.
+    let mut ct_env = crate::semantic::macro_lang::CtEnv::new();
+    for (name, mv) in &runtime.locals {
+        ct_env.set(name.clone(), macro_value_to_ct_value(mv));
+    }
+
+    let result = eval_block(&block, &runtime, &mut ct_env, &builtins, env).map_err(
+        |e: ScriptLangError| ScriptLangError::Message {
+            message: e.to_string(),
+        },
+    )?;
 
     let value = result
         .into_value()

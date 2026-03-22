@@ -58,4 +58,14 @@
       </while>
     </quote>
   </macro>
+  <!-- Step 5: Elixir-style use macro -->
+  <!-- use: requires module + invokes target.__using__(opts) -->
+  <macro name="use" params="string:module,keyword:opts">
+    <let name="resolved" type="string">
+      <require_module>
+        <var name="module"/>
+      </require_module>
+    </let>
+    <invoke_macro module="resolved" macro_name="__using__" opts="opts"/>
+  </macro>
 </module>

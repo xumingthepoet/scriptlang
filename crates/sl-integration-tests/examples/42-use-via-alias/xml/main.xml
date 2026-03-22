@@ -1,0 +1,4 @@
+<module name="main">
+  <alias name="H" target="helper"/>
+  <use module="H"/>
+</module>

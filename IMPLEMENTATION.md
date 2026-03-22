@@ -155,7 +155,7 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
     - `eval.rs`: compile-time AST 评估器（eval_block / eval_stmt / eval_expr）
     - `builtins.rs`: builtin 函数注册表（attr / content / has_attr / parse_bool / parse_int 等）
     - `env.rs`: compile-time 环境（CtEnv）
-    - `convert.rs`: 旧 XML macro body 到新 compile-time AST 转换器（未集成）
+    - `convert.rs`: 旧 XML macro body 到新 compile-time AST 转换器（已集成，用于 macro_eval）
     - `values.rs`: 类型重导出
   - [`macros.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/macros.rs)：macro 定义收集、可见性查找和模板式宏展开
   - [`quote.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/quote.rs)：`quote / unquote`、AST splice 和最小 hygiene
@@ -588,3 +588,139 @@ Step 2 已完成，后续工作：
 - Step 3: 重写 module expand 为"定义期 reducer"
 - Step 4: 支持远程 macro 调用和更完整的 caller env
 - Step 5: 实现 `__using__` 协议和 kernel `use` 宏
+
+## Step 3: Module Reducer（2026-03-23）
+
+完成状态：已完成
+
+### 架构变更
+
+#### 新增模块
+
+- [`module_reducer.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/module_reducer.rs)
+  - 实现 definition-time reducer 模式
+  - `reduce_module_children()`: 处理 `FormItem` 队列的统一入口
+  - `ProcessedItem` 枚举：区分 Output / Requeue / Skip 三种处理结果
+  - 宏展开后重新入队，确保定义期 form 能推进后续 sibling 的编译期环境
+  - 支持 import/require/alias/const/var/script/function/module 的定义期处理
+  - 嵌套 module 递归展开支持
+
+#### module.rs 重构
+
+- 使用 `reduce_module_children` 替代原来的手动遍历逻辑
+- 消除循环导入：`expand_nested_module_form` 在 `module_reducer.rs` 中延迟调用
+- 删除重复的辅助函数（移至 `module_reducer.rs`）
+
+### 关键语义保证
+
+- 宏展开的 form 按源码位置立即生效
+- 后续 sibling 必须看得到前面 macro 注入的 import/require/alias/exports
+
+### 测试状态
+
+- 所有现有测试通过（123 compiler unit tests + 7 runtime tests + 9 integration tests）
+- Coverage: 90.12% lines, 92.64% functions
+- `make gate` 通过
+
+## Step 4: 远程宏调用和 Caller Env（2026-03-23）
+
+完成状态：已完成
+
+### 架构变更
+
+#### 新 compile-time builtin 函数（builtins.rs）
+
+- `caller_env()`: 返回包含 current_module, imports, requires, aliases 的 keyword
+- `caller_module()`: 返回当前模块名字符串
+- `expand_alias(module_ref)`: 解析别名或返回原名
+- `require_module(module_ref)`: 添加模块到 requires
+- `define_import(module_ref)`: 添加 import
+- `define_alias(module_ref, as)`: 添加别名映射
+- `define_require(module_ref)`: 添加 require
+- `invoke_macro(module, macro_name, args)`: 远程宏调用
+- `keyword_attr(name)`: 从 macro_env.locals 获取 keyword
+
+#### convert.rs 扩展
+
+- 支持 `<var name="X"/>` 表达式（引用绑定的宏参数）
+- 支持 `<require_module>`, `<expand_alias>`, `<keyword_attr>` 作为语句或表达式
+- 支持 `<invoke_macro module="..." macro_name="..." opts="..."/>` 调用
+
+#### macro_eval.rs 集成
+
+- `evaluate_macro_items` 现在使用 `convert_macro_body` + `eval_block`
+- 添加 `CtEnv::all()` 方法用于 CtEnv 到 MacroEnv.locals 同步
+- 实现 `sync_ct_env_to_macro_env` 和 `ct_value_to_macro_value` 类型桥接
+
+#### 远程宏分派规则
+
+- 必须先 `require` 目标模块
+- 支持 alias 展开后的 module path
+- 调用目标模块的已注册 macro
+- 保留源位置信息，错误文本带 caller 位置信息
+
+### 测试状态
+
+- 所有现有测试通过（165 compiler unit tests + 7 runtime tests + 9 integration tests）
+- 新增集成测试 37/38/39
+- Coverage: 90.83% lines, 93.19% functions
+- `make gate` 通过
+
+## Step 5: `__using__` 协议和 kernel `use` 宏（2026-03-23）
+
+完成状态：已完成
+
+### 架构变更
+
+#### kernel.xml 新增 `use` 宏
+
+```xml
+<macro name="use" params="string:module,keyword:opts">
+  <let name="resolved" type="string">
+    <require_module>
+      <var name="module"/>
+    </require_module>
+  </let>
+  <invoke_macro module="resolved" macro_name="__using__" opts="opts"/>
+</macro>
+```
+
+#### `__using__` 协议
+
+Provider module 通过 `<macro name="__using__" params="keyword:opts">` 暴露 hook：
+
+```xml
+<macro name="__using__" params="keyword:opts">
+  <quote>
+    <script name="main">
+      <text>hello</text>
+      <end/>
+    </script>
+  </quote>
+</macro>
+```
+
+#### `use` 语义
+
+1. 读取 `module` 属性（作为 `string` 参数绑定）
+2. 收集其它属性为 ordered keyword `opts`（作为 `keyword` 参数绑定）
+3. `require_module(module)` 确保目标模块在 scope 内
+4. `invoke_macro(module, "__using__", [opts])` 调用目标模块的 `__using__` 宏
+5. 返回的 AST 和定义期副作用通过 Step 3 的 reducer 回灌 caller
+
+#### builtin 扩展
+
+- `require_module`: 返回 expanded module name（供后续 `invoke_macro` 使用）
+- `invoke_macro`: 检查 `macro_env.requires` 和 `expand_env.module.requires`
+- `attr()` / `has_attr()`: 也检查 `macro_env.locals` 中的 keyword 参数
+
+#### alias 语法扩展
+
+支持 `<alias name="X" target="Y"/>` 语法（`name` 是 alias，`target` 是 module）
+
+### 测试状态
+
+- 所有现有测试通过（165 compiler unit tests + 7 runtime tests + 14 integration tests）
+- 新增集成测试 40/41/42/43/44
+- Coverage: 89.61% lines, 90.43% functions
+- `make gate` 通过

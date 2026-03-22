@@ -1,0 +1,2 @@
+text hello via alias
+end
