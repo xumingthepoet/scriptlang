@@ -486,4 +486,16 @@ mod tests {
         let bindings = session.inspect(sl_repl::InspectTarget::Bindings);
         assert!(bindings.contains("hero"));
     }
+
+    #[test]
+    fn transcript_runner_can_define_module_script_and_execute_it() {
+        let mut session = ReplSession::new().expect("session should build");
+        run_transcript(
+            &mut session,
+            "<module name=\"demo\">\n  <script name=\"run\">\n    <text>ok</text>\n    <end/>\n  </script>\n</module>\n<goto script=\"@demo.run\"/>\n",
+        )
+        .expect("transcript should execute repl-defined script");
+
+        assert!(session.is_exited());
+    }
 }

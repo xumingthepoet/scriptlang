@@ -1,6 +1,10 @@
 use std::collections::BTreeMap;
 
-use sl_core::{CompiledArtifact, Form, ScriptLangError};
+use sl_compiler::{CompileOptions, compile_artifact_with_options};
+use sl_core::{
+    CompiledArtifact, Form, FormField, FormItem, FormMeta, FormValue, ScriptLangError,
+    SourcePosition,
+};
 
 pub use sl_compiler::compile_artifact;
 pub use sl_core;
@@ -9,6 +13,9 @@ pub use sl_runtime::Engine;
 
 const BUNDLED_LIBRARY_SOURCES: &[(&str, &str)] =
     &[("lib/kernel.xml", include_str!("../lib/kernel.xml"))];
+const API_SESSION_MODULE: &str = "__sl_api__";
+const API_SESSION_SCRIPT: &str = "__entry__";
+const API_SESSION_SCRIPT_REF: &str = "__sl_api__.__entry__";
 
 pub fn parse_modules_from_sources(
     sources: &BTreeMap<String, String>,
@@ -23,14 +30,30 @@ pub fn compile_artifact_from_xml_map(
     sl_compiler::compile_artifact(&modules)
 }
 
+pub fn start_runtime_session_from_xml_map(
+    sources: &BTreeMap<String, String>,
+    entry_script_ref: Option<&str>,
+) -> Result<Engine, ScriptLangError> {
+    let entry_script_ref = entry_script_ref.unwrap_or("main.main");
+    let mut modules = parse_modules_from_sources(sources)?;
+    reject_reserved_session_module(&modules)?;
+    modules.push(build_entry_session_module(entry_script_ref));
+    let artifact = compile_artifact_with_options(
+        &modules,
+        &CompileOptions {
+            default_entry_script_ref: API_SESSION_SCRIPT_REF.to_string(),
+        },
+    )?;
+    let mut engine = sl_runtime::Engine::new(artifact);
+    engine.start(None)?;
+    Ok(engine)
+}
+
 pub fn create_engine_from_xml_map(
     sources: &BTreeMap<String, String>,
     entry_script_ref: Option<&str>,
 ) -> Result<Engine, ScriptLangError> {
-    let artifact = compile_artifact_from_xml_map(sources)?;
-    let mut engine = sl_runtime::Engine::new(artifact);
-    engine.start(entry_script_ref)?;
-    Ok(engine)
+    start_runtime_session_from_xml_map(sources, entry_script_ref)
 }
 
 fn merged_sources(user_sources: &BTreeMap<String, String>) -> BTreeMap<String, String> {
@@ -43,13 +66,82 @@ fn merged_sources(user_sources: &BTreeMap<String, String>) -> BTreeMap<String, S
     sources
 }
 
+fn reject_reserved_session_module(forms: &[Form]) -> Result<(), ScriptLangError> {
+    if forms.iter().any(|form| {
+        form.head == "module" && module_name(form).is_ok_and(|name| name == API_SESSION_MODULE)
+    }) {
+        return Err(ScriptLangError::message(format!(
+            "module name `{API_SESSION_MODULE}` is reserved for api runtime entry"
+        )));
+    }
+    Ok(())
+}
+
+fn build_entry_session_module(entry_script_ref: &str) -> Form {
+    build_form(
+        "module",
+        vec![("name", API_SESSION_MODULE.to_string())],
+        vec![FormItem::Form(build_form(
+            "script",
+            vec![("name", API_SESSION_SCRIPT.to_string())],
+            vec![FormItem::Form(build_form(
+                "goto",
+                vec![("script", format!("'{entry_script_ref}'"))],
+                Vec::new(),
+            ))],
+        ))],
+    )
+}
+
+fn build_form(head: &str, attrs: Vec<(&str, String)>, children: Vec<FormItem>) -> Form {
+    let mut fields = attrs
+        .into_iter()
+        .map(|(name, value)| FormField {
+            name: name.to_string(),
+            value: FormValue::String(value),
+        })
+        .collect::<Vec<_>>();
+    fields.push(FormField {
+        name: "children".to_string(),
+        value: FormValue::Sequence(children),
+    });
+    Form {
+        head: head.to_string(),
+        meta: synthetic_meta(),
+        fields,
+    }
+}
+
+fn synthetic_meta() -> FormMeta {
+    FormMeta {
+        source_name: Some("<sl-api>".to_string()),
+        start: SourcePosition { row: 1, column: 1 },
+        end: SourcePosition { row: 1, column: 1 },
+        start_byte: 0,
+        end_byte: 0,
+    }
+}
+
+fn module_name(form: &Form) -> Result<&str, ScriptLangError> {
+    form.fields
+        .iter()
+        .find(|field| field.name == "name")
+        .ok_or_else(|| ScriptLangError::message("expected a <module> form with `name`"))
+        .and_then(|field| match &field.value {
+            FormValue::String(value) => Ok(value.as_str()),
+            FormValue::Sequence(_) => {
+                Err(ScriptLangError::message("<module>.name must be a string"))
+            }
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
 
     use sl_core::{Completion, StepEvent, StepResult};
 
-    use super::{create_engine_from_xml_map, parse_modules_from_sources};
+    use super::{parse_modules_from_sources, start_runtime_session_from_xml_map};
 
     #[test]
     fn parse_modules_from_sources_includes_bundled_library_modules() {
@@ -68,7 +160,7 @@ mod tests {
     }
 
     #[test]
-    fn create_engine_from_xml_map_uses_user_defined_zero_const() {
+    fn start_runtime_session_from_xml_map_uses_user_defined_zero_const() {
         let sources = BTreeMap::from([(
             "main.xml".to_string(),
             r#"
@@ -83,7 +175,7 @@ mod tests {
             "#
             .to_string(),
         )]);
-        let mut engine = create_engine_from_xml_map(&sources, None).expect("engine");
+        let mut engine = start_runtime_session_from_xml_map(&sources, None).expect("engine");
 
         loop {
             match engine.step().expect("step") {
@@ -103,7 +195,7 @@ mod tests {
     }
 
     #[test]
-    fn create_engine_from_xml_map_expands_kernel_statement_macros() {
+    fn start_runtime_session_from_xml_map_expands_kernel_statement_macros() {
         let sources = BTreeMap::from([(
             "main.xml".to_string(),
             r#"
@@ -121,7 +213,7 @@ mod tests {
             "#
             .to_string(),
         )]);
-        let mut engine = create_engine_from_xml_map(&sources, None).expect("engine");
+        let mut engine = start_runtime_session_from_xml_map(&sources, None).expect("engine");
         let mut events = Vec::new();
         loop {
             match engine.step().expect("step") {
@@ -133,5 +225,41 @@ mod tests {
         }
 
         assert_eq!(events, vec!["hello".to_string(), "inside".to_string()]);
+    }
+
+    #[test]
+    fn start_runtime_session_from_xml_map_uses_hidden_session_goto_for_custom_entry() {
+        let sources = BTreeMap::from([(
+            "main.xml".to_string(),
+            r#"
+            <module name="main">
+              <script name="main">
+                <text>default</text>
+                <end/>
+              </script>
+              <script name="alt">
+                <text>alt</text>
+                <end/>
+              </script>
+            </module>
+            "#
+            .to_string(),
+        )]);
+        let mut engine =
+            start_runtime_session_from_xml_map(&sources, Some("main.alt")).expect("engine");
+        match engine.step().expect("step") {
+            StepResult::Progress => {}
+            other => panic!("expected initial progress, got {other:?}"),
+        }
+        loop {
+            match engine.step().expect("step") {
+                StepResult::Progress => continue,
+                StepResult::Event(StepEvent::Text { text, .. }) => {
+                    assert_eq!(text, "alt");
+                    break;
+                }
+                other => panic!("expected text event, got {other:?}"),
+            }
+        }
     }
 }

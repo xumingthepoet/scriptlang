@@ -396,7 +396,6 @@ version = "0.1.0"
 dependencies = [
  "rhai",
  "rustyline",
- "sl-api",
  "sl-compiler",
  "sl-core",
  "sl-parser",

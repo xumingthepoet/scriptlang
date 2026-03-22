@@ -3,7 +3,6 @@ use std::fs;
 use std::path::Path;
 
 use rhai::Dynamic;
-use sl_api::parse_modules_from_sources;
 use sl_compiler::{
     CompileOptions, CompilePipeline, DeclaredType, SemanticChoiceOption, SemanticModule,
     SemanticProgram, SemanticScript, SemanticStmt, compile_pipeline_with_options,
@@ -16,6 +15,8 @@ use sl_core::{
 use sl_parser::{parse_modules_from_xml_map, parse_xml_fragment};
 use sl_runtime::Engine;
 
+const KERNEL_SOURCE_NAME: &str = "lib/kernel.xml";
+const KERNEL_SOURCE_XML: &str = include_str!("../../sl-api/lib/kernel.xml");
 const RESERVED_SESSION_MODULE: &str = "__repl__";
 const RESERVED_SESSION_SCRIPT: &str = "__session__";
 const SESSION_SCRIPT_REF: &str = "__repl__.__session__";
@@ -99,7 +100,10 @@ pub struct ReplSession {
 
 impl ReplSession {
     pub fn new() -> Result<Self, ScriptLangError> {
-        let mut kernel_forms = parse_modules_from_sources(&BTreeMap::new())?;
+        let mut kernel_forms = parse_modules_from_xml_map(&BTreeMap::from([(
+            KERNEL_SOURCE_NAME.to_string(),
+            KERNEL_SOURCE_XML.to_string(),
+        )]))?;
         let kernel_form = kernel_forms
             .drain(..)
             .next()
@@ -836,13 +840,7 @@ fn validate_loaded_module(form: &Form) -> Result<(), ScriptLangError> {
 }
 
 fn validate_repl_module(form: &Form) -> Result<(), ScriptLangError> {
-    validate_reserved_module_name(form)?;
-    if let Some(head) = find_nested_head(form, &["script", "function"]) {
-        return Err(ScriptLangError::message(format!(
-            "repl-defined <module> cannot contain <{head}> anywhere in its tree"
-        )));
-    }
-    Ok(())
+    validate_reserved_module_name(form)
 }
 
 fn validate_reserved_module_name(form: &Form) -> Result<(), ScriptLangError> {
@@ -853,18 +851,6 @@ fn validate_reserved_module_name(form: &Form) -> Result<(), ScriptLangError> {
         )));
     }
     Ok(())
-}
-
-fn find_nested_head<'a>(form: &'a Form, blocked_heads: &[&str]) -> Option<&'a str> {
-    for child in child_forms(form) {
-        if blocked_heads.iter().any(|blocked| child.head == *blocked) {
-            return Some(child.head.as_str());
-        }
-        if let Some(found) = find_nested_head(child, blocked_heads) {
-            return Some(found);
-        }
-    }
-    None
 }
 
 fn module_name(form: &Form) -> Result<&str, ScriptLangError> {
@@ -1644,35 +1630,29 @@ mod tests {
     }
 
     #[test]
-    fn repl_defined_module_rejects_script_and_function_declarations() {
+    fn repl_defined_module_can_define_script_and_function_and_run_them() {
         let mut repl = ReplSession::new().expect("repl");
 
-        let script_error = repl
-            .submit_xml(
+        assert!(matches!(
+            repl.submit_xml(
                 r#"
                 <module name="helper">
-                  <script name="main"><end/></script>
+                  <function name="pick" args="" return_type="string">return "picked";</function>
+                  <script name="main">
+                    <text>${invoke(#pick, [])}</text>
+                    <end/>
+                  </script>
                 </module>
                 "#,
             )
-            .expect_err("script should be rejected");
-        assert!(script_error.to_string().contains("cannot contain <script>"));
+            .expect("module with script/function should define"),
+            SubmissionResult::ModuleUpdated { .. }
+        ));
 
-        let function_error = repl
-            .submit_xml(
-                r#"
-                <module name="helper">
-                  <module name="nested">
-                    <function name="pick" args="" return_type="int">return 1;</function>
-                  </module>
-                </module>
-                "#,
-            )
-            .expect_err("function should be rejected");
-        assert!(
-            function_error
-                .to_string()
-                .contains("cannot contain <function>")
-        );
+        let result = repl
+            .submit_xml(r#"<goto script="@helper.main"/>"#)
+            .expect("goto should run repl-defined script");
+        assert_eq!(text_events(&result), vec!["picked".to_string()]);
+        assert_eq!(execution_state(result), ExecutionState::Exited);
     }
 }

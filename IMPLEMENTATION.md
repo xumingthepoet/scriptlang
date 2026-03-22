@@ -313,7 +313,7 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 - `parse_modules_from_sources`
 - `compile_artifact`
 - `compile_artifact_from_xml_map`
-- `create_engine_from_xml_map`
+- `start_runtime_session_from_xml_map`
 
 其中 `parse_modules_from_sources` / `parse_module_xml` 返回 `Form`，而不是旧的 `ParsedModule`。
 
@@ -344,8 +344,10 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
   - `<require>`
   - `<alias>`
 - `<module>`
-  - 允许在 REPL 内定义 module 级 macro / const / var / import / require / alias
-  - 但当前显式禁止在 REPL typed module 里放 `<script>` 或 `<function>`，包括嵌套子模块里也不允许
+  - 允许在 REPL 内定义完整 module
+  - 包括 module 级 macro / const / var / import / require / alias
+  - 也包括 `<script>` 和 `<function>`
+  - 这些定义一旦提交成功，就会进入当前 session 的后续编译环境
 
 当前 REPL session 会持久维护三类状态：
 
@@ -383,7 +385,7 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 - 文件执行模式
   - `sl-repl --file path/to/session.repl`
   - 文件内容按 REPL transcript 解释：顶层以 `:` 开头的行会被当成 host command，其余内容按 XML fragment 多行配平后提交
-  - 因此一个文件里可以混合 `:load`、`:choose` 和多行 XML 片段
+  - 因此一个文件里可以混合 `:load`、`:choose`、`<module>`、`<goto>` 和多行 XML 片段
 
 仓库级别另外提供了一个便捷脚本 [`scripts/repl-run.sh`](/Users/xuming/work/scriptlang-new/scripts/repl-run.sh)：
 
@@ -408,6 +410,10 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 - `:quit`
 
 当前 REPL 的定位已经不是“手动 step runtime 的调试壳”，而是让 macro / lowering / runtime 行为都能以接近 IEx 的交互方式直接验证，同时保留 `:ast / :semantic / :ir` 这种中间态观察能力。
+
+`sl-api::start_runtime_session_from_xml_map` 当前也不再直接以 `entry_script_ref` 启动 runtime。它会先构造一个隐藏 session module/script，再以一条内部 `<goto script="module.script"/>` 作为统一入口，因此传统 `module.script` 启动语义已经和 REPL submit 路径对齐。
+
+为了兼容旧调用点，`create_engine_from_xml_map` 目前仍然保留为一个薄封装，但新的仓库内调用已经统一切到 `start_runtime_session_from_xml_map`。
 
 ## Integration Tests
 
@@ -451,7 +457,7 @@ crates/sl-integration-tests/examples/<example>/
 当前测试 runner 会：
 
 1. 读取例子目录下所有 XML
-2. 通过 `sl-api` 执行 parse / compile / create engine
+2. 通过 `sl-api` 执行 parse / compile / start runtime session
 3. 按 `actions.txt` 驱动 runtime
 4. 把实际结果和 `results.txt` 对比
 

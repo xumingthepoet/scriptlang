@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use sl_api::{Engine, compile_artifact_from_xml_map, create_engine_from_xml_map};
+use sl_api::{Engine, compile_artifact_from_xml_map, start_runtime_session_from_xml_map};
 use sl_core::{Completion, ScriptLangError, Snapshot, StepEvent, StepResult, Suspension};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -75,7 +75,7 @@ fn execute_run(
     sources: &BTreeMap<String, String>,
     actions: &[Action],
 ) -> Result<Vec<String>, ScriptLangError> {
-    let mut engine = create_engine_from_xml_map(sources, None)?;
+    let mut engine = start_runtime_session_from_xml_map(sources, None)?;
     let mut actual = Vec::new();
     let mut snapshot = None::<Snapshot>;
     let mut action_index = 0usize;
@@ -93,7 +93,7 @@ fn execute_run(
                     let saved = snapshot.clone().ok_or_else(|| {
                         ScriptLangError::message("resume requested without snapshot")
                     })?;
-                    let mut resumed = create_engine_from_xml_map(sources, None)?;
+                    let mut resumed = start_runtime_session_from_xml_map(sources, None)?;
                     resumed.resume(saved)?;
                     engine = resumed;
                     resume_pending_choice = matches!(
