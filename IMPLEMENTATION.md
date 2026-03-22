@@ -150,6 +150,13 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
   - [`imports.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/imports.rs)：`import` / `require` / `alias` 目标校验
   - [`macro_env.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/macro_env.rs)：显式 `MacroEnv`，承载 current module、imports、requires、aliases、attributes、content、locals 和 gensym 状态
   - [`macro_values.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/macro_values.rs)：compile-time `MacroValue`
+  - `semantic/macro_lang/` **新增**：真正 compile-time macro language 基础设施（Step 1）
+    - `ast.rs`: CtBlock / CtStmt / CtExpr / CtValue 类型定义
+    - `eval.rs`: compile-time AST 评估器（eval_block / eval_stmt / eval_expr）
+    - `builtins.rs`: builtin 函数注册表（attr / content / has_attr / parse_bool / parse_int 等）
+    - `env.rs`: compile-time 环境（CtEnv）
+    - `convert.rs`: 旧 XML macro body 到新 compile-time AST 转换器（未集成）
+    - `values.rs`: 类型重导出
   - [`macros.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/macros.rs)：macro 定义收集、可见性查找和模板式宏展开
   - [`quote.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/quote.rs)：`quote / unquote`、AST splice 和最小 hygiene
   - [`modules.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/modules.rs)：module catalog 与 script / function 字面量查找
