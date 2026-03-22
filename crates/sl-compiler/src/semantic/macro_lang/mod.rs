@@ -9,6 +9,9 @@ mod env;
 mod eval;
 mod values;
 
+#[cfg(test)]
+mod tests;
+
 pub use ast::*;
 pub use builtins::BuiltinRegistry;
 pub use env::CtEnv;
