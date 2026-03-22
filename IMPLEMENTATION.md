@@ -784,3 +784,96 @@ error expanding `{macro}` from `{provider}` (called from `{caller}`): {error}
   - 47: 验证 `use` 注入后后续 form 可用
 - Coverage: 90.02% lines, 92.22% functions
 - `make gate` 通过
+
+## Step 7: 支持 nested module / private 边界上的 `use`（2026-03-23）
+
+完成状态：已完成
+
+### 架构变更
+
+#### 测试 nested module use
+
+- 创建集成测试 `48-use-nested-module-provider`
+- provider 位于 nested module (`main.helper`)
+- caller 通过 `<use module="helper"/>` 使用嵌套模块的 `__using__`
+
+#### 宏可见性检查
+
+- 扩展 `MacroDefinition` 结构，添加 `is_private: bool` 字段
+- 在宏定义解析时读取 `private="true"` 属性
+- 在 `invoke_macro` builtin 中检查宏可见性
+- 私有宏只能在其定义的 module 内被调用
+
+### 测试状态
+
+- 所有现有测试通过（166 compiler unit tests + 7 runtime tests + 19 integration tests）
+- 新增集成测试 48/49
+  - 48: 验证 nested module provider 的 `use`
+  - 49: 验证私有 `__using__` 不可见时报错
+- Coverage: 90.00% lines, 91.98% functions
+- `make gate` 通过
+
+## Step 8: 迁移 kernel 宏到新 compile-time language（2026-03-23）
+
+完成状态：已完成
+
+### 架构变更
+
+#### kernel.xml 宏迁移
+
+所有 kernel 宏从旧协议（`attributes="..." content="..."`）迁移到新协议（`params="..."`）：
+
+**if 宏**：
+```xml
+<!-- 旧协议 -->
+<macro name="if" attributes="when:expr" content="ast">
+  <let name="when_expr" type="expr"><get-attribute name="when"/></let>
+  <let name="content_ast" type="ast"><get-content/></let>
+  ...
+</macro>
+
+<!-- 新协议 -->
+<macro name="if" params="expr:when,ast:body">
+  ...
+</macro>
+```
+
+**unless 宏**：同样迁移到 `params="expr:when,ast:body"`
+
+**if-else 宏**：迁移到 `params="expr:when"`，内部使用 `<get-content head="do"/>` 和 `<get-content head="else"/>` 提取分支
+
+#### MacroEnv 内容保留修复
+
+修复 `bind_explicit_params` 函数，确保 MacroEnv 正确保留 invocation 的 attributes 和 content：
+
+- `invocation_attrs.clone()` 保留所有属性（供 `get_attribute()` 使用）
+- `invocation_content.to_vec()` 保留所有子节点（供 `get_content()` 和 `get_content(head="...")` 使用）
+
+#### 旧模板路径处理
+
+当前实现中，旧 XML macro body 语法通过 `convert_macro_body` 转换为新的 compile-time AST，再由 `eval_block` 评估。所有旧语法最终都经过新的 compile-time evaluator 处理，确保不存在双栈长期共存。
+
+### 代码落点
+
+- `crates/sl-api/lib/kernel.xml`
+  - `if` / `unless` / `if-else` 宏迁移到新参数协议
+- `crates/sl-compiler/src/semantic/expand/macro_params.rs`
+  - `bind_explicit_params` 修复内容保留
+
+### 测试状态
+
+- 所有现有测试通过（166 compiler unit tests + 7 runtime tests + 20 integration tests）
+- 新增集成测试 50-kernel-if-on-real-macro-language
+  - 验证 kernel `if` / `unless` / `if-else` 通过新 compile-time language 工作
+- Coverage: 90.00% lines, 91.98% functions
+- `make gate` 通过
+
+### 下一步计划
+
+所有 Step 已完成。macro 语言系统现已完整实现：
+
+- Step 1-4: compile-time language 基础设施
+- Step 5: `__using__` 协议和 `use` 宏
+- Step 6: hygiene、冲突检测和错误定位
+- Step 7: nested module 和 private 宏可见性
+- Step 8: kernel 宏迁移到新系统

@@ -86,9 +86,9 @@ fn bind_explicit_params(
 ) -> Result<MacroEnv, ScriptLangError> {
     let mut macro_env = MacroEnv::from_invocation(
         expand_env,
-        "",              // Will be set by caller
-        BTreeMap::new(), // We'll populate locals directly
-        Vec::new(),      // We'll populate content directly
+        "",                          // Will be set by caller
+        invocation_attrs.clone(),    // Keep all attributes for get_attribute()
+        invocation_content.to_vec(), // Keep all content for get_content()
     );
 
     // Track which invocation attrs have been used

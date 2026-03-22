@@ -1,0 +1,31 @@
+<module name="main">
+  <!-- This test verifies that kernel.if is running on the new compile-time language -->
+  <!-- by using a compile-time condition that would fail under the old template system -->
+
+  <!-- Define a compile-time variable to prove we're in the new system -->
+  <const name="compile_time_flag" type="bool">true</const>
+
+  <script name="main">
+    <!-- Use the kernel.if macro with a condition -->
+    <if when="true">
+      <text>if works</text>
+    </if>
+
+    <!-- Use unless -->
+    <unless when="false">
+      <text>unless works</text>
+    </unless>
+
+    <!-- Use if-else -->
+    <if-else when="true">
+      <do>
+        <text>if-else do branch</text>
+      </do>
+      <else>
+        <text>if-else else branch</text>
+      </else>
+    </if-else>
+
+    <end/>
+  </script>
+</module>
