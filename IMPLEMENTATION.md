@@ -165,6 +165,12 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
   - [`scripts.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/scripts.rs)：script body 和 statement lowering
   - [`declared_types.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/declared_types.rs)：声明类型解析与 `<const>` 声明注册
   - [`const_eval.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/const_eval.rs)：builtin 常量求值与常量替换
+  - [`module_reducer.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/module_reducer.rs)：**新增（Step 3）** definition-time reducer，实现 module children 的顺序处理
+    - `reduce_module_children()`: reducer 入口，处理 `FormItem` 队列
+    - `ProcessedItem` 枚举：区分 Output / Requeue / Skip 三种处理结果
+    - 宏调用展开后重新入队，确保宏产生的定义期 form（import/require/alias/const/var/script/function）能推进后续 sibling 的编译期环境
+    - 支持嵌套 module 递归展开
+    - `is_private()` / `alias_name()` 辅助函数
 - `semantic/expr/` 统一承载 expr 前端处理；`script literal` 会先经过统一 token 扫描，模板 `${...}` 的洞会先落到 `ExprSource` 外壳后再回到当前 `TextTemplate` 主路径
 - `semantic/expr/` 当前还统一负责 expr 记号预处理：
   - 把 `LT / LTE / AND` 规范化成 Rhai 对应操作符
@@ -190,6 +196,16 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
   - gensym 当前按“当前调用 module 内 seed + 调用内局部计数”生成，既保持确定性，也更接近 Elixir 的 module-scoped counter 思路
   - 当前已有显式 `MacroEnv`
   - 当前 compile-time values 至少覆盖 `string / expr / ast / bool / int`
+- **宏参数协议（Step 2）**：
+  - 支持显式 `params="type:name,..."` 格式的参数声明
+  - 支持参数类型：`expr`, `ast`, `string`, `bool`, `int`, `keyword`, `module`
+  - 保留旧 `attributes="..."` + `content="..."` 协议的向后兼容适配层
+  - 完整的参数验证和错误处理
+- **Module Reducer（Step 3）**：
+  - `reduce_module_children()` 实现 definition-time reducer 模式
+  - 宏展开结果重新进入定义期状态机
+  - 后续 sibling 可以看到前面宏注入的 import/require/alias/exports
+  - 支持嵌套 module 递归展开
 - program 级 macro registry 当前按 module 归档定义；expand dispatch 会按“当前 module -> 已 require modules -> 隐式 kernel”顺序解析可见宏
 - `<macro>` 声明当前不再带 `scope`；宏定义本身不感知 module/script/statement 这类后续语义位置
 - expand dispatch 仍然保留“当前调用位置”的内部上下文，但它只用于 builtin 分派和展开结果消费，不再参与宏声明注册

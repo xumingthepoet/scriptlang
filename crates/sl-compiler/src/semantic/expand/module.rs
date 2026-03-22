@@ -1,20 +1,20 @@
-use sl_core::{Form, FormField, FormItem, FormValue, ScriptLangError};
+use sl_core::{Form, FormField, FormValue, ScriptLangError};
 
-use super::declared_types::expand_const_form;
-use super::dispatch::{ExpandRuleScope, expand_form_items};
-use super::string_attr;
+use super::module_reducer::reduce_module_children;
 use crate::names::qualified_member_name;
 use crate::semantic::env::{CompilePhase, ExpandEnv};
-use crate::semantic::{attr, child_forms, error_at, required_attr};
+use crate::semantic::{child_forms, error_at, required_attr};
 
 pub(crate) fn expand_module_form(
     form: &Form,
     env: &mut ExpandEnv,
 ) -> Result<Form, ScriptLangError> {
-    expand_module_form_with_parent(form, env, None)
+    expand_nested_module_form(form, env, None)
 }
 
-fn expand_module_form_with_parent(
+/// Expand a module form, optionally with a parent module name.
+/// This is used both for top-level modules and nested modules.
+pub(crate) fn expand_nested_module_form(
     form: &Form,
     env: &mut ExpandEnv,
     parent_module: Option<&str>,
@@ -37,118 +37,9 @@ fn expand_module_form_with_parent(
         for field in &form.fields {
             let mapped = match (&field.name[..], &field.value) {
                 ("children", FormValue::Sequence(items)) => {
-                    let mut rewritten = Vec::new();
-                    for item in items {
-                        match item {
-                            FormItem::Text(text) => rewritten.push(FormItem::Text(text.clone())),
-                            FormItem::Form(child) => {
-                                if child.head == "macro" {
-                                    continue;
-                                }
-                                if child.head == "module" {
-                                    let child_raw_name = required_attr(child, "name")?.to_string();
-                                    let child_module_name =
-                                        qualified_member_name(&module_name, &child_raw_name);
-                                    env.add_child_alias(
-                                        child_raw_name.clone(),
-                                        child_module_name.clone(),
-                                    )
-                                    .map_err(|message| error_at(child, message))?;
-                                    let _ = expand_module_form_with_parent(
-                                        child,
-                                        env,
-                                        Some(&module_name),
-                                    )?;
-                                    continue;
-                                }
-                                let child_items = match child.head.as_str() {
-                                    "import" => {
-                                        if let Some(import_name) = string_attr(child, "name") {
-                                            env.add_import(import_name.to_string());
-                                            // In Elixir, `import A` automatically also does `require A`
-                                            // so that macros from A become available.
-                                            env.add_require(import_name.to_string());
-                                        }
-                                        vec![FormItem::Form(child.clone())]
-                                    }
-                                    "require" => {
-                                        if let Some(require_name) = string_attr(child, "name") {
-                                            env.add_require(require_name.to_string());
-                                        }
-                                        vec![FormItem::Form(child.clone())]
-                                    }
-                                    "alias" => {
-                                        let alias_target = required_attr(child, "name")?;
-                                        let alias_name = alias_name(child)?;
-                                        env.add_alias(alias_name, alias_target.to_string())
-                                            .map_err(|message| error_at(child, message))?;
-                                        vec![FormItem::Form(child.clone())]
-                                    }
-                                    "const" => {
-                                        vec![FormItem::Form(expand_const_form(child, env)?)]
-                                    }
-                                    "var" => {
-                                        let name = required_attr(child, "name")?.to_string();
-                                        let exported = !is_private(child)?;
-                                        if !env.declare_var(name.clone(), exported) {
-                                            let module_name = env
-                                                .module
-                                                .module_name
-                                                .as_deref()
-                                                .unwrap_or("<unknown>");
-                                            return Err(error_at(
-                                                child,
-                                                format!(
-                                                    "duplicate var declaration `{module_name}.{name}`"
-                                                ),
-                                            ));
-                                        }
-                                        expand_form_items(child, env, ExpandRuleScope::ModuleChild)?
-                                    }
-                                    "script" => {
-                                        let name = required_attr(child, "name")?.to_string();
-                                        let exported = !is_private(child)?;
-                                        if !env.declare_script(name.clone(), exported) {
-                                            let module_name = env
-                                                .module
-                                                .module_name
-                                                .as_deref()
-                                                .unwrap_or("<unknown>");
-                                            return Err(error_at(
-                                                child,
-                                                format!(
-                                                    "duplicate script declaration `{module_name}.{name}`"
-                                                ),
-                                            ));
-                                        }
-                                        expand_form_items(child, env, ExpandRuleScope::ModuleChild)?
-                                    }
-                                    "function" => {
-                                        let name = required_attr(child, "name")?.to_string();
-                                        let exported = !is_private(child)?;
-                                        if !env.declare_function(name.clone(), exported) {
-                                            let module_name = env
-                                                .module
-                                                .module_name
-                                                .as_deref()
-                                                .unwrap_or("<unknown>");
-                                            return Err(error_at(
-                                                child,
-                                                format!(
-                                                    "duplicate function declaration `{module_name}.{name}`"
-                                                ),
-                                            ));
-                                        }
-                                        vec![FormItem::Form(child.clone())]
-                                    }
-                                    _ => {
-                                        expand_form_items(child, env, ExpandRuleScope::ModuleChild)?
-                                    }
-                                };
-                                rewritten.extend(child_items);
-                            }
-                        }
-                    }
+                    // Use the reducer pattern for processing children
+                    // This allows macro-generated definition-time forms to affect subsequent siblings
+                    let rewritten = reduce_module_children(items, env, &module_name)?;
                     FormField {
                         name: field.name.clone(),
                         value: FormValue::Sequence(rewritten),
@@ -189,39 +80,12 @@ fn rewrite_module_name(form: &mut Form, module_name: &str) {
     }
 }
 
-fn is_private(form: &Form) -> Result<bool, ScriptLangError> {
-    match attr(form, "private") {
-        None => Ok(false),
-        Some("true") => Ok(true),
-        Some("false") => Ok(false),
-        Some(other) => Err(error_at(
-            form,
-            format!("invalid boolean value `{other}` for `private`"),
-        )),
-    }
-}
-
-fn alias_name(form: &Form) -> Result<String, ScriptLangError> {
-    if let Some(alias_name) = attr(form, "as") {
-        if alias_name.is_empty() {
-            return Err(error_at(form, "<alias> `as` cannot be empty"));
-        }
-        return Ok(alias_name.to_string());
-    }
-    let module_name = required_attr(form, "name")?;
-    module_name
-        .rsplit('.')
-        .next()
-        .filter(|segment| !segment.is_empty())
-        .map(str::to_string)
-        .ok_or_else(|| error_at(form, "<alias> requires valid `name`"))
-}
-
 #[cfg(test)]
 mod tests {
-    use sl_core::{FormMeta, SourcePosition};
+    use sl_core::{FormItem, FormMeta, SourcePosition};
 
     use crate::semantic::env::ModuleState;
+    use crate::semantic::expand::module_reducer::{alias_name, is_private};
 
     use super::*;
 
