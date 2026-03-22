@@ -48,7 +48,7 @@ impl ProgramAssembler {
                     function_ref,
                     sl_core::CompiledFunction {
                         param_names: function.param_names.clone(),
-                        body: compile_expr(&function.body, &function.param_names, &global_names),
+                        body: compile_expr(&function.body, &function.param_names, &global_names)?,
                     },
                 );
             }

@@ -362,6 +362,7 @@ dependencies = [
 name = "sl-compiler"
 version = "0.1.0"
 dependencies = [
+ "rhai",
  "sl-core",
 ]
 

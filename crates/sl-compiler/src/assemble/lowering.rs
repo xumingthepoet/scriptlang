@@ -7,6 +7,7 @@ use sl_core::{
 
 use crate::assemble::ScriptDraft;
 use crate::names::lower_resolved_vars_to_runtime_names;
+use crate::semantic::{ExprAnalysis, analyze_compiled_expr};
 use crate::semantic::{SemanticChoiceOption, SemanticModule, SemanticScript, SemanticStmt};
 
 use super::ProgramAssembler;
@@ -69,17 +70,17 @@ fn lower_block(
                 let local_id = assign_local_id(draft, name);
                 draft.instructions.push(Instruction::EvalTemp {
                     local_id,
-                    expr: compile_expr(expr, &draft.local_names, global_names),
+                    expr: compile_expr(expr, &draft.local_names, global_names)?,
                 });
             }
             SemanticStmt::Code { code } => {
                 draft.instructions.push(Instruction::ExecCode {
-                    code: compile_expr(code, &draft.local_names, global_names),
+                    code: compile_expr(code, &draft.local_names, global_names)?,
                 });
             }
             SemanticStmt::Text { template, tag } => {
                 draft.instructions.push(Instruction::EmitText {
-                    text: lower_text_template(template, &draft.local_names, global_names),
+                    text: lower_text_template(template, &draft.local_names, global_names)?,
                     tag: tag.clone(),
                 });
             }
@@ -90,7 +91,7 @@ fn lower_block(
             } => {
                 let head_pc = draft.instructions.len();
                 draft.instructions.push(Instruction::EvalCond {
-                    expr: compile_expr(when, &draft.local_names, global_names),
+                    expr: compile_expr(when, &draft.local_names, global_names)?,
                 });
                 let exit_jump_index = draft.instructions.len();
                 draft
@@ -141,7 +142,7 @@ fn lower_block(
             }
             SemanticStmt::Goto { expr } => {
                 draft.instructions.push(Instruction::JumpScriptExpr {
-                    expr: compile_expr(expr, &draft.local_names, global_names),
+                    expr: compile_expr(expr, &draft.local_names, global_names)?,
                 });
             }
             SemanticStmt::End => draft.instructions.push(Instruction::End),
@@ -160,7 +161,8 @@ fn lower_choice(
     let build_index = draft.instructions.len();
     draft.instructions.push(Instruction::BuildChoice {
         prompt: prompt
-            .map(|template| lower_text_template(template, &draft.local_names, global_names)),
+            .map(|template| lower_text_template(template, &draft.local_names, global_names))
+            .transpose()?,
         options: Vec::new(),
     });
     let mut branches = Vec::with_capacity(options.len());
@@ -169,7 +171,7 @@ fn lower_choice(
     for option in options {
         let target_pc = draft.instructions.len();
         branches.push(ChoiceBranch {
-            text: lower_text_template(&option.text, &draft.local_names, global_names),
+            text: lower_text_template(&option.text, &draft.local_names, global_names)?,
             target_pc,
         });
         lower_block(global_names, draft, &option.body, loop_stack)?;
@@ -184,7 +186,8 @@ fn lower_choice(
     }
     draft.instructions[build_index] = Instruction::BuildChoice {
         prompt: prompt
-            .map(|template| lower_text_template(template, &draft.local_names, global_names)),
+            .map(|template| lower_text_template(template, &draft.local_names, global_names))
+            .transpose()?,
         options: branches,
     };
     Ok(())
@@ -199,141 +202,54 @@ pub(crate) fn compile_expr(
     source: &str,
     local_names: &[String],
     global_names: &BTreeSet<String>,
-) -> CompiledExpr {
+) -> Result<CompiledExpr, ScriptLangError> {
+    compile_expr_details(source, local_names, global_names).map(|(expr, _)| expr)
+}
+
+fn compile_expr_details(
+    source: &str,
+    local_names: &[String],
+    global_names: &BTreeSet<String>,
+) -> Result<(CompiledExpr, ExprAnalysis), ScriptLangError> {
     let lowered = lower_resolved_vars_to_runtime_names(source);
     let known_vars = local_names
         .iter()
         .cloned()
         .chain(global_names.iter().cloned())
         .collect::<BTreeSet<_>>();
-    let referenced_vars = collect_referenced_vars(&lowered, &known_vars);
-    CompiledExpr {
-        source: lowered,
-        referenced_vars,
-    }
+    let analysis = analyze_compiled_expr(&lowered, &known_vars)?;
+    Ok((
+        CompiledExpr {
+            source: lowered,
+            referenced_vars: analysis.referenced_vars.clone(),
+        },
+        analysis,
+    ))
 }
 
 fn lower_text_template(
     template: &TextTemplate,
     local_names: &[String],
     global_names: &BTreeSet<String>,
-) -> CompiledText {
-    CompiledText {
+) -> Result<CompiledText, ScriptLangError> {
+    Ok(CompiledText {
         parts: template
             .segments
             .iter()
             .map(|segment| match segment {
-                TextSegment::Literal(text) => CompiledTextPart::Literal(text.clone()),
+                TextSegment::Literal(text) => Ok(CompiledTextPart::Literal(text.clone())),
                 TextSegment::Expr(expr) => {
-                    let compiled = compile_expr(expr, local_names, global_names);
-                    if is_plain_var_ref(&compiled) {
-                        CompiledTextPart::VarRef(compiled.source)
+                    let (compiled, analysis) =
+                        compile_expr_details(expr, local_names, global_names)?;
+                    if let Some(name) = analysis.is_simple_var_ref {
+                        Ok(CompiledTextPart::VarRef(name))
                     } else {
-                        CompiledTextPart::Expr(compiled)
+                        Ok(CompiledTextPart::Expr(compiled))
                     }
                 }
             })
-            .collect(),
-    }
-}
-
-fn is_plain_var_ref(expr: &CompiledExpr) -> bool {
-    expr.referenced_vars.len() == 1 && expr.referenced_vars[0] == expr.source
-}
-
-fn collect_referenced_vars(source: &str, known_vars: &BTreeSet<String>) -> Vec<String> {
-    let bytes = source.as_bytes();
-    let mut cursor = 0usize;
-    let mut referenced = BTreeSet::new();
-
-    while cursor < bytes.len() {
-        let ch = bytes[cursor] as char;
-        if ch == '"' || ch == '\'' {
-            cursor = scan_quoted(bytes, cursor);
-            continue;
-        }
-        if !is_ident_start(ch) {
-            cursor += ch.len_utf8();
-            continue;
-        }
-
-        let ident_start = cursor;
-        let end = scan_ident_path(bytes, cursor);
-        let raw = &source[ident_start..end];
-        let next_non_ws = skip_whitespace(bytes, end);
-
-        if !is_property_access(bytes, ident_start) && !is_map_key(bytes, next_non_ws) {
-            if known_vars.contains(raw) && !is_call(bytes, next_non_ws) {
-                referenced.insert(raw.to_string());
-            } else if let Some((base, _)) = raw.split_once('.')
-                && known_vars.contains(base)
-            {
-                referenced.insert(base.to_string());
-            }
-        }
-
-        cursor = end;
-    }
-
-    referenced.into_iter().collect()
-}
-
-fn scan_quoted(bytes: &[u8], start: usize) -> usize {
-    let quote = bytes[start];
-    let mut cursor = start + 1;
-    while cursor < bytes.len() {
-        match bytes[cursor] {
-            b'\\' => cursor += 2,
-            ch if ch == quote => return cursor + 1,
-            _ => cursor += 1,
-        }
-    }
-    bytes.len()
-}
-
-fn scan_ident_path(bytes: &[u8], start: usize) -> usize {
-    let mut cursor = start + 1;
-    while cursor < bytes.len() {
-        let ch = bytes[cursor] as char;
-        if ch.is_ascii_alphanumeric() || ch == '_' || ch == '.' {
-            cursor += 1;
-        } else {
-            break;
-        }
-    }
-    cursor
-}
-
-fn skip_whitespace(bytes: &[u8], mut cursor: usize) -> usize {
-    while cursor < bytes.len() && (bytes[cursor] as char).is_whitespace() {
-        cursor += 1;
-    }
-    cursor
-}
-
-fn is_call(bytes: &[u8], cursor: usize) -> bool {
-    cursor < bytes.len() && bytes[cursor] == b'('
-}
-
-fn is_map_key(bytes: &[u8], cursor: usize) -> bool {
-    cursor < bytes.len() && bytes[cursor] == b':'
-}
-
-fn is_property_access(bytes: &[u8], ident_start: usize) -> bool {
-    let mut cursor = ident_start;
-    while cursor > 0 {
-        cursor -= 1;
-        let ch = bytes[cursor] as char;
-        if ch.is_whitespace() {
-            continue;
-        }
-        return ch == '.';
-    }
-    false
-}
-
-fn is_ident_start(ch: char) -> bool {
-    ch == '_' || ch.is_ascii_alphabetic()
+            .collect::<Result<Vec<_>, ScriptLangError>>()?,
+    })
 }
 
 fn assign_local_id(draft: &mut ScriptDraft, name: &str) -> LocalId {
@@ -447,7 +363,8 @@ mod tests {
             },
             &["name".to_string()],
             &BTreeSet::new(),
-        );
+        )
+        .expect("template");
 
         assert!(matches!(
             lowered.parts.as_slice(),
@@ -669,7 +586,8 @@ mod tests {
             "name + answer + user.title + call(name) + #{k: answer}",
             &["name".to_string(), "user".to_string()],
             &globals,
-        );
+        )
+        .expect("expr");
 
         assert_eq!(
             compiled.source,

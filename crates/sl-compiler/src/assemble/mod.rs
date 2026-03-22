@@ -49,7 +49,7 @@ pub(crate) fn assemble_artifact_with_options(
         })?;
 
     let boot_script_id = assembler.scripts.len();
-    let boot_script = assembler.build_boot_script(default_entry_script_id);
+    let boot_script = assembler.build_boot_script(default_entry_script_id)?;
     let mut scripts = assembler
         .scripts
         .into_iter()
@@ -282,7 +282,7 @@ mod tests {
         };
 
         assert!(matches!(
-            builder.build_boot_script(3).as_slice(),
+            builder.build_boot_script(3).expect("boot").as_slice(),
             [Instruction::JumpScript { target_script_id }] if *target_script_id == 3
         ));
     }

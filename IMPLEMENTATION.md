@@ -164,11 +164,12 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
   - 把单引号字符串统一转成 Rhai 的双引号字符串表示
   - 这层只按“expr 字符串”工作，不按 `when` / `goto` / `${...}` / `<var>` 等具体槽位分散实现
   - 普通 expr body 和模板 `${...}` 洞共享同一套预处理入口
+  - 预处理完成后，compiler 会使用最小 Rhai compile 入口先生成 AST，再从 AST 做 free-variable analysis
 - `assemble/lowering.rs` 当前把所有落到 runtime 的 expr / code / function body 统一收口成 `CompiledExpr { source, referenced_vars }`
   - `source` 是最终 lower 后交给 runtime 的源码字符串
-  - `referenced_vars` 是对最终源码做统一扫描后提取出的变量依赖集合
+  - `referenced_vars` 现在由 compiler 侧的 Rhai AST free-variable analysis 提取，不再依赖手写字符串扫描
   - 这层统一覆盖 `EvalGlobalInit / EvalTemp / EvalCond / ExecCode / JumpScriptExpr / CompiledFunction.body / CompiledTextPart::Expr`
-  - 文本模板里的纯变量 `${name}` 会进一步 lower 成确定性的 `CompiledTextPart::VarRef(name)`，不再走 Rhai eval
+  - 文本模板里的纯变量 `${name}` 现在由 AST 的简单变量节点识别，并进一步 lower 成确定性的 `CompiledTextPart::VarRef(name)`，不再走 Rhai eval
 - builtin form 的 expand 处理当前已收敛到 [`semantic/expand/dispatch.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/dispatch.rs) 的统一调度；macro 定义和宏展开细节则收敛到 [`semantic/expand/macros.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/macros.rs)
 - `ExpandRegistry` 当前已经提供 builtin / macro 共用的统一分发入口；macro 当前支持：
   - 当前宏展开要求产出恰好一个根 form
