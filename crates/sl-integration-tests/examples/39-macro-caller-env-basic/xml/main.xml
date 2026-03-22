@@ -1,0 +1,4 @@
+<module name="main">
+  <require name="helper"/>
+  <whoami/>
+</module>

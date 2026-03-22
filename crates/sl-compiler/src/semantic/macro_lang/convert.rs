@@ -9,13 +9,12 @@ use sl_core::{Form, FormItem, ScriptLangError};
 
 /// Convert old XML macro body to CtBlock.
 ///
-/// Returns the CtBlock and optionally the quote template items if a <quote> is found.
+/// All forms (including <quote>) are converted to CtStmt:
+/// - <quote> children become CtStmt::Return { value: CtExpr::QuoteForms { items } }
+/// - <let>, <set>, <if>, <return> are converted to their CtStmt equivalents
 #[allow(dead_code)]
-pub fn convert_macro_body(
-    body: &[FormItem],
-) -> Result<(CtBlock, Option<Vec<FormItem>>), ScriptLangError> {
+pub fn convert_macro_body(body: &[FormItem]) -> Result<CtBlock, ScriptLangError> {
     let mut stmts = Vec::new();
-    let mut quote_template = None;
 
     for item in body {
         match item {
@@ -26,11 +25,12 @@ pub fn convert_macro_body(
                 ));
             }
             FormItem::Form(form) => {
-                // Special handling for quote - we don't convert it to CtStmt,
-                // we just extract its children as the template
                 if form.head == "quote" {
+                    // Inline quote as return with QuoteForms
                     let children = extract_form_children(form)?;
-                    quote_template = Some(children);
+                    stmts.push(CtStmt::Return {
+                        value: CtExpr::QuoteForms { items: children },
+                    });
                 } else {
                     let stmt = convert_form_to_stmt(form)?;
                     stmts.push(stmt);
@@ -39,7 +39,7 @@ pub fn convert_macro_body(
         }
     }
 
-    Ok((CtBlock { stmts }, quote_template))
+    Ok(CtBlock { stmts })
 }
 
 /// Convert a form to a compile-time statement.
@@ -52,7 +52,7 @@ fn convert_form_to_stmt(form: &Form) -> Result<CtStmt, ScriptLangError> {
         "return" => convert_return_form(form),
         other => Err(error_at(
             form,
-            format!("unsupported compile-time macro form <{other}>"),
+            format!("unsupported compile-time macro form <{}>", other),
         )),
     }
 }
@@ -63,6 +63,16 @@ fn convert_let_form(form: &Form) -> Result<CtStmt, ScriptLangError> {
     let name = required_attr(form, "name")?.to_string();
     let type_name = required_attr(form, "type")?;
     let provider = single_child_form(form)?;
+
+    // Handle special forms that are valid as let providers
+    if provider.head.as_str() == "caller_module" {
+        // <caller_module/> as a let provider: call builtin_caller_module()
+        let value = CtExpr::BuiltinCall {
+            name: "caller_module".to_string(),
+            args: vec![],
+        };
+        return Ok(CtStmt::Let { name, value });
+    }
 
     let value = convert_provider_to_expr(&provider, type_name)?;
 
@@ -101,7 +111,7 @@ fn convert_if_form(form: &Form) -> Result<CtStmt, ScriptLangError> {
         return Err(error_at(form, "<if> second child must be <then> block"));
     }
     let then_items = extract_form_children(then_form)?;
-    let then_block = convert_macro_body(&then_items)?.0;
+    let then_block = convert_macro_body(&then_items)?;
 
     // Optional third child is the else block
     let else_block = if children.len() > 2 {
@@ -110,7 +120,7 @@ fn convert_if_form(form: &Form) -> Result<CtStmt, ScriptLangError> {
             return Err(error_at(form, "<if> third child must be <else> block"));
         }
         let else_items = extract_form_children(else_form)?;
-        Some(convert_macro_body(&else_items)?.0)
+        Some(convert_macro_body(&else_items)?)
     } else {
         None
     };
@@ -201,9 +211,17 @@ fn convert_provider_to_expr(form: &Form, type_name: &str) -> Result<CtExpr, Scri
                     name: "parse_int".to_string(),
                     args: vec![attr_expr],
                 }),
+                "keyword" => {
+                    // keyword_attr(name) retrieves the keyword MacroValue from macro_env.locals
+                    // and converts it to CtValue::Keyword
+                    Ok(CtExpr::BuiltinCall {
+                        name: "keyword_attr".to_string(),
+                        args: vec![CtExpr::Literal(CtValue::String(attr_name.to_string()))],
+                    })
+                }
                 other => Err(error_at(
                     form,
-                    format!("unsupported macro let type `{other}` for <get-attribute>"),
+                    format!("unsupported macro let type `{}` for <get-attribute>", other),
                 )),
             }
         }
@@ -211,7 +229,10 @@ fn convert_provider_to_expr(form: &Form, type_name: &str) -> Result<CtExpr, Scri
             if type_name != "ast" {
                 return Err(error_at(
                     form,
-                    format!("<get-content> provider requires type `ast`, got `{type_name}`"),
+                    format!(
+                        "<get-content> provider requires type `ast`, got `{}`",
+                        type_name
+                    ),
                 ));
             }
             let head_filter = attr(form, "head");
@@ -228,9 +249,20 @@ fn convert_provider_to_expr(form: &Form, type_name: &str) -> Result<CtExpr, Scri
                 args,
             })
         }
+        "quote" => {
+            // <quote> as a provider: extract children and return as QuoteForms
+            if type_name != "ast" {
+                return Err(error_at(
+                    form,
+                    format!("<quote> provider requires type `ast`, got `{}`", type_name),
+                ));
+            }
+            let children = extract_form_children(form)?;
+            Ok(CtExpr::QuoteForms { items: children })
+        }
         other => Err(error_at(
             form,
-            format!("unsupported <{other}> provider for macro let"),
+            format!("unsupported <{}> provider for macro let", other),
         )),
     }
 }
@@ -261,9 +293,16 @@ fn convert_expr_form(form: &Form) -> Result<CtExpr, ScriptLangError> {
                 args,
             })
         }
+        "caller_module" => {
+            // No attributes needed; calls builtin_caller_module()
+            Ok(CtExpr::BuiltinCall {
+                name: "caller_module".to_string(),
+                args: vec![],
+            })
+        }
         other => Err(error_at(
             form,
-            format!("unsupported expression form <{other}>"),
+            format!("unsupported expression form <{}>", other),
         )),
     }
 }

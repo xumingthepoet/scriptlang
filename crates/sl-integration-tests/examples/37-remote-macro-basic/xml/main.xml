@@ -1,0 +1,4 @@
+<module name="main">
+  <require name="helper"/>
+  <__mk__ label="world"/>
+</module>

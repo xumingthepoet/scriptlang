@@ -1,8 +1,12 @@
 //! Compile-time evaluator for the macro language.
 
 use super::{BuiltinRegistry, CtBlock, CtEnv, CtExpr, CtStmt, CtValue};
+use crate::semantic::env::ExpandEnv;
+use crate::semantic::expand::dispatch::ExpandRuleScope;
 use crate::semantic::expand::macro_env::MacroEnv;
-use sl_core::ScriptLangError;
+use crate::semantic::expand::macro_values::MacroValue;
+use crate::semantic::expand::quote::quote_items;
+use sl_core::{Form, FormMeta, ScriptLangError, SourcePosition};
 
 /// Result of evaluation (may return early).
 #[allow(dead_code)]
@@ -30,11 +34,12 @@ pub fn eval_block(
     macro_env: &MacroEnv,
     ct_env: &mut CtEnv,
     builtins: &BuiltinRegistry,
+    expand_env: &mut ExpandEnv,
 ) -> Result<EvalResult, ScriptLangError> {
     let mut last_value = CtValue::Nil;
 
     for stmt in &block.stmts {
-        let result = eval_stmt(stmt, macro_env, ct_env, builtins)?;
+        let result = eval_stmt(stmt, macro_env, ct_env, builtins, expand_env)?;
 
         match result {
             EvalResult::Return(_) => return Ok(result),
@@ -52,16 +57,17 @@ pub fn eval_stmt(
     macro_env: &MacroEnv,
     ct_env: &mut CtEnv,
     builtins: &BuiltinRegistry,
+    expand_env: &mut ExpandEnv,
 ) -> Result<EvalResult, ScriptLangError> {
     match stmt {
         CtStmt::Let { name, value, .. } => {
-            let val = eval_expr(value, macro_env, ct_env, builtins)?;
+            let val = eval_expr(value, macro_env, ct_env, builtins, expand_env)?;
             ct_env.set(name.clone(), val);
             Ok(EvalResult::Value(CtValue::Nil))
         }
 
         CtStmt::Set { name, value, .. } => {
-            let val = eval_expr(value, macro_env, ct_env, builtins)?;
+            let val = eval_expr(value, macro_env, ct_env, builtins, expand_env)?;
             ct_env
                 .update(name, val)
                 .map_err(|e| ScriptLangError::Message { message: e })?;
@@ -74,24 +80,24 @@ pub fn eval_stmt(
             else_block,
             ..
         } => {
-            let cond_val = eval_expr(cond, macro_env, ct_env, builtins)?;
+            let cond_val = eval_expr(cond, macro_env, ct_env, builtins, expand_env)?;
 
             if cond_val.is_truthy() {
-                eval_block(then_block, macro_env, ct_env, builtins)
+                eval_block(then_block, macro_env, ct_env, builtins, expand_env)
             } else if let Some(else_block) = else_block {
-                eval_block(else_block, macro_env, ct_env, builtins)
+                eval_block(else_block, macro_env, ct_env, builtins, expand_env)
             } else {
                 Ok(EvalResult::Value(CtValue::Nil))
             }
         }
 
         CtStmt::Return { value, .. } => {
-            let val = eval_expr(value, macro_env, ct_env, builtins)?;
+            let val = eval_expr(value, macro_env, ct_env, builtins, expand_env)?;
             Ok(EvalResult::Return(val))
         }
 
         CtStmt::Expr { expr, .. } => {
-            let val = eval_expr(expr, macro_env, ct_env, builtins)?;
+            let val = eval_expr(expr, macro_env, ct_env, builtins, expand_env)?;
             Ok(EvalResult::Value(val))
         }
     }
@@ -104,6 +110,7 @@ pub fn eval_expr(
     macro_env: &MacroEnv,
     ct_env: &mut CtEnv,
     builtins: &BuiltinRegistry,
+    expand_env: &mut ExpandEnv,
 ) -> Result<CtValue, ScriptLangError> {
     match expr {
         CtExpr::Literal(value) => Ok(value.clone()),
@@ -131,24 +138,91 @@ pub fn eval_expr(
             // Evaluate arguments
             let evaluated_args: Result<Vec<_>, _> = args
                 .iter()
-                .map(|arg| eval_expr(arg, macro_env, ct_env, builtins))
+                .map(|arg| eval_expr(arg, macro_env, ct_env, builtins, expand_env))
                 .collect();
             let evaluated_args = evaluated_args?;
 
-            // Call builtin
-            builtin(&evaluated_args, macro_env, ct_env)
+            // Call builtin: builtins receive &MacroEnv and &mut ExpandEnv
+            // (MacroEnv is read-only, ExpandEnv is for mutations)
+            builtin(&evaluated_args, macro_env, ct_env, expand_env)
         }
 
         CtExpr::Quote { body, .. } => {
-            // For now, quote just evaluates the body and expects an Ast value
-            // Later this will do proper quasi-quoting
-            let value = eval_expr(body, macro_env, ct_env, builtins)?;
+            // Evaluate the body - quote is used for compile-time splicing
+            let value = eval_expr(body, macro_env, ct_env, builtins, expand_env)?;
             Ok(value)
+        }
+
+        CtExpr::QuoteForms { items } => {
+            // Process raw form items through quote_items (hygiene + splice)
+            // Clone macro_env since quote_items needs &mut MacroEnv for gensym
+            let mut runtime = macro_env.clone();
+            // Sync CtEnv variables to MacroEnv.locals so eval_unquote can find them
+            sync_ct_env_to_macro_env(ct_env, &mut runtime);
+            // Create a minimal dummy invocation form for quote processing
+            let invocation = Form {
+                head: "$quote".to_string(),
+                meta: FormMeta {
+                    source_name: None,
+                    start: SourcePosition { row: 0, column: 0 },
+                    end: SourcePosition { row: 0, column: 0 },
+                    start_byte: 0,
+                    end_byte: 0,
+                },
+                fields: Vec::new(),
+            };
+            let processed = quote_items(
+                &invocation,
+                expand_env,
+                ExpandRuleScope::Statement,
+                &mut runtime,
+                items,
+            )?;
+            Ok(CtValue::Ast(processed))
         }
 
         CtExpr::Unquote { expr, .. } => {
             // Unquote should only appear inside quote, but for now we just evaluate
-            eval_expr(expr, macro_env, ct_env, builtins)
+            eval_expr(expr, macro_env, ct_env, builtins, expand_env)
         }
+    }
+}
+
+// ============================================================================
+// CtEnv <-> MacroEnv bridge
+// ============================================================================
+
+/// Sync CtEnv variables to MacroEnv.locals so that eval_unquote (which uses
+/// MacroEnv.locals) can find variables set by the new compile-time evaluator.
+fn sync_ct_env_to_macro_env(ct_env: &CtEnv, macro_env: &mut MacroEnv) {
+    for (name, value) in ct_env.all() {
+        macro_env
+            .locals
+            .insert(name.clone(), ct_value_to_macro_value(value));
+    }
+}
+
+/// Convert a CtValue to a MacroValue for interoperability with eval_unquote.
+fn ct_value_to_macro_value(ct: &CtValue) -> MacroValue {
+    match ct {
+        CtValue::Nil => MacroValue::Nil,
+        CtValue::Bool(b) => MacroValue::Bool(*b),
+        CtValue::Int(i) => MacroValue::Int(*i),
+        CtValue::String(s) => MacroValue::String(s.clone()),
+        CtValue::Keyword(kv) => MacroValue::Keyword(
+            kv.iter()
+                .map(|(k, v)| (k.clone(), ct_value_to_macro_value(v)))
+                .collect(),
+        ),
+        CtValue::List(items) => {
+            // MacroValue doesn't have List, convert to Keyword of list items
+            MacroValue::Keyword(vec![(
+                "list".to_string(),
+                MacroValue::String(format!("[{} items]", items.len())),
+            )])
+        }
+        CtValue::ModuleRef(m) => MacroValue::String(m.clone()),
+        CtValue::Ast(items) => MacroValue::AstItems(items.clone()),
+        CtValue::CallerEnv => MacroValue::String("<caller_env>".to_string()),
     }
 }

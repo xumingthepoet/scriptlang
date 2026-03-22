@@ -6,36 +6,52 @@ use super::macro_values::MacroValue;
 use super::quote::quote_items;
 use super::raw_body_text;
 use crate::semantic::env::ExpandEnv;
+use crate::semantic::macro_lang::BuiltinRegistry;
+use crate::semantic::macro_lang::convert::convert_macro_body;
+use crate::semantic::macro_lang::eval::eval_block;
 use crate::semantic::{attr, error_at, required_attr};
 
+/// Evaluate macro items using the NEW compile-time evaluator (Step 4).
+///
+/// This function:
+/// 1. Converts the XML macro body to CtBlock using convert_macro_body
+/// 2. Evaluates the CtBlock using eval_block (which supports new builtins like invoke_macro)
+/// 3. Returns the expanded AST items
 pub(crate) fn evaluate_macro_items(
-    body: &[FormItem],
-    invocation: &Form,
+    _body: &[FormItem],
+    _invocation: &Form,
     env: &mut ExpandEnv,
-    scope: ExpandRuleScope,
-    mut runtime: MacroEnv,
+    _scope: ExpandRuleScope,
+    runtime: MacroEnv,
 ) -> Result<Vec<FormItem>, ScriptLangError> {
-    let forms = meaningful_macro_forms(body)?;
-    let mut quoted = None;
+    // Use the new compile-time evaluator
+    let block = convert_macro_body(_body)?;
+    let builtins = BuiltinRegistry::new();
 
-    for form in forms {
-        match form.head.as_str() {
-            "let" => eval_let(form, invocation, &mut runtime)?,
-            "quote" => {
-                let items =
-                    quote_items(invocation, env, scope, &mut runtime, form_children(form)?)?;
-                quoted = Some(items);
-            }
-            other => {
-                return Err(error_at(
-                    form,
-                    format!("unsupported compile-time macro form <{other}>"),
-                ));
-            }
-        }
+    let result = eval_block(
+        &block,
+        &runtime,
+        &mut crate::semantic::macro_lang::CtEnv::new(),
+        &builtins,
+        env,
+    )
+    .map_err(|e: ScriptLangError| ScriptLangError::Message {
+        message: e.to_string(),
+    })?;
+
+    let value = result
+        .into_value()
+        .map_err(|e: ScriptLangError| ScriptLangError::Message {
+            message: e.to_string(),
+        })?;
+
+    match value {
+        crate::semantic::macro_lang::CtValue::Ast(items) => Ok(items),
+        other => Err(ScriptLangError::message(format!(
+            "macro body must return AST, got {}",
+            other.type_name()
+        ))),
     }
-
-    quoted.ok_or_else(|| ScriptLangError::message("macro evaluator requires one <quote> block"))
 }
 
 /// Helper for tests: evaluate macro items with automatic MacroEnv creation.
@@ -55,6 +71,7 @@ fn evaluate_macro_items_for_test(
     evaluate_macro_items(body, invocation, env, scope, runtime)
 }
 
+#[allow(dead_code)]
 fn meaningful_macro_forms(body: &[FormItem]) -> Result<Vec<&Form>, ScriptLangError> {
     let mut forms = Vec::new();
     for item in body {
@@ -71,6 +88,7 @@ fn meaningful_macro_forms(body: &[FormItem]) -> Result<Vec<&Form>, ScriptLangErr
     Ok(forms)
 }
 
+#[allow(dead_code)]
 fn eval_let(
     form: &Form,
     _invocation: &Form,
@@ -175,6 +193,7 @@ pub(super) fn eval_unquote(form: &Form, runtime: &MacroEnv) -> Result<MacroValue
     })
 }
 
+#[allow(dead_code)]
 fn single_child_form(form: &Form) -> Result<&Form, ScriptLangError> {
     let children = form_children(form)?;
     let meaningful = children
@@ -193,6 +212,7 @@ fn single_child_form(form: &Form) -> Result<&Form, ScriptLangError> {
     }
 }
 
+#[allow(dead_code)]
 fn form_children(form: &Form) -> Result<&[FormItem], ScriptLangError> {
     form.fields
         .iter()
@@ -228,6 +248,7 @@ fn invocation_attributes(invocation: &Form) -> std::collections::BTreeMap<String
         .collect()
 }
 
+#[allow(dead_code)]
 fn select_invocation_content(
     runtime: &MacroEnv,
     provider: &Form,
@@ -442,7 +463,7 @@ mod tests {
         assert!(
             missing_quote
                 .to_string()
-                .contains("requires one <quote> block")
+                .contains("macro body must return AST")
         );
 
         let text_error = evaluate_macro_items_for_test(
@@ -564,7 +585,7 @@ mod tests {
         assert!(
             bad_provider
                 .to_string()
-                .contains("unsupported <get-content> provider")
+                .contains("<get-content> provider requires type")
         );
     }
 
@@ -648,7 +669,7 @@ mod tests {
         assert!(
             missing_attr
                 .to_string()
-                .contains("missing invocation attribute `missing`")
+                .contains("Attribute 'missing' not found")
         );
     }
 
@@ -658,7 +679,7 @@ mod tests {
 
         let unsupported = evaluate_macro_items_for_test(
             &[
-                child(node("if", vec![], vec![])),
+                child(node("unknown_form", vec![], vec![])),
                 child(node("quote", vec![], vec![])),
             ],
             &invocation,
@@ -669,7 +690,7 @@ mod tests {
         assert!(
             unsupported
                 .to_string()
-                .contains("unsupported compile-time macro form <if>")
+                .contains("unsupported compile-time macro form <unknown_form>")
         );
 
         let missing_unquote_body =
@@ -771,7 +792,7 @@ mod tests {
         assert!(
             missing_expr
                 .to_string()
-                .contains("missing invocation attribute `when`")
+                .contains("Attribute 'when' not found")
         );
 
         let bad_bool = evaluate_macro_items_for_test(

@@ -44,4 +44,10 @@ impl CtEnv {
             locals: self.locals.clone(),
         }
     }
+
+    /// Iterate over all local variable bindings.
+    #[allow(dead_code)]
+    pub fn all(&self) -> impl Iterator<Item = (&String, &CtValue)> {
+        self.locals.iter()
+    }
 }

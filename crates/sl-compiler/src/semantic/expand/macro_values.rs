@@ -6,6 +6,7 @@ pub(crate) enum MacroValue {
     Bool(bool),
     Int(i64),
     String(String),
+    #[allow(dead_code)]
     Expr(String),
     AstItems(Vec<FormItem>),
     Keyword(Vec<(String, MacroValue)>),

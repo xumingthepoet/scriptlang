@@ -11,7 +11,7 @@ use crate::semantic::env::ExpandEnv;
 use crate::semantic::error_at;
 use crate::semantic::expr::rewrite_expr_idents;
 
-pub(super) fn quote_items(
+pub(crate) fn quote_items(
     invocation: &Form,
     env: &mut ExpandEnv,
     scope: ExpandRuleScope,

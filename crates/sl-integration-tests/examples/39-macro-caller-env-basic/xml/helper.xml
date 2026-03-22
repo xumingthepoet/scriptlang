@@ -1,0 +1,13 @@
+<module name="helper">
+  <macro name="whoami">
+    <let name="caller_module" type="string">
+      <caller_module/>
+    </let>
+    <quote>
+      <script name="main">
+        <text>${caller_module}</text>
+        <end/>
+      </script>
+    </quote>
+  </macro>
+</module>

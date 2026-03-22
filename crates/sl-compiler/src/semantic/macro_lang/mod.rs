@@ -5,9 +5,9 @@
 
 mod ast;
 mod builtins;
-mod convert;
+pub(crate) mod convert;
 mod env;
-mod eval;
+pub(crate) mod eval;
 mod values;
 
 #[cfg(test)]

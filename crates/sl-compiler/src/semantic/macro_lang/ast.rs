@@ -42,6 +42,9 @@ pub enum CtExpr {
     Quote { body: Box<CtExpr> },
     /// Unquote: splice compile-time value into AST
     Unquote { expr: Box<CtExpr> },
+    /// QuoteForms: process raw form items with hygiene/splice (internal bridge)
+    /// This is used by the new evaluator to handle XML template quoting.
+    QuoteForms { items: Vec<sl_core::FormItem> },
 }
 
 /// A compile-time value.

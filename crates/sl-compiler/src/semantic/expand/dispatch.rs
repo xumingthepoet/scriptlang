@@ -69,6 +69,9 @@ impl ExpandRegistry {
             ExpandDispatch::Builtin
         } else if env.resolve_macro(&form.head).is_some() {
             ExpandDispatch::MacroHook
+        } else if is_macro_in_requires(form, env) {
+            // Macro might be in a required module - treat as macro hook to get proper error
+            ExpandDispatch::MacroHook
         } else {
             ExpandDispatch::Builtin
         }
@@ -98,7 +101,15 @@ fn expand_module_child(form: &Form, env: &mut ExpandEnv) -> Result<Vec<FormItem>
             }
             Ok(vec![FormItem::Form(form.clone())])
         }
-        _ => Ok(vec![FormItem::Form(form.clone())]),
+        _ => {
+            // Check if this might be a macro from a required module
+            if is_macro_in_requires(form, env) {
+                // Try to expand as macro - will fail with proper error
+                expand_macro_hook(form, env, ExpandRuleScope::ModuleChild)
+            } else {
+                Ok(vec![FormItem::Form(form.clone())])
+            }
+        }
     }
 }
 
@@ -121,6 +132,23 @@ fn expand_statement_child(
         )?)]),
         _ => Ok(vec![FormItem::Form(form.clone())]),
     }
+}
+
+/// Check if a form head matches a macro in any module (required or not).
+/// This is used to distinguish "not a macro" from "macro from module not in scope".
+fn is_macro_in_requires(form: &Form, env: &ExpandEnv) -> bool {
+    let name = &form.head;
+    // Check all modules that have been loaded (via module_macros)
+    // If the macro exists in any module but was NOT found by resolve_macro,
+    // it means the module is not in scope
+    for macros in env.program.module_macros.values() {
+        if macros.contains_key(name) {
+            // Macro exists in this module - if it's not found by resolve_macro,
+            // the module is not in scope
+            return true;
+        }
+    }
+    false
 }
 
 pub(super) fn expand_generated_items(

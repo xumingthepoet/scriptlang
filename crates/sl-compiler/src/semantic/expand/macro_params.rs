@@ -10,7 +10,7 @@ use crate::semantic::env::{
 use crate::semantic::error_at;
 
 /// Bind macro invocation arguments to parameters and populate MacroEnv.
-pub(super) fn bind_macro_params(
+pub(crate) fn bind_macro_params(
     definition: &MacroDefinition,
     invocation: &Form,
     expand_env: &mut ExpandEnv,

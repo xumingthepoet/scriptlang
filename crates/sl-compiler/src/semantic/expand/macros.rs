@@ -54,6 +54,20 @@ pub(super) fn expand_macro_hook(
 ) -> Result<Vec<FormItem>, ScriptLangError> {
     let definition = env.resolve_macro(&form.head).cloned();
     let Some(definition) = definition else {
+        // Check if the macro exists in any module but the module is not in scope
+        let macro_exists = env
+            .program
+            .module_macros
+            .values()
+            .any(|macros| macros.contains_key(&form.head));
+        if macro_exists {
+            // Macro exists but the required module is not in scope
+            return Err(ScriptLangError::message(format!(
+                "macro `{}` requires a module that is not in scope (hint: add <require name=\"...\"/> or <import name=\"...\"/>)",
+                form.head
+            )));
+        }
+        // Not a macro at all - clone as-is
         return Ok(vec![FormItem::Form(form.clone())]);
     };
     expand_macro_invocation(definition, form, env, scope)
@@ -252,6 +266,16 @@ fn expand_macro_invocation(
         })
         .collect::<Vec<_>>();
     expand_generated_items(&expanded_items, env, scope)
+}
+
+/// Public wrapper for expand_macro_invocation, exposed for use by macro_lang builtins.
+pub(crate) fn expand_macro_invocation_public(
+    definition: MacroDefinition,
+    invocation: &Form,
+    env: &mut ExpandEnv,
+    scope: ExpandRuleScope,
+) -> Result<Vec<FormItem>, ScriptLangError> {
+    expand_macro_invocation(definition, invocation, env, scope)
 }
 
 #[cfg(test)]
