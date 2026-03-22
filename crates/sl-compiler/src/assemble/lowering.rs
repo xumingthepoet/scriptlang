@@ -1,6 +1,8 @@
+use std::collections::BTreeSet;
+
 use sl_core::{
-    ChoiceBranch, CompiledText, CompiledTextPart, Instruction, LocalId, ScriptId, ScriptLangError,
-    TextSegment, TextTemplate,
+    ChoiceBranch, CompiledExpr, CompiledText, CompiledTextPart, Instruction, LocalId, ScriptId,
+    ScriptLangError, TextSegment, TextTemplate,
 };
 
 use crate::assemble::ScriptDraft;
@@ -14,11 +16,16 @@ impl ProgramAssembler {
         &mut self,
         modules: &[SemanticModule],
     ) -> Result<(), ScriptLangError> {
+        let global_names = self
+            .globals
+            .iter()
+            .map(|decl| decl.global.runtime_name.clone())
+            .collect::<BTreeSet<_>>();
         let mut script_index = 0usize;
         for module in modules {
             for script in &module.scripts {
                 let mut draft = self.scripts[script_index].clone();
-                lower_script(&self.script_refs, &mut draft, script)?;
+                lower_script(&self.script_refs, &global_names, &mut draft, script)?;
                 self.scripts[script_index] = draft;
                 script_index += 1;
             }
@@ -28,12 +35,13 @@ impl ProgramAssembler {
 }
 
 pub(crate) fn lower_script(
-    script_refs: &std::collections::BTreeMap<String, ScriptId>,
+    _script_refs: &std::collections::BTreeMap<String, ScriptId>,
+    global_names: &BTreeSet<String>,
     draft: &mut ScriptDraft,
     script: &SemanticScript,
 ) -> Result<(), ScriptLangError> {
     let mut loop_stack = Vec::new();
-    lower_block(script_refs, draft, &script.body, &mut loop_stack)?;
+    lower_block(global_names, draft, &script.body, &mut loop_stack)?;
     if !matches!(
         draft.instructions.last(),
         Some(
@@ -46,7 +54,7 @@ pub(crate) fn lower_script(
 }
 
 fn lower_block(
-    script_refs: &std::collections::BTreeMap<String, ScriptId>,
+    global_names: &BTreeSet<String>,
     draft: &mut ScriptDraft,
     body: &[SemanticStmt],
     loop_stack: &mut Vec<LoopFrame>,
@@ -61,17 +69,17 @@ fn lower_block(
                 let local_id = assign_local_id(draft, name);
                 draft.instructions.push(Instruction::EvalTemp {
                     local_id,
-                    expr: lower_resolved_vars_to_runtime_names(expr),
+                    expr: compile_expr(expr, &draft.local_names, global_names),
                 });
             }
             SemanticStmt::Code { code } => {
                 draft.instructions.push(Instruction::ExecCode {
-                    code: lower_resolved_vars_to_runtime_names(code),
+                    code: compile_expr(code, &draft.local_names, global_names),
                 });
             }
             SemanticStmt::Text { template, tag } => {
                 draft.instructions.push(Instruction::EmitText {
-                    text: lower_text_template(template),
+                    text: lower_text_template(template, &draft.local_names, global_names),
                     tag: tag.clone(),
                 });
             }
@@ -82,7 +90,7 @@ fn lower_block(
             } => {
                 let head_pc = draft.instructions.len();
                 draft.instructions.push(Instruction::EvalCond {
-                    expr: lower_resolved_vars_to_runtime_names(when),
+                    expr: compile_expr(when, &draft.local_names, global_names),
                 });
                 let exit_jump_index = draft.instructions.len();
                 draft
@@ -94,7 +102,7 @@ fn lower_block(
                         break_jump_indices: Vec::new(),
                     });
                 }
-                lower_block(script_refs, draft, body, loop_stack)?;
+                lower_block(global_names, draft, body, loop_stack)?;
                 draft
                     .instructions
                     .push(Instruction::Jump { target_pc: head_pc });
@@ -129,11 +137,11 @@ fn lower_block(
                 });
             }
             SemanticStmt::Choice { prompt, options } => {
-                lower_choice(script_refs, draft, prompt.as_ref(), options, loop_stack)?;
+                lower_choice(global_names, draft, prompt.as_ref(), options, loop_stack)?;
             }
             SemanticStmt::Goto { expr } => {
                 draft.instructions.push(Instruction::JumpScriptExpr {
-                    expr: lower_resolved_vars_to_runtime_names(expr),
+                    expr: compile_expr(expr, &draft.local_names, global_names),
                 });
             }
             SemanticStmt::End => draft.instructions.push(Instruction::End),
@@ -143,7 +151,7 @@ fn lower_block(
 }
 
 fn lower_choice(
-    script_refs: &std::collections::BTreeMap<String, ScriptId>,
+    global_names: &BTreeSet<String>,
     draft: &mut ScriptDraft,
     prompt: Option<&sl_core::TextTemplate>,
     options: &[SemanticChoiceOption],
@@ -151,7 +159,8 @@ fn lower_choice(
 ) -> Result<(), ScriptLangError> {
     let build_index = draft.instructions.len();
     draft.instructions.push(Instruction::BuildChoice {
-        prompt: prompt.map(lower_text_template),
+        prompt: prompt
+            .map(|template| lower_text_template(template, &draft.local_names, global_names)),
         options: Vec::new(),
     });
     let mut branches = Vec::with_capacity(options.len());
@@ -160,10 +169,10 @@ fn lower_choice(
     for option in options {
         let target_pc = draft.instructions.len();
         branches.push(ChoiceBranch {
-            text: lower_text_template(&option.text),
+            text: lower_text_template(&option.text, &draft.local_names, global_names),
             target_pc,
         });
-        lower_block(script_refs, draft, &option.body, loop_stack)?;
+        lower_block(global_names, draft, &option.body, loop_stack)?;
         let jump_index = draft.instructions.len();
         draft.instructions.push(Instruction::Jump { target_pc: 0 });
         branch_jump_indices.push(jump_index);
@@ -174,7 +183,8 @@ fn lower_choice(
         draft.instructions[jump_index] = Instruction::Jump { target_pc: join_pc };
     }
     draft.instructions[build_index] = Instruction::BuildChoice {
-        prompt: prompt.map(lower_text_template),
+        prompt: prompt
+            .map(|template| lower_text_template(template, &draft.local_names, global_names)),
         options: branches,
     };
     Ok(())
@@ -185,7 +195,29 @@ struct LoopFrame {
     break_jump_indices: Vec<usize>,
 }
 
-fn lower_text_template(template: &TextTemplate) -> CompiledText {
+pub(crate) fn compile_expr(
+    source: &str,
+    local_names: &[String],
+    global_names: &BTreeSet<String>,
+) -> CompiledExpr {
+    let lowered = lower_resolved_vars_to_runtime_names(source);
+    let known_vars = local_names
+        .iter()
+        .cloned()
+        .chain(global_names.iter().cloned())
+        .collect::<BTreeSet<_>>();
+    let referenced_vars = collect_referenced_vars(&lowered, &known_vars);
+    CompiledExpr {
+        source: lowered,
+        referenced_vars,
+    }
+}
+
+fn lower_text_template(
+    template: &TextTemplate,
+    local_names: &[String],
+    global_names: &BTreeSet<String>,
+) -> CompiledText {
     CompiledText {
         parts: template
             .segments
@@ -193,11 +225,115 @@ fn lower_text_template(template: &TextTemplate) -> CompiledText {
             .map(|segment| match segment {
                 TextSegment::Literal(text) => CompiledTextPart::Literal(text.clone()),
                 TextSegment::Expr(expr) => {
-                    CompiledTextPart::Expr(lower_resolved_vars_to_runtime_names(expr))
+                    let compiled = compile_expr(expr, local_names, global_names);
+                    if is_plain_var_ref(&compiled) {
+                        CompiledTextPart::VarRef(compiled.source)
+                    } else {
+                        CompiledTextPart::Expr(compiled)
+                    }
                 }
             })
             .collect(),
     }
+}
+
+fn is_plain_var_ref(expr: &CompiledExpr) -> bool {
+    expr.referenced_vars.len() == 1 && expr.referenced_vars[0] == expr.source
+}
+
+fn collect_referenced_vars(source: &str, known_vars: &BTreeSet<String>) -> Vec<String> {
+    let bytes = source.as_bytes();
+    let mut cursor = 0usize;
+    let mut referenced = BTreeSet::new();
+
+    while cursor < bytes.len() {
+        let ch = bytes[cursor] as char;
+        if ch == '"' || ch == '\'' {
+            cursor = scan_quoted(bytes, cursor);
+            continue;
+        }
+        if !is_ident_start(ch) {
+            cursor += ch.len_utf8();
+            continue;
+        }
+
+        let ident_start = cursor;
+        let end = scan_ident_path(bytes, cursor);
+        let raw = &source[ident_start..end];
+        let next_non_ws = skip_whitespace(bytes, end);
+
+        if !is_property_access(bytes, ident_start) && !is_map_key(bytes, next_non_ws) {
+            if known_vars.contains(raw) && !is_call(bytes, next_non_ws) {
+                referenced.insert(raw.to_string());
+            } else if let Some((base, _)) = raw.split_once('.')
+                && known_vars.contains(base)
+            {
+                referenced.insert(base.to_string());
+            }
+        }
+
+        cursor = end;
+    }
+
+    referenced.into_iter().collect()
+}
+
+fn scan_quoted(bytes: &[u8], start: usize) -> usize {
+    let quote = bytes[start];
+    let mut cursor = start + 1;
+    while cursor < bytes.len() {
+        match bytes[cursor] {
+            b'\\' => cursor += 2,
+            ch if ch == quote => return cursor + 1,
+            _ => cursor += 1,
+        }
+    }
+    bytes.len()
+}
+
+fn scan_ident_path(bytes: &[u8], start: usize) -> usize {
+    let mut cursor = start + 1;
+    while cursor < bytes.len() {
+        let ch = bytes[cursor] as char;
+        if ch.is_ascii_alphanumeric() || ch == '_' || ch == '.' {
+            cursor += 1;
+        } else {
+            break;
+        }
+    }
+    cursor
+}
+
+fn skip_whitespace(bytes: &[u8], mut cursor: usize) -> usize {
+    while cursor < bytes.len() && (bytes[cursor] as char).is_whitespace() {
+        cursor += 1;
+    }
+    cursor
+}
+
+fn is_call(bytes: &[u8], cursor: usize) -> bool {
+    cursor < bytes.len() && bytes[cursor] == b'('
+}
+
+fn is_map_key(bytes: &[u8], cursor: usize) -> bool {
+    cursor < bytes.len() && bytes[cursor] == b':'
+}
+
+fn is_property_access(bytes: &[u8], ident_start: usize) -> bool {
+    let mut cursor = ident_start;
+    while cursor > 0 {
+        cursor -= 1;
+        let ch = bytes[cursor] as char;
+        if ch.is_whitespace() {
+            continue;
+        }
+        return ch == '.';
+    }
+    false
+}
+
+fn is_ident_start(ch: char) -> bool {
+    ch == '_' || ch.is_ascii_alphabetic()
 }
 
 fn assign_local_id(draft: &mut ScriptDraft, name: &str) -> LocalId {
@@ -213,7 +349,7 @@ fn assign_local_id(draft: &mut ScriptDraft, name: &str) -> LocalId {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{BTreeMap, HashMap};
+    use std::collections::{BTreeMap, BTreeSet, HashMap};
 
     use sl_core::{CompiledTextPart, Instruction, TextSegment, TextTemplate};
 
@@ -221,7 +357,7 @@ mod tests {
     use crate::semantic::types::DeclaredType;
     use crate::semantic::{SemanticChoiceOption, SemanticScript, SemanticStmt};
 
-    use super::{lower_script, lower_text_template};
+    use super::{compile_expr, lower_script, lower_text_template};
 
     fn draft() -> ScriptDraft {
         ScriptDraft {
@@ -229,6 +365,10 @@ mod tests {
             local_lookup: HashMap::new(),
             instructions: Vec::new(),
         }
+    }
+
+    fn globals() -> BTreeSet<String> {
+        BTreeSet::from(["__sl_globalmain_next".to_string(), "flag".to_string()])
     }
 
     #[test]
@@ -258,11 +398,12 @@ mod tests {
             ],
         };
 
-        lower_script(&BTreeMap::new(), &mut draft, &script).expect("lower");
+        lower_script(&BTreeMap::new(), &globals(), &mut draft, &script).expect("lower");
 
         assert!(matches!(
             &draft.instructions[0],
-            Instruction::EvalTemp { local_id, expr } if *local_id == 0 && expr == "1"
+            Instruction::EvalTemp { local_id, expr }
+                if *local_id == 0 && expr.source == "1" && expr.referenced_vars.is_empty()
         ));
         assert!(matches!(
             &draft.instructions[1],
@@ -271,7 +412,7 @@ mod tests {
         ));
         assert!(matches!(
             &draft.instructions[2],
-            Instruction::JumpScriptExpr { expr } if expr == "\"main.target\""
+            Instruction::JumpScriptExpr { expr } if expr.source == "\"main.target\""
         ));
     }
 
@@ -285,27 +426,33 @@ mod tests {
             }],
         };
 
-        lower_script(&BTreeMap::new(), &mut draft, &script).expect("lower");
+        lower_script(&BTreeMap::new(), &globals(), &mut draft, &script).expect("lower");
 
         assert!(matches!(
             &draft.instructions[0],
-            Instruction::JumpScriptExpr { expr } if expr == "__sl_globalmain_next"
+            Instruction::JumpScriptExpr { expr }
+                if expr.source == "__sl_globalmain_next"
+                    && expr.referenced_vars == vec!["__sl_globalmain_next".to_string()]
         ));
     }
 
     #[test]
     fn lower_text_template_preserves_literal_and_expression_segments() {
-        let lowered = lower_text_template(&TextTemplate {
-            segments: vec![
-                TextSegment::Literal("hello ".to_string()),
-                TextSegment::Expr("name".to_string()),
-            ],
-        });
+        let lowered = lower_text_template(
+            &TextTemplate {
+                segments: vec![
+                    TextSegment::Literal("hello ".to_string()),
+                    TextSegment::Expr("name".to_string()),
+                ],
+            },
+            &["name".to_string()],
+            &BTreeSet::new(),
+        );
 
         assert!(matches!(
             lowered.parts.as_slice(),
-            [CompiledTextPart::Literal(text), CompiledTextPart::Expr(expr)]
-                if text == "hello " && expr == "name"
+            [CompiledTextPart::Literal(text), CompiledTextPart::VarRef(name)]
+                if text == "hello " && name == "name"
         ));
     }
 
@@ -347,28 +494,30 @@ mod tests {
             ],
         };
 
-        lower_script(&BTreeMap::new(), &mut draft, &script).expect("lower");
+        lower_script(&BTreeMap::new(), &globals(), &mut draft, &script).expect("lower");
 
         assert_eq!(draft.local_names, vec!["x".to_string()]);
         assert!(matches!(
             &draft.instructions[0],
-            Instruction::EvalTemp { local_id, expr } if *local_id == 0 && expr == "1"
+            Instruction::EvalTemp { local_id, expr } if *local_id == 0 && expr.source == "1"
         ));
         assert!(matches!(
             &draft.instructions[1],
-            Instruction::ExecCode { code } if code == "x = x + 1;"
+            Instruction::ExecCode { code }
+                if code.source == "x = x + 1;" && code.referenced_vars == vec!["x".to_string()]
         ));
         assert!(matches!(
             &draft.instructions[2],
             Instruction::EmitText { text, tag }
                 if matches!(text.parts.as_slice(),
-                    [CompiledTextPart::Literal(prefix), CompiledTextPart::Expr(expr)]
-                    if prefix == "value=" && expr == "x")
+                    [CompiledTextPart::Literal(prefix), CompiledTextPart::VarRef(name)]
+                    if prefix == "value=" && name == "x")
                 && tag.as_deref() == Some("note")
         ));
         assert!(matches!(
             &draft.instructions[3],
-            Instruction::EvalCond { expr } if expr == "x > 1"
+            Instruction::EvalCond { expr }
+                if expr.source == "x > 1" && expr.referenced_vars == vec!["x".to_string()]
         ));
         assert!(matches!(
             &draft.instructions[4],
@@ -376,7 +525,7 @@ mod tests {
         ));
         assert!(matches!(
             &draft.instructions[5],
-            Instruction::EvalTemp { local_id, expr } if *local_id == 0 && expr == "2"
+            Instruction::EvalTemp { local_id, expr } if *local_id == 0 && expr.source == "2"
         ));
         assert!(matches!(&draft.instructions[6], Instruction::End));
         assert!(matches!(
@@ -406,11 +555,12 @@ mod tests {
             }],
         };
 
-        lower_script(&BTreeMap::new(), &mut draft, &script).expect("lower");
+        lower_script(&BTreeMap::new(), &globals(), &mut draft, &script).expect("lower");
 
         assert!(matches!(
             &draft.instructions[0],
-            Instruction::EvalCond { expr } if expr == "flag"
+            Instruction::EvalCond { expr }
+                if expr.source == "flag" && expr.referenced_vars == vec!["flag".to_string()]
         ));
         assert!(matches!(
             &draft.instructions[1],
@@ -438,6 +588,7 @@ mod tests {
     fn lower_script_rejects_break_and_continue_outside_loop() {
         let break_error = lower_script(
             &BTreeMap::new(),
+            &globals(),
             &mut draft(),
             &SemanticScript {
                 name: "entry".to_string(),
@@ -453,6 +604,7 @@ mod tests {
 
         let continue_error = lower_script(
             &BTreeMap::new(),
+            &globals(),
             &mut draft(),
             &SemanticScript {
                 name: "entry".to_string(),
@@ -471,6 +623,7 @@ mod tests {
     fn lower_script_non_capturing_while_does_not_accept_break_or_continue() {
         let break_error = lower_script(
             &BTreeMap::new(),
+            &globals(),
             &mut draft(),
             &SemanticScript {
                 name: "entry".to_string(),
@@ -490,6 +643,7 @@ mod tests {
 
         let continue_error = lower_script(
             &BTreeMap::new(),
+            &globals(),
             &mut draft(),
             &SemanticScript {
                 name: "entry".to_string(),
@@ -505,6 +659,25 @@ mod tests {
             continue_error
                 .to_string()
                 .contains("only allowed inside <while>")
+        );
+    }
+
+    #[test]
+    fn compile_expr_tracks_locals_globals_and_property_bases() {
+        let globals = BTreeSet::from(["answer".to_string()]);
+        let compiled = compile_expr(
+            "name + answer + user.title + call(name) + #{k: answer}",
+            &["name".to_string(), "user".to_string()],
+            &globals,
+        );
+
+        assert_eq!(
+            compiled.source,
+            "name + answer + user.title + call(name) + #{k: answer}"
+        );
+        assert_eq!(
+            compiled.referenced_vars,
+            vec!["answer".to_string(), "name".to_string(), "user".to_string()]
         );
     }
 }

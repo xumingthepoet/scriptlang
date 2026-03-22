@@ -1482,13 +1482,23 @@ fn format_artifact(artifact: &CompiledArtifact) -> String {
 fn format_instruction(instruction: &Instruction) -> String {
     match instruction {
         Instruction::EvalGlobalInit { global_id, expr } => {
-            format!("EvalGlobalInit global_id={global_id} expr={expr:?}")
+            format!(
+                "EvalGlobalInit global_id={global_id} expr={}",
+                format_compiled_expr(expr)
+            )
         }
         Instruction::EvalTemp { local_id, expr } => {
-            format!("EvalTemp local_id={local_id} expr={expr:?}")
+            format!(
+                "EvalTemp local_id={local_id} expr={}",
+                format_compiled_expr(expr)
+            )
         }
-        Instruction::EvalCond { expr } => format!("EvalCond expr={expr:?}"),
-        Instruction::ExecCode { code } => format!("ExecCode code={code:?}"),
+        Instruction::EvalCond { expr } => {
+            format!("EvalCond expr={}", format_compiled_expr(expr))
+        }
+        Instruction::ExecCode { code } => {
+            format!("ExecCode code={}", format_compiled_expr(code))
+        }
         Instruction::EmitText { text, tag } => format!(
             "EmitText text={} tag={}",
             format_compiled_text(text),
@@ -1515,10 +1525,16 @@ fn format_instruction(instruction: &Instruction) -> String {
         Instruction::JumpScript { target_script_id } => {
             format!("JumpScript target_script_id={target_script_id}")
         }
-        Instruction::JumpScriptExpr { expr } => format!("JumpScriptExpr expr={expr:?}"),
+        Instruction::JumpScriptExpr { expr } => {
+            format!("JumpScriptExpr expr={}", format_compiled_expr(expr))
+        }
         Instruction::ReturnToHost => "ReturnToHost".to_string(),
         Instruction::End => "End".to_string(),
     }
+}
+
+fn format_compiled_expr(expr: &sl_core::CompiledExpr) -> String {
+    format!("src={:?} refs={:?}", expr.source, expr.referenced_vars)
 }
 
 fn format_text_template(template: &sl_core::TextTemplate) -> String {
@@ -1538,7 +1554,8 @@ fn format_compiled_text(text: &CompiledText) -> String {
         .iter()
         .map(|part| match part {
             CompiledTextPart::Literal(text) => format!("lit({text:?})"),
-            CompiledTextPart::Expr(expr) => format!("expr({expr:?})"),
+            CompiledTextPart::VarRef(name) => format!("var({name:?})"),
+            CompiledTextPart::Expr(expr) => format!("expr({})", format_compiled_expr(expr)),
         })
         .collect::<Vec<_>>()
         .join(" + ")

@@ -6,8 +6,9 @@ use std::sync::Arc;
 
 use rhai::{AST, Array, Dynamic, Engine as RhaiEngine, EvalAltResult, Scope};
 use sl_core::{
-    CompiledArtifact, CompiledFunction, CompiledScript, CompiledText, CompiledTextPart,
-    PendingChoiceOption, PendingChoiceSnapshot, ScriptId, ScriptLangError, Snapshot,
+    CompiledArtifact, CompiledExpr, CompiledFunction, CompiledScript, CompiledText,
+    CompiledTextPart, PendingChoiceOption, PendingChoiceSnapshot, ScriptId, ScriptLangError,
+    Snapshot,
 };
 
 use self::state::{EngineState, PendingChoiceState};
@@ -146,6 +147,10 @@ impl Engine {
         for part in &text.parts {
             match part {
                 CompiledTextPart::Literal(text) => rendered.push_str(text),
+                CompiledTextPart::VarRef(name) => {
+                    let value = self.read_var(name)?;
+                    rendered.push_str(&dynamic_to_text(&value));
+                }
                 CompiledTextPart::Expr(expr) => {
                     let value = self.eval_expression(expr)?;
                     rendered.push_str(&dynamic_to_text(&value));
@@ -155,21 +160,27 @@ impl Engine {
         Ok(rendered)
     }
 
-    pub(crate) fn eval_expression(&mut self, expr: &str) -> Result<Dynamic, ScriptLangError> {
-        let ast = self.get_or_compile_ast(expr)?;
+    pub(crate) fn eval_expression(
+        &mut self,
+        expr: &CompiledExpr,
+    ) -> Result<Dynamic, ScriptLangError> {
+        let ast = self.get_or_compile_ast(&expr.source)?;
         let mut scope = self.build_scope();
         Ok(self.rhai.eval_ast_with_scope::<Dynamic>(&mut scope, &ast)?)
     }
 
-    pub(crate) fn exec_code(&mut self, code: &str) -> Result<(), ScriptLangError> {
-        let ast = self.get_or_compile_ast(code)?;
+    pub(crate) fn exec_code(&mut self, code: &CompiledExpr) -> Result<(), ScriptLangError> {
+        let ast = self.get_or_compile_ast(&code.source)?;
         let mut scope = self.build_scope();
         let _ = self.rhai.eval_ast_with_scope::<Dynamic>(&mut scope, &ast)?;
         self.write_scope_back(&scope);
         Ok(())
     }
 
-    pub(crate) fn eval_script_key(&mut self, expr: &str) -> Result<String, ScriptLangError> {
+    pub(crate) fn eval_script_key(
+        &mut self,
+        expr: &CompiledExpr,
+    ) -> Result<String, ScriptLangError> {
         let value = self.eval_expression(expr)?;
         if let Some(value) = value.clone().try_cast::<String>() {
             Ok(value)
@@ -190,6 +201,24 @@ impl Engine {
             .get(source)
             .expect("AST must exist after insertion")
             .clone())
+    }
+
+    fn read_var(&self, name: &str) -> Result<Dynamic, ScriptLangError> {
+        let script = self.current_script();
+        if let Some(local_id) = script.local_names.iter().position(|local| local == name) {
+            return Ok(self.state.locals[local_id].clone());
+        }
+        if let Some(global) = self
+            .artifact
+            .globals
+            .iter()
+            .find(|global| global.runtime_name == name)
+        {
+            return Ok(self.state.globals[global.global_id].clone());
+        }
+        Err(ScriptLangError::message(format!(
+            "compiled text references unknown variable `{name}`"
+        )))
     }
 
     fn build_scope(&self) -> Scope<'static> {
@@ -285,7 +314,7 @@ fn eval_compiled_function(
     }
 
     let engine = build_rhai_engine(functions);
-    let ast = engine.compile(&function.body)?;
+    let ast = engine.compile(&function.body.source)?;
     let mut scope = Scope::new();
     for (name, value) in function.param_names.iter().zip(args.into_iter()) {
         scope.push_dynamic(name.clone(), value);
@@ -318,15 +347,25 @@ mod tests {
 
     use rhai::Dynamic;
     use sl_core::{
-        ChoiceBranch, CompiledArtifact, CompiledFunction, CompiledScript, CompiledText,
-        CompiledTextPart, Completion, GlobalVar, Instruction, PendingChoiceOption, Snapshot,
-        StepEvent, StepResult, Suspension,
+        ChoiceBranch, CompiledArtifact, CompiledExpr, CompiledFunction, CompiledScript,
+        CompiledText, CompiledTextPart, Completion, GlobalVar, Instruction, PendingChoiceOption,
+        Snapshot, StepEvent, StepResult, Suspension,
     };
 
     use super::{Engine, build_rhai_engine, dynamic_to_bool, dynamic_to_text};
 
     fn text(parts: Vec<CompiledTextPart>) -> CompiledText {
         CompiledText { parts }
+    }
+
+    fn expr(source: &str, referenced_vars: &[&str]) -> CompiledExpr {
+        CompiledExpr {
+            source: source.to_string(),
+            referenced_vars: referenced_vars
+                .iter()
+                .map(|name| name.to_string())
+                .collect(),
+        }
     }
 
     fn artifact_with_scripts(
@@ -376,7 +415,7 @@ mod tests {
             vec![
                 Instruction::EvalGlobalInit {
                     global_id: 0,
-                    expr: "40 + 2".to_string(),
+                    expr: expr("40 + 2", &[]),
                 },
                 Instruction::JumpScript {
                     target_script_id: 0,
@@ -506,28 +545,28 @@ mod tests {
         let mut engine = simple_engine(vec![
             Instruction::EvalTemp {
                 local_id: 0,
-                expr: "\"Ada\"".to_string(),
+                expr: expr("\"Ada\"", &[]),
             },
             Instruction::ExecCode {
-                code: "x = 1; x += answer;".to_string(),
+                code: expr("x = 1; x += answer;", &["x", "answer"]),
             },
             Instruction::EmitText {
                 text: text(vec![
                     CompiledTextPart::Literal("hello ".to_string()),
-                    CompiledTextPart::Expr("name".to_string()),
+                    CompiledTextPart::VarRef("name".to_string()),
                     CompiledTextPart::Literal(" ".to_string()),
-                    CompiledTextPart::Expr("()".to_string()),
+                    CompiledTextPart::Expr(expr("()", &[])),
                 ]),
                 tag: Some("line".to_string()),
             },
             Instruction::EvalCond {
-                expr: "x > 0".to_string(),
+                expr: expr("x > 0", &["x"]),
             },
             Instruction::JumpIfFalse { target_pc: 6 },
             Instruction::Jump { target_pc: 7 },
             Instruction::End,
             Instruction::JumpScriptExpr {
-                expr: "\"main.entry\"".to_string(),
+                expr: expr("\"main.entry\"", &[]),
             },
         ]);
 
@@ -584,7 +623,7 @@ mod tests {
     #[test]
     fn jump_script_expr_requires_string_and_known_target() {
         let mut wrong_type = simple_engine(vec![Instruction::JumpScriptExpr {
-            expr: "1 + 2".to_string(),
+            expr: expr("1 + 2", &[]),
         }]);
         wrong_type.start(None).expect("start should work");
         wrong_type.state.script_id = 0;
@@ -598,7 +637,7 @@ mod tests {
         );
 
         let mut missing = simple_engine(vec![Instruction::JumpScriptExpr {
-            expr: "\"main.missing\"".to_string(),
+            expr: expr("\"main.missing\"", &[]),
         }]);
         missing.start(None).expect("start should work");
         missing.state.script_id = 0;
@@ -613,11 +652,11 @@ mod tests {
     fn jump_if_false_false_branch_and_end_are_executed() {
         let mut engine = simple_engine(vec![
             Instruction::EvalCond {
-                expr: "false".to_string(),
+                expr: expr("false", &[]),
             },
             Instruction::JumpIfFalse { target_pc: 3 },
             Instruction::ExecCode {
-                code: "x = 999;".to_string(),
+                code: expr("x = 999;", &["x"]),
             },
             Instruction::End,
         ]);
@@ -847,33 +886,33 @@ mod tests {
         shadow_engine.state.locals = vec![Dynamic::from(7_i64)];
         shadow_engine.state.globals = vec![Dynamic::from(11_i64)];
         shadow_engine
-            .exec_code("answer = answer + 1;")
+            .exec_code(&expr("answer = answer + 1;", &["answer"]))
             .expect("exec should work");
         assert_eq!(shadow_engine.state.locals[0].clone_cast::<i64>(), 8);
         assert_eq!(shadow_engine.state.globals[0].clone_cast::<i64>(), 11);
 
         let first = engine
-            .eval_expression("answer + x")
+            .eval_expression(&expr("answer + x", &["answer", "x"]))
             .expect("eval should work");
         let second = engine
-            .eval_expression("answer + x")
+            .eval_expression(&expr("answer + x", &["answer", "x"]))
             .expect("eval should work");
         assert_eq!(first.clone_cast::<i64>(), 10);
         assert_eq!(second.clone_cast::<i64>(), 10);
         assert_eq!(engine.ast_cache.len(), 1);
         assert_eq!(
             engine
-                .eval_script_key("\"main.entry\"")
+                .eval_script_key(&expr("\"main.entry\"", &[]))
                 .expect("script key should work"),
             "main.entry"
         );
 
         let error = engine
-            .eval_expression("answer =")
+            .eval_expression(&expr("answer =", &["answer"]))
             .expect_err("parse should fail");
         assert!(error.to_string().contains("rhai parse error"));
         let error = engine
-            .exec_code("unknown = missing;")
+            .exec_code(&expr("unknown = missing;", &[]))
             .expect_err("eval should fail");
         assert!(error.to_string().contains("rhai eval error"));
 
@@ -884,7 +923,7 @@ mod tests {
             "condition expression must evaluate to a boolean"
         );
         let error = engine
-            .eval_script_key("1")
+            .eval_script_key(&expr("1", &[]))
             .expect_err("script key should fail");
         assert_eq!(
             error.to_string(),
@@ -919,14 +958,14 @@ mod tests {
                     "main.add1".to_string(),
                     CompiledFunction {
                         param_names: vec!["x".to_string()],
-                        body: "return x + 1;".to_string(),
+                        body: expr("return x + 1;", &["x"]),
                     },
                 ),
                 (
                     "main.run".to_string(),
                     CompiledFunction {
                         param_names: vec!["x".to_string()],
-                        body: "return __sl_call(\"main.add1\", [x]) * 2;".to_string(),
+                        body: expr("return __sl_call(\"main.add1\", [x]) * 2;", &["x"]),
                     },
                 ),
             ]),
@@ -956,10 +995,10 @@ mod tests {
         engine.rhai = build_rhai_engine(Arc::new(engine.artifact.functions.clone()));
 
         let direct = engine
-            .eval_expression("__sl_call(\"main.run\", [3])")
+            .eval_expression(&expr("__sl_call(\"main.run\", [3])", &[]))
             .expect("direct call");
         let invoked = engine
-            .eval_expression("let f = \"main.add1\"; invoke(f, [4])")
+            .eval_expression(&expr("let f = \"main.add1\"; invoke(f, [4])", &[]))
             .expect("invoke");
 
         assert_eq!(direct.clone_cast::<i64>(), 8);

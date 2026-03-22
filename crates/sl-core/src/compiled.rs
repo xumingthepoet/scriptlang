@@ -28,24 +28,30 @@ pub struct GlobalVar {
 #[derive(Clone, Debug)]
 pub struct CompiledFunction {
     pub param_names: Vec<String>,
-    pub body: String,
+    pub body: CompiledExpr,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CompiledExpr {
+    pub source: String,
+    pub referenced_vars: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
 pub enum Instruction {
     EvalGlobalInit {
         global_id: GlobalId,
-        expr: String,
+        expr: CompiledExpr,
     },
     EvalTemp {
         local_id: LocalId,
-        expr: String,
+        expr: CompiledExpr,
     },
     EvalCond {
-        expr: String,
+        expr: CompiledExpr,
     },
     ExecCode {
-        code: String,
+        code: CompiledExpr,
     },
     EmitText {
         text: CompiledText,
@@ -65,7 +71,7 @@ pub enum Instruction {
         target_script_id: ScriptId,
     },
     JumpScriptExpr {
-        expr: String,
+        expr: CompiledExpr,
     },
     ReturnToHost,
     End,
@@ -85,7 +91,8 @@ pub struct CompiledText {
 #[derive(Clone, Debug)]
 pub enum CompiledTextPart {
     Literal(String),
-    Expr(String),
+    VarRef(String),
+    Expr(CompiledExpr),
 }
 
 #[cfg(test)]
@@ -93,32 +100,43 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::{
-        ChoiceBranch, CompiledArtifact, CompiledFunction, CompiledScript, CompiledText,
-        CompiledTextPart, GlobalVar, Instruction,
+        ChoiceBranch, CompiledArtifact, CompiledExpr, CompiledFunction, CompiledScript,
+        CompiledText, CompiledTextPart, GlobalVar, Instruction,
     };
+
+    fn expr(source: &str, referenced_vars: &[&str]) -> CompiledExpr {
+        CompiledExpr {
+            source: source.to_string(),
+            referenced_vars: referenced_vars
+                .iter()
+                .map(|name| name.to_string())
+                .collect(),
+        }
+    }
 
     #[test]
     fn compiled_types_cover_all_instruction_variants() {
         let text = CompiledText {
             parts: vec![
                 CompiledTextPart::Literal("hello".to_string()),
-                CompiledTextPart::Expr("name".to_string()),
+                CompiledTextPart::VarRef("name".to_string()),
+                CompiledTextPart::Expr(expr("name + suffix", &["name", "suffix"])),
             ],
         };
         let instructions = vec![
             Instruction::EvalGlobalInit {
                 global_id: 0,
-                expr: "40 + 2".to_string(),
+                expr: expr("40 + 2", &[]),
             },
             Instruction::EvalTemp {
                 local_id: 0,
-                expr: "1".to_string(),
+                expr: expr("1", &[]),
             },
             Instruction::EvalCond {
-                expr: "true".to_string(),
+                expr: expr("true", &[]),
             },
             Instruction::ExecCode {
-                code: "x = 1;".to_string(),
+                code: expr("x = 1;", &["x"]),
             },
             Instruction::EmitText {
                 text: text.clone(),
@@ -137,7 +155,7 @@ mod tests {
                 target_script_id: 1,
             },
             Instruction::JumpScriptExpr {
-                expr: "\"main.entry\"".to_string(),
+                expr: expr("\"main.entry\"", &[]),
             },
             Instruction::ReturnToHost,
             Instruction::End,
@@ -149,7 +167,7 @@ mod tests {
                 "main.pick".to_string(),
                 CompiledFunction {
                     param_names: vec!["x".to_string()],
-                    body: "return x + 1;".to_string(),
+                    body: expr("return x + 1;", &["x"]),
                 },
             )]),
             script_refs: BTreeMap::from([
@@ -191,20 +209,21 @@ mod tests {
         assert!(matches!(
             &instructions[0],
             Instruction::EvalGlobalInit { global_id, expr }
-                if *global_id == 0 && expr == "40 + 2"
+                if *global_id == 0 && expr.source == "40 + 2" && expr.referenced_vars.is_empty()
         ));
         assert!(matches!(
             &instructions[1],
             Instruction::EvalTemp { local_id, expr }
-                if *local_id == 0 && expr == "1"
+                if *local_id == 0 && expr.source == "1" && expr.referenced_vars.is_empty()
         ));
         assert!(matches!(
             &instructions[2],
-            Instruction::EvalCond { expr } if expr == "true"
+            Instruction::EvalCond { expr } if expr.source == "true" && expr.referenced_vars.is_empty()
         ));
         assert!(matches!(
             &instructions[3],
-            Instruction::ExecCode { code } if code == "x = 1;"
+            Instruction::ExecCode { code }
+                if code.source == "x = 1;" && code.referenced_vars == vec!["x".to_string()]
         ));
         assert!(matches!(
             &instructions[4],
@@ -212,7 +231,8 @@ mod tests {
                 text: CompiledText { parts },
                 tag
             } if matches!(&parts[0], CompiledTextPart::Literal(text) if text == "hello")
-                && matches!(&parts[1], CompiledTextPart::Expr(expr) if expr == "name")
+                && matches!(&parts[1], CompiledTextPart::VarRef(name) if name == "name")
+                && matches!(&parts[2], CompiledTextPart::Expr(expr) if expr.source == "name + suffix")
                 && tag.as_deref() == Some("tag")
         ));
         assert!(matches!(
@@ -221,7 +241,7 @@ mod tests {
                 prompt: Some(CompiledText { parts }),
                 options
             } if matches!(&parts[0], CompiledTextPart::Literal(text) if text == "hello")
-                && matches!(&options[0].text.parts[1], CompiledTextPart::Expr(expr) if expr == "name")
+                && matches!(&options[0].text.parts[1], CompiledTextPart::VarRef(name) if name == "name")
                 && options[0].target_pc == 9
         ));
         assert!(matches!(
@@ -238,7 +258,7 @@ mod tests {
         ));
         assert!(matches!(
             &instructions[9],
-            Instruction::JumpScriptExpr { expr } if expr == "\"main.entry\""
+            Instruction::JumpScriptExpr { expr } if expr.source == "\"main.entry\""
         ));
         assert!(matches!(&instructions[10], Instruction::ReturnToHost));
         assert!(matches!(&instructions[11], Instruction::End));

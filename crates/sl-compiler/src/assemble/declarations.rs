@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use sl_core::ScriptLangError;
 
 use crate::names::{qualified_member_name, runtime_global_name};
@@ -5,6 +7,7 @@ use crate::semantic::SemanticModule;
 
 use super::{
     ProgramAssembler,
+    lowering::compile_expr,
     types::{GlobalDecl, ScriptDraft},
 };
 
@@ -13,6 +16,15 @@ impl ProgramAssembler {
         &mut self,
         modules: &[SemanticModule],
     ) -> Result<(), ScriptLangError> {
+        let global_names = modules
+            .iter()
+            .flat_map(|module| {
+                module
+                    .vars
+                    .iter()
+                    .map(|var| runtime_global_name(&qualified_member_name(&module.name, &var.name)))
+            })
+            .collect::<BTreeSet<_>>();
         for module in modules {
             for var in &module.vars {
                 let qualified_name = qualified_member_name(&module.name, &var.name);
@@ -36,7 +48,7 @@ impl ProgramAssembler {
                     function_ref,
                     sl_core::CompiledFunction {
                         param_names: function.param_names.clone(),
-                        body: function.body.clone(),
+                        body: compile_expr(&function.body, &function.param_names, &global_names),
                     },
                 );
             }

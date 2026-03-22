@@ -164,6 +164,11 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
   - 把单引号字符串统一转成 Rhai 的双引号字符串表示
   - 这层只按“expr 字符串”工作，不按 `when` / `goto` / `${...}` / `<var>` 等具体槽位分散实现
   - 普通 expr body 和模板 `${...}` 洞共享同一套预处理入口
+- `assemble/lowering.rs` 当前把所有落到 runtime 的 expr / code / function body 统一收口成 `CompiledExpr { source, referenced_vars }`
+  - `source` 是最终 lower 后交给 runtime 的源码字符串
+  - `referenced_vars` 是对最终源码做统一扫描后提取出的变量依赖集合
+  - 这层统一覆盖 `EvalGlobalInit / EvalTemp / EvalCond / ExecCode / JumpScriptExpr / CompiledFunction.body / CompiledTextPart::Expr`
+  - 文本模板里的纯变量 `${name}` 会进一步 lower 成确定性的 `CompiledTextPart::VarRef(name)`，不再走 Rhai eval
 - builtin form 的 expand 处理当前已收敛到 [`semantic/expand/dispatch.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/dispatch.rs) 的统一调度；macro 定义和宏展开细节则收敛到 [`semantic/expand/macros.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/macros.rs)
 - `ExpandRegistry` 当前已经提供 builtin / macro 共用的统一分发入口；macro 当前支持：
   - 当前宏展开要求产出恰好一个根 form
@@ -252,6 +257,11 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
   - `invoke(fn_ref, [args])` 用于通过 `function` 值做动态调用
   - function body 内同样支持 direct call / `invoke(...)`
 - `<goto>` 当前不再做 script ref 名字解析；它只保留表达式并 lower 成运行时动态跳转
+- runtime IR 中的表达式字符串当前不再分散挂在各指令字段上；统一使用 `CompiledExpr`
+- 文本模板当前会 lower 成 `CompiledText { parts }`
+  - 字面量片段保留为 `Literal`
+  - 纯变量插值保留为 `VarRef`
+  - 其余模板洞保留为 `Expr(CompiledExpr)`
 - `kernel.xml` 当前只保留最小控制流宏集；API 单测和 integration example 已覆盖 required module macro 可见性解析，以及基于 `quote / unquote` 的 `if` / `unless` / `if-else` 标准宏
 - `kernel` 当前还提供标准 `<if>` 宏；它通过 non-capturing `<while>` 结构实现，底层已不再保留单独的 builtin `if` lowering
 - `<while>` 当前还支持 compiler-internal 属性 `__sl_skip_loop_control_capture="true"`
@@ -292,10 +302,13 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 - 提供 `start(entry_script_ref) / step / choose / snapshot / resume`
 - 使用 Rhai 执行表达式和代码块
 - 首次执行某段 Rhai 源码时编译 AST，并在 runtime 内缓存
+- runtime 现在优先按 IR 执行：
+  - `CompiledTextPart::VarRef` 直接读取当前 local/global 并转成文本
+  - `CompiledExpr.source` 才会进入 Rhai
 - 对 `JumpScriptExpr` 先求值出 script key 字符串，再通过 `artifact.script_refs` 做跳转
 - `ReturnToHost` 是 compiler/runtime internal instruction；它会结束当前执行并把控制权交还给宿主，而不是表示真实程序结束
 - 运行时会为 expr / code 注册 `invoke` 和 compiler-internal `__sl_call`
-- module function 当前编译进 `CompiledArtifact.functions`，运行时按函数 key 查找并在独立 Rhai scope 中执行函数体
+- module function 当前编译进 `CompiledArtifact.functions`，运行时按函数 key 查找并在独立 Rhai scope 中执行 `CompiledFunction.body.source`
 
 当前 runtime 不做：
 

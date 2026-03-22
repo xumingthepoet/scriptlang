@@ -205,7 +205,8 @@ mod tests {
         assert_eq!(artifact.globals[0].runtime_name, "__sl_globalmain_answer");
         assert!(matches!(
             &artifact.scripts[0].instructions[0],
-            Instruction::EvalTemp { local_id, expr } if *local_id == 0 && expr == "1"
+            Instruction::EvalTemp { local_id, expr }
+                if *local_id == 0 && expr.source == "1" && expr.referenced_vars.is_empty()
         ));
         assert!(matches!(
             &artifact.scripts[0].instructions[1],
