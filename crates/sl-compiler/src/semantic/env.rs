@@ -74,6 +74,9 @@ pub(crate) struct ExpandEnv {
     pub(crate) program: ProgramState,
     pub(crate) module: ModuleState,
     pub(crate) macro_invocation_counters: BTreeMap<String, usize>,
+    /// Module name of the caller when inside a `use` macro expansion.
+    /// Used to detect conflicts when `use` injects public members into the caller.
+    pub(crate) use_caller_module: Option<String>,
 }
 
 /// Macro parameter type in the new explicit parameter protocol.
@@ -268,6 +271,50 @@ impl ExpandEnv {
             .or_insert(0);
         *counter += 1;
         *counter
+    }
+
+    /// Push the use caller context (set caller module for conflict detection).
+    /// Called before expanding a `use` macro so that injected public members
+    /// can be checked against the caller's existing exports.
+    pub(crate) fn push_use_caller(&mut self) {
+        if self.use_caller_module.is_none() {
+            self.use_caller_module = self.module.module_name.clone();
+        }
+    }
+
+    /// Pop the use caller context after `use` macro expansion completes.
+    pub(crate) fn pop_use_caller(&mut self) {
+        self.use_caller_module = None;
+    }
+
+    /// Check if a public member name already exists in the caller's exports.
+    /// Called when `use` macro tries to inject a public member.
+    ///
+    /// Checks both `env.module` (the in-progress current module) and
+    /// `program.modules` (completed modules) to handle the case where
+    /// `use` is called from within the caller module itself.
+    pub(crate) fn caller_exports_has(&self, name: &str) -> bool {
+        if let Some(ref caller) = self.use_caller_module {
+            // First check: is the caller the current module being compiled?
+            // During compilation, the current module lives in env.module, not yet in program.modules.
+            if self.module.module_name.as_deref() == Some(caller) {
+                let exports = &self.module.exports;
+                return exports.consts.contains_declared(name)
+                    || exports.functions.contains_declared(name)
+                    || exports.scripts.contains_declared(name)
+                    || exports.vars.contains_declared(name);
+            }
+
+            // Second check: is the caller a completed module in program.modules?
+            if let Some(module_state) = self.program.modules.get(caller) {
+                let exports = &module_state.exports;
+                return exports.consts.contains_declared(name)
+                    || exports.functions.contains_declared(name)
+                    || exports.scripts.contains_declared(name)
+                    || exports.vars.contains_declared(name);
+            }
+        }
+        false
     }
 }
 

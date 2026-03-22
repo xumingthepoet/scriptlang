@@ -1,0 +1,9 @@
+<module name="main">
+  <!-- use injects __helper_internal__ and say_hello into main.
+       Reference the script by its absolute name in main module. -->
+  <use module="helper"/>
+  <script name="main">
+    <goto script="@main.say_hello"/>
+    <end/>
+  </script>
+</module>

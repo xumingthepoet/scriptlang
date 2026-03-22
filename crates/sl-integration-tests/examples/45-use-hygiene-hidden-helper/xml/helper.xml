@@ -1,0 +1,21 @@
+<module name="helper">
+  <!-- __using__ injects a public script and a helper function.
+       The helper function is the "hidden" implementation detail that the caller
+       shouldn't need to know about. This tests that the injected helper doesn't
+       pollute the caller's namespace (hygiene). -->
+  <macro name="__using__" params="keyword:opts">
+    <quote>
+      <!-- Helper script - this is the "hidden" implementation detail.
+           Using __ prefix signals it's internal. -->
+      <script name="__helper_internal__">
+        <text>helper internal</text>
+        <end/>
+      </script>
+      <!-- Public script that uses the helper implicitly -->
+      <script name="say_hello">
+        <text>hello from use with hidden helper</text>
+        <end/>
+      </script>
+    </quote>
+  </macro>
+</module>

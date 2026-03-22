@@ -70,6 +70,16 @@ pub(super) fn expand_macro_hook(
         // Not a macro at all - clone as-is
         return Ok(vec![FormItem::Form(form.clone())]);
     };
+
+    // Step 6: Track use caller context for conflict detection.
+    // When expanding the `use` macro from kernel, push the caller module
+    // so that injected public members can be checked for conflicts.
+    // Note: we do NOT pop here - the reducer handles the pop after processing
+    // all requeued items, so that check_use_conflict sees the correct context.
+    let is_use_macro = definition.module_name == "kernel" && form.head == "use";
+    if is_use_macro {
+        env.push_use_caller();
+    }
     expand_macro_invocation(definition, form, env, scope)
 }
 

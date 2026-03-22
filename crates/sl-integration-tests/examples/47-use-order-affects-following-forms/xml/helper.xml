@@ -1,0 +1,13 @@
+<module name="helper">
+  <!-- Provider injects import, alias, function, and script via __using__ -->
+  <macro name="__using__" params="keyword:opts">
+    <quote>
+      <require name="kernel"/>
+      <alias name="m1" target="kernel"/>
+      <script name="use_injected">
+        <text>injected from use</text>
+        <end/>
+      </script>
+    </quote>
+  </macro>
+</module>

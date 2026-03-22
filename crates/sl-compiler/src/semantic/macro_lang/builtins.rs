@@ -879,6 +879,12 @@ fn builtin_invoke_macro(
         .cloned()
         .unwrap_or(module_ref.clone());
 
+    // Track caller module for error enrichment (Step 6: improve error location)
+    let caller_module = macro_env
+        .current_module
+        .clone()
+        .unwrap_or_else(|| "<unknown>".to_string());
+
     // Check that the module is required (or is the current module)
     // Also check expand_env.module.requires since require_module() adds to expand_env
     let is_current_module = macro_env
@@ -893,9 +899,9 @@ fn builtin_invoke_macro(
     if !is_current_module && !is_required {
         return Err(ScriptLangError::Message {
             message: format!(
-                "cannot invoke macro `{}.{}`: module not in scope. \
-                Currently requires: {:?}",
-                resolved_module, macro_name, macro_env.requires
+                "cannot invoke macro `{}.{}`: module not in scope (called from `{}`). \
+                Module `{}` requires: {:?}",
+                resolved_module, macro_name, caller_module, resolved_module, macro_env.requires
             ),
         });
     }
@@ -906,8 +912,8 @@ fn builtin_invoke_macro(
         .cloned()
         .ok_or_else(|| ScriptLangError::Message {
             message: format!(
-                "macro `{}` not found in module `{}`",
-                macro_name, resolved_module
+                "macro `{}` not found in module `{}` (called from `{}`)",
+                macro_name, resolved_module, caller_module
             ),
         })?;
 
@@ -950,10 +956,13 @@ fn builtin_invoke_macro(
         value: FormValue::Sequence(Vec::new()),
     });
 
+    // Build synthetic invocation form from args.
+    // The source_name includes both provider and caller for error attribution.
     let synthetic_invocation = Form {
         head: macro_name.clone(),
         meta: FormMeta {
-            source_name: Some(resolved_module.clone()),
+            // Provider module for error attribution to provider source
+            source_name: Some(format!("{} (via {})", resolved_module, caller_module)),
             start: SourcePosition { row: 0, column: 0 },
             end: SourcePosition { row: 0, column: 0 },
             start_byte: 0,
@@ -962,7 +971,10 @@ fn builtin_invoke_macro(
         fields: invocation_fields,
     };
 
-    // Expand the macro
+    // Expand the macro, enriching errors with caller context.
+    // When remote macro expansion fails, error messages will now include
+    // both the provider (where the macro is defined) and the caller
+    // (where the use/invoke_macro call was made).
     let expanded_items = expand_macro_invocation_public(
         definition,
         &synthetic_invocation,
@@ -970,7 +982,10 @@ fn builtin_invoke_macro(
         ExpandRuleScope::Statement,
     )
     .map_err(|e| ScriptLangError::Message {
-        message: e.to_string(),
+        message: format!(
+            "error expanding `{}` from `{}` (called from `{}`): {}",
+            macro_name, resolved_module, caller_module, e
+        ),
     })?;
 
     Ok(CtValue::Ast(expanded_items))

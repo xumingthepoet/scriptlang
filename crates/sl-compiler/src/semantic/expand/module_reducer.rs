@@ -28,6 +28,7 @@ pub(crate) fn reduce_module_children(
 ) -> Result<Vec<FormItem>, ScriptLangError> {
     let mut queue: Vec<FormItem> = children.to_vec();
     let mut output: Vec<FormItem> = Vec::new();
+    let mut needs_use_caller_pop = false;
 
     while let Some(item) = queue.first() {
         // Process the item
@@ -47,10 +48,25 @@ pub(crate) fn reduce_module_children(
                     queue.insert(i, item);
                 }
             }
+            ProcessedItem::RequeueFromUse(items) => {
+                // Insert at the front of the queue. After ALL requeued items are processed,
+                // the reducer will pop use_caller_module (tracked via needs_use_caller_pop).
+                for (i, item) in items.into_iter().enumerate() {
+                    queue.insert(i, item);
+                }
+                needs_use_caller_pop = true;
+            }
             ProcessedItem::Skip => {
                 // Item was handled (e.g., nested module), don't add to output
             }
         }
+    }
+
+    // Pop use_caller_module if any `use` macro expansion was processed.
+    // This is deferred until AFTER all requeued items are processed so that
+    // check_use_conflict can see the correct caller context.
+    if needs_use_caller_pop {
+        env.pop_use_caller();
     }
 
     Ok(output)
@@ -61,6 +77,9 @@ enum ProcessedItem {
     Output(Vec<FormItem>),
     /// Items to re-insert at the front of the queue (e.g., macro expansion results)
     Requeue(Vec<FormItem>),
+    /// Items re-inserted from a `use` macro expansion - reducer must pop
+    /// use_caller_module after ALL requeued items are processed.
+    RequeueFromUse(Vec<FormItem>),
     /// Item was handled separately, skip it
     Skip,
 }
@@ -151,13 +170,22 @@ fn process_form(
             Ok(ProcessedItem::Output(vec![FormItem::Form(form.clone())]))
         }
         "const" => {
-            // Const forms need special handling - use const_eval
+            // Check for use-injection conflict before declaring.
+            // expand_const_form handles the actual declaration internally.
+            let name = required_attr(form, "name")?.to_string();
+            let exported = !is_private(form)?;
+            if exported && let Some(err) = check_use_conflict(env, &name, form) {
+                return Err(err);
+            }
             let expanded = super::declared_types::expand_const_form(form, env)?;
             Ok(ProcessedItem::Output(vec![FormItem::Form(expanded)]))
         }
         "var" => {
             let name = required_attr(form, "name")?.to_string();
             let exported = !is_private(form)?;
+            if exported && let Some(err) = check_use_conflict(env, &name, form) {
+                return Err(err);
+            }
             if !env.declare_var(name.clone(), exported) {
                 let module_name = env.module.module_name.as_deref().unwrap_or("<unknown>");
                 return Err(error_at(
@@ -171,6 +199,9 @@ fn process_form(
         "script" => {
             let name = required_attr(form, "name")?.to_string();
             let exported = !is_private(form)?;
+            if exported && let Some(err) = check_use_conflict(env, &name, form) {
+                return Err(err);
+            }
             if !env.declare_script(name.clone(), exported) {
                 let module_name = env.module.module_name.as_deref().unwrap_or("<unknown>");
                 return Err(error_at(
@@ -184,6 +215,9 @@ fn process_form(
         "function" => {
             let name = required_attr(form, "name")?.to_string();
             let exported = !is_private(form)?;
+            if exported && let Some(err) = check_use_conflict(env, &name, form) {
+                return Err(err);
+            }
             if !env.declare_function(name.clone(), exported) {
                 let module_name = env.module.module_name.as_deref().unwrap_or("<unknown>");
                 return Err(error_at(
@@ -195,11 +229,19 @@ fn process_form(
         }
         _ => {
             // Check if this is a macro invocation
-            if env.resolve_macro(&form.head).is_some() {
+            if let Some(definition) = env.resolve_macro(&form.head) {
+                // Check if this is the `use` macro from kernel
+                let is_use_macro = definition.module_name == "kernel" && form.head == "use";
                 // Expand the macro
                 let expanded = expand_form_items(form, env, ExpandRuleScope::ModuleChild)?;
                 // Requeue the expanded items so they go through definition-time processing
-                Ok(ProcessedItem::Requeue(expanded))
+                // If this was a use macro, use RequeueFromUse so the reducer
+                // knows to pop use_caller_module after all items are processed
+                if is_use_macro {
+                    Ok(ProcessedItem::RequeueFromUse(expanded))
+                } else {
+                    Ok(ProcessedItem::Requeue(expanded))
+                }
             } else {
                 // Regular form, expand normally
                 let expanded = expand_form_items(form, env, ExpandRuleScope::ModuleChild)?;
@@ -246,4 +288,27 @@ pub(crate) fn alias_name(form: &Form) -> Result<String, ScriptLangError> {
         .filter(|segment| !segment.is_empty())
         .map(str::to_string)
         .ok_or_else(|| error_at(form, "<alias> requires valid `name`"))
+}
+
+/// Check for use-injection conflict when declaring a public member.
+/// Returns Some(error) if a conflict is detected, None otherwise.
+/// This is called when `use` macro tries to inject a public member into the caller.
+#[allow(clippy::collapsible_if)]
+fn check_use_conflict(env: &ExpandEnv, name: &str, form: &Form) -> Option<ScriptLangError> {
+    if let Some(ref caller) = env.use_caller_module {
+        if env.caller_exports_has(name) {
+            // Get the provider module from the form's source
+            let provider_module = form
+                .meta
+                .source_name
+                .clone()
+                .unwrap_or_else(|| "<unknown>".to_string());
+            return Some(ScriptLangError::message(format!(
+                "conflict: `use` from `{}` injects public member `{}` \
+                but caller module `{}` already has a member with this name",
+                provider_module, name, caller
+            )));
+        }
+    }
+    None
 }

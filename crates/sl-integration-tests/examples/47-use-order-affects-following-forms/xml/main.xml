@@ -1,0 +1,9 @@
+<module name="main">
+  <!-- use injects require, alias, and script into main -->
+  <use module="helper"/>
+  <!-- Following form uses the injected alias and script -->
+  <script name="main">
+    <goto script="@main.use_injected"/>
+    <end/>
+  </script>
+</module>

@@ -724,3 +724,61 @@ Provider module 通过 `<macro name="__using__" params="keyword:opts">` 暴露 h
 - 新增集成测试 40/41/42/43/44
 - Coverage: 89.61% lines, 90.43% functions
 - `make gate` 通过
+
+## Step 6: Hygiene、冲突检测和错误定位（2026-03-23）
+
+完成状态：已完成
+
+### 架构变更
+
+#### 公开成员冲突检测
+
+当 `use` 注入公开成员（script/function/const/var）时，检测 caller 是否已有同名成员：
+
+1. 在 `ExpandEnv` 中新增 `use_caller_module: Option<String>` 字段
+2. `push_use_caller()` / `pop_use_caller()` 管理调用者上下文
+3. `caller_exports_has(name)` 检查 caller 的导出成员
+4. `check_use_conflict()` 在 reducer 中检测冲突
+
+冲突错误格式：
+```
+conflict: `use` from `{provider}` injects public member `{name}` \
+but caller module `{caller}` already has a member with this name
+```
+
+#### 错误定位改进
+
+`invoke_macro` 中的错误现在包含 caller 和 provider 信息：
+
+```
+error expanding `{macro}` from `{provider}` (called from `{caller}`): {error}
+```
+
+#### Hygiene 机制
+
+- `<temp>` 元素通过 gensym 自动重命名：`__macro_{macro_name}_{seed}_{prefix}_{counter}`
+- 隐藏的 helper 名不会污染 caller 命名空间
+
+### 代码落点
+
+- `crates/sl-compiler/src/semantic/env.rs`
+  - `use_caller_module` 字段
+  - `push_use_caller()` / `pop_use_caller()` / `caller_exports_has()`
+- `crates/sl-compiler/src/semantic/expand/module_reducer.rs`
+  - `ProcessedItem::RequeueFromUse` 变体
+  - `check_use_conflict()` 函数
+  - 延迟 pop 机制（在所有 requeued items 处理后）
+- `crates/sl-compiler/src/semantic/expand/macros.rs`
+  - `expand_macro_hook` 不再立即 pop（由 reducer 负责）
+- `crates/sl-compiler/src/semantic/macro_lang/builtins.rs`
+  - `invoke_macro` 错误消息包含 caller/provider 上下文
+
+### 测试状态
+
+- 所有现有测试通过（165 compiler unit tests + 7 runtime tests + 17 integration tests）
+- 新增集成测试 45/46/47
+  - 45: 验证 hidden helper 不污染 caller
+  - 46: 验证公开成员冲突检测
+  - 47: 验证 `use` 注入后后续 form 可用
+- Coverage: 90.02% lines, 92.22% functions
+- `make gate` 通过

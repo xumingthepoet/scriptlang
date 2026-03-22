@@ -1,0 +1,9 @@
+<module name="main">
+  <!-- Caller defines a public script named "helper" BEFORE the use -->
+  <script name="helper">
+    <text>caller's script</text>
+    <end/>
+  </script>
+  <!-- use tries to inject another public script named "helper" - conflict! -->
+  <use module="helper"/>
+</module>
