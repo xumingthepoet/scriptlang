@@ -647,3 +647,80 @@
 - kernel 宏迁移到新系统
 - `make gate` 通过
 - `IMPLEMENTATION.md` 已同步
+
+---
+
+## 实施进度记录
+
+### 2026-03-22: Step 1 基础设施完成（部分）
+
+**已完成：**
+
+1. **新 compile-time macro language 基础设施** (`semantic/macro_lang/`)
+   - `ast.rs`: CtBlock, CtStmt, CtExpr, CtValue 完整定义
+   - `eval.rs`: eval_block, eval_stmt, eval_expr 评估器
+   - `builtins.rs`: BuiltinRegistry + 7 个 builtin 函数
+   - `env.rs`: CtEnv 环境管理
+   - `values.rs`: 类型重导出
+   - `mod.rs`: 模块组织
+
+2. **CtValue 类型覆盖：**
+   - Nil, Bool, Int, String
+   - Keyword(Vec<(String, CtValue)>)
+   - List(Vec<CtValue>)
+   - ModuleRef(String)
+   - Ast(Vec<FormItem>)
+   - CallerEnv
+
+3. **语言特性支持：**
+   - `let` / `set` / `return`
+   - `if` / `else`
+   - `quote` / `unquote`（占位实现）
+   - builtin call
+
+4. **Builtin 函数：**
+   - `attr(name)` - 获取宏属性
+   - `content()` / `content(head="...")` - 获取宏内容
+   - `has_attr(name)` - 检查属性存在
+   - `keyword_get(keyword, key)` - 从 keyword 取值
+   - `keyword_has(keyword, key)` - 检查 keyword 键
+   - `list_length(list)` - 列表长度
+   - `to_string(value)` - 转字符串
+
+5. **MacroEnv 增强：**
+   - `get_attribute()` / `has_attribute()`
+   - `get_content()` / `get_content_with_head()`
+
+6. **单元测试（9个）：**
+   - compile-time if 分支选择
+   - let/set/return 作用域
+   - keyword 顺序保持
+   - value truthiness
+   - type_name 报告
+   - 嵌套 if
+
+7. **测试状态：**
+   - 113 compiler unit tests ✅
+   - 7 runtime tests ✅
+   - 9 integration tests ✅
+   - Coverage: 92.87% lines, 93.85% functions ✅
+   - `make gate` 通过 ✅
+
+**未完成（Step 1 要求）：**
+
+- `macro_eval.rs` 未改用 `macro_lang::eval`（仍用旧模板方式）
+- 集成测试 `30-real-macro-compile-time-if` 未创建
+- 集成测试 `31-real-macro-local-bindings` 未创建
+- quote/unquote 完整实现（需要真正从 CtValue 产出 FormItem AST）
+
+**提交：**
+- `8805a80` feat: introduce real compile-time macro language (Step 1 foundation)
+- `72abe0b` test: add unit tests for compile-time macro language
+- `c8b4a3e` fix: resolve clippy warnings and formatting issues
+
+**下一步：**
+需要完成 Step 1 剩余部分：
+1. 修改 `macro_eval.rs` 调用 `macro_lang::eval`
+2. 实现 quote/unquote 的完整 AST 生成
+3. 创建集成测试 30/31
+4. 然后才能进入 Step 2
