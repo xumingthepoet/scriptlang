@@ -1,0 +1,20 @@
+<module name="main">
+  <macro name="script_text" attributes="name:string" content="ast">
+    <let name="script_name" type="string">
+      <get-attribute name="name"/>
+    </let>
+    <let name="content_ast" type="ast">
+      <get-content/>
+    </let>
+    <quote>
+      <script name="${script_name}">
+        <unquote>content_ast</unquote>
+        <end/>
+      </script>
+    </quote>
+  </macro>
+
+  <script_text name="main">
+    <text>from-user-script-text</text>
+  </script_text>
+</module>

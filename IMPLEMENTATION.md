@@ -162,9 +162,19 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
   - 子模块内的 `<macro>` 也会按限定名 module 递归注册到 program macro registry
 - `import` 当前只负责成员短名可见性
 - `require` 当前只负责宏可见性
+- `<require>` 的典型用法是先引入提供 macro 的 module，再直接使用该 macro，例如：
+
+```xml
+<module name="main">
+  <require name="helper" />
+  <mk name="main" />
+</module>
+```
+
+  `helper` 中的 `<macro name="mk">...</macro>` 会在 expand 阶段变成当前 module 可见的宏定义
 - `alias` 当前只负责 module 名缩写；可用于 const / var / script / function 的显式限定引用
 - 当前宏统一通过 compile-time 路径展开：`<let> + <quote> + <unquote>`
-- 当前 compile-time 宏路径已可支撑标准 `unless`、`if-else`、`say`、`when_text` 和 `script_text` 宏；`kernel.xml` 中已有真实示例
+- 当前 compile-time 宏路径已可支撑标准 `if`、`unless`、`if-else` 宏；`kernel.xml` 中已有真实示例
 - 在 form semantics 阶段完成 MVP 标签校验、属性校验、`<import>` / `<require>` / `<alias>` 上下文推进、统一名称解析、`<const>` 编译期求值和结构下沉
 - `<const>` 只在 semantic analyze 阶段内存在；进入 `SemanticProgram` 后不再保留 const 声明
 - compiler 当前为每个 module 隐式提供 kernel 上下文：
@@ -213,8 +223,11 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
   - `invoke(fn_ref, [args])` 用于通过 `function` 值做动态调用
   - function body 内同样支持 direct call / `invoke(...)`
 - `<goto>` 当前不再做 script ref 名字解析；它只保留表达式并 lower 成运行时动态跳转
-- `kernel.xml` 当前除常量外，已可声明最小 kernel macro；API 单测和 integration example 已覆盖 required module macro 可见性解析，以及基于 `quote / unquote` 的 `say` / `when_text` / `script_text` / `unless` / `if-else` 标准宏
+- `kernel.xml` 当前只保留最小控制流宏集；API 单测和 integration example 已覆盖 required module macro 可见性解析，以及基于 `quote / unquote` 的 `if` / `unless` / `if-else` 标准宏
 - `kernel` 当前还提供标准 `<if>` 宏；它通过 non-capturing `<while>` 结构实现，底层已不再保留单独的 builtin `if` lowering
+- `script_text` / `zero` 这类更偏示例性质的能力当前不再放在 kernel；对应示例改为用户 module 自己定义：
+  - `19-user-script-text` 展示用户自定义 module macro 生成 `<script>`
+  - `12-kernel-lib-const` 当前实际展示“用户自定义 `zero` const”的局部常量写法
 
 当前 IR 指令包括：
 
@@ -269,7 +282,7 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 
 其中 `parse_modules_from_sources` / `parse_module_xml` 返回 `Form`，而不是旧的 `ParsedModule`。
 
-当前 `sl-api` 会在这些高层入口里自动加载内置库 XML。现阶段内置库只提供 `crates/sl-api/lib/kernel.xml`，并把它作为普通 module 一起参与编译；默认 `zero` 这类内置名字来自 compiler 的隐式 `import kernel` 上下文，而不是 API 侧源码注入。
+当前 `sl-api` 会在这些高层入口里自动加载内置库 XML。现阶段内置库只提供 `crates/sl-api/lib/kernel.xml`，并把它作为普通 module 一起参与编译；kernel 当前主要承载标准控制流宏，而不是示例性质的常量或文本宏。
 
 这是当前最推荐的对外入口。
 
@@ -317,6 +330,7 @@ crates/sl-integration-tests/examples/<example>/
 - kernel `<if>` 通过 `<while>` 宏化提供
 - `26-kernel-if-via-while` 覆盖 `<if>` 经 kernel macro 展开后的运行链路
 - `require` 导入的普通 module macro
+  - 代表例子：`20-imported-module-macro`
 - `function` 字面量 `#foo`
 - `27-function-invoke` 覆盖 module function 定义、direct call、`invoke(fn_var, [args])`，以及 `when="..."` 中的 function 调用
 - kernel `unless` / `if-else` 标准宏

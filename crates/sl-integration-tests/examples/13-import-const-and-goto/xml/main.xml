@@ -1,6 +1,7 @@
 <module name="main">
   <import name="m1"/>
   <import name="m2"/>
+  <const name="zero" type="int">0</const>
   <const name="target_key" type="script">@m2.target</const>
   <var name="target" type="script">target_key</var>
   <var name="value" type="int">base + m1.base + zero</var>

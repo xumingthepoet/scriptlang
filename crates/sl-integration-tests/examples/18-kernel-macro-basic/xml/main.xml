@@ -1,9 +1,11 @@
 <module name="main">
   <script name="main">
-    <say text="hello"/>
-    <when_text when="true">
-      <say text="inside"/>
-    </when_text>
+    <if when="true">
+      <text>hello</text>
+    </if>
+    <unless when="false">
+      <text>inside</text>
+    </unless>
     <end/>
   </script>
 </module>

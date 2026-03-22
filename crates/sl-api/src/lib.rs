@@ -68,11 +68,12 @@ mod tests {
     }
 
     #[test]
-    fn create_engine_from_xml_map_exposes_kernel_zero_const_to_user_code() {
+    fn create_engine_from_xml_map_uses_user_defined_zero_const() {
         let sources = BTreeMap::from([(
             "main.xml".to_string(),
             r#"
             <module name="main">
+              <const name="zero" type="int">0</const>
               <var name="answer" type="int">zero + 1</var>
               <script name="main">
                 <text>${answer}</text>
@@ -108,10 +109,12 @@ mod tests {
             r#"
             <module name="main">
               <script name="main">
-                <say text="hello"/>
-                <when_text when="true">
-                  <say text="inside"/>
-                </when_text>
+                <if when="true">
+                  <text>hello</text>
+                </if>
+                <unless when="false">
+                  <text>inside</text>
+                </unless>
                 <end/>
               </script>
             </module>
@@ -130,30 +133,5 @@ mod tests {
         }
 
         assert_eq!(events, vec!["hello".to_string(), "inside".to_string()]);
-    }
-
-    #[test]
-    fn create_engine_from_xml_map_expands_kernel_module_macros() {
-        let sources = BTreeMap::from([(
-            "main.xml".to_string(),
-            r#"
-            <module name="main">
-              <script_text name="main" text="from-macro"/>
-            </module>
-            "#
-            .to_string(),
-        )]);
-        let mut engine = create_engine_from_xml_map(&sources, None).expect("engine");
-
-        loop {
-            match engine.step().expect("step") {
-                StepResult::Progress => continue,
-                StepResult::Event(StepEvent::Text { text, .. }) => {
-                    assert_eq!(text, "from-macro");
-                }
-                StepResult::Completed(Completion::End) => break,
-                other => panic!("unexpected step result: {other:?}"),
-            }
-        }
     }
 }
