@@ -65,6 +65,9 @@ fn expand_module_form_with_parent(
                                     "import" => {
                                         if let Some(import_name) = string_attr(child, "name") {
                                             env.add_import(import_name.to_string());
+                                            // In Elixir, `import A` automatically also does `require A`
+                                            // so that macros from A become available.
+                                            env.add_require(import_name.to_string());
                                         }
                                         vec![FormItem::Form(child.clone())]
                                     }
@@ -315,7 +318,12 @@ mod tests {
 
         assert_eq!(children.len(), 7);
         assert_eq!(stored.imports, vec!["helper".to_string()]);
-        assert_eq!(stored.requires, vec!["helper".to_string()]);
+        // `import` automatically also does `require`, so helper appears twice:
+        // once from the auto-require, once from the explicit require.
+        assert_eq!(
+            stored.requires,
+            vec!["helper".to_string(), "helper".to_string()]
+        );
         assert_eq!(
             stored.aliases.get("h").map(String::as_str),
             Some("main.helper")
