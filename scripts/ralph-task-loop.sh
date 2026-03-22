@@ -9,7 +9,7 @@ cd "${REPO_ROOT}"
 child_pid=""
 interrupted=0
 CLAUDE_LOOP_TEST_CMD="${CLAUDE_LOOP_TEST_CMD:-}"
-BACKOFF_SLEEP_SECONDS="${BACKOFF_SLEEP_SECONDS:-100}"
+BACKOFF_SLEEP_SECONDS="${BACKOFF_SLEEP_SECONDS:-10}"
 
 TASK_DOC_PATH="${1:-}"
 MAX_ROUNDS="${2:-10}"
@@ -53,7 +53,7 @@ fi
 
 TASK_DOC_ABS="$(cd "$(dirname "${TASK_DOC_PATH}")" && pwd)/$(basename "${TASK_DOC_PATH}")"
 
-PROMPT_ROUND_1="首先，reset当前修改让工作目录保持干净。阅读任务文档 \`${TASK_DOC_ABS}\`，把它作为唯一目标，以 ralph 模式持续推进。你在一个循环里工作：每一轮都按文档里的当前进度执行下一条任务，直接动手，不要跳步，不要空转，不要偏离任务去做无关整理。遵守仓库里的 AGENTS.md；如果本轮改动涉及 crates/ 或会影响 crate 行为、公共接口、测试结果、编译流程，就同步更新 IMPLEMENTATION.md，并在准备把这一轮视为完成前跑通 make gate。如果本次任务完成就可以git提交了. 如果本次任务实在太复杂，运行超过20分钟，可以尽快选择干净合适工作节点暂停工作，在目标文档里写清楚当前任务节点，指导后续循环接上继续工作，然后git提交本次的部分进展。"
+PROMPT_ROUND_1="阅读任务文档 \`${TASK_DOC_ABS}\`，把它作为唯一目标，以 ralph 模式持续推进。如果当前工作区不干净，检查能否在当前代码改到哪个下继续本次工作。如果实在不行就reset。你在一个循环里工作：每一轮都按文档里的当前进度执行下一条任务，直接动手，不要跳步，不要空转，不要偏离任务去做无关整理。遵守仓库里的 AGENTS.md；如果本轮改动涉及 crates/ 或会影响 crate 行为、公共接口、测试结果、编译流程，就同步更新 IMPLEMENTATION.md，并在准备把这一轮视为完成前跑通 make gate。如果本次任务完成就可以git提交了。尽量采用TODO工具，让subagent分担上下文压力。"
 PROMPT_ROUND_2="当前修改完成了既定步骤的任务吗？还是让事情更糟糕了？如果完成了，请把任务进度更新追加到任务文档 \`${TASK_DOC_ABS}\` 的最后，方便后续工作继续，并提交一次当前代码；如果让事情更糟糕，不要犹豫，reset当前修改让工作目录保持干净。"
 
 PROMPTS=(
@@ -163,7 +163,7 @@ for ((round = 1; round <= MAX_ROUNDS; round++)); do
   done
 
   if [[ "${claude_failed}" -ne 0 ]]; then
-    echo "claude failed in round ${round}; sleeping 10 minutes before retry."
+    echo "claude failed in round ${round}; sleeping 10 seconds before retry."
     if ! sleep_with_interrupt "${BACKOFF_SLEEP_SECONDS}"; then
       if [[ "${interrupted}" -ne 0 ]]; then
         echo "Interrupted during backoff sleep, exiting."
