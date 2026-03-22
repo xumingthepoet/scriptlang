@@ -22,12 +22,29 @@ fn parse_module_xml_with_source(
     xml: &str,
     source_name: Option<&str>,
 ) -> Result<Form, ScriptLangError> {
+    reject_xml_entities(xml)?;
     let doc = Document::parse(xml)?;
     let root = doc.root_element();
     if root.tag_name().name() != "module" {
         return Err(ScriptLangError::message("root element must be <module>"));
     }
     Ok(parse_form(&doc, root, source_name))
+}
+
+fn reject_xml_entities(xml: &str) -> Result<(), ScriptLangError> {
+    for entity in ["&quot;", "&apos;", "&lt;", "&gt;", "&amp;"] {
+        if xml.contains(entity) {
+            return Err(ScriptLangError::message(format!(
+                "xml entity escapes like `{entity}` are forbidden; write source directly or use ScriptLang expr conventions"
+            )));
+        }
+    }
+    if xml.contains("&#") {
+        return Err(ScriptLangError::message(
+            "xml numeric entity escapes are forbidden; write source directly or use ScriptLang expr conventions",
+        ));
+    }
+    Ok(())
 }
 
 fn parse_form(doc: &Document<'_>, node: Node<'_, '_>, source_name: Option<&str>) -> Form {
@@ -221,6 +238,24 @@ mod tests {
         .expect_err("should fail");
 
         assert!(error.to_string().contains("xml parse error"));
+    }
+
+    #[test]
+    fn parse_module_xml_rejects_xml_entity_escapes() {
+        let escaped_lt =
+            parse_module_xml(r#"<module name="main"><script name="main"><if when="i &lt; 1"><end /></if></script></module>"#)
+                .expect_err("entity should fail");
+        assert!(escaped_lt.to_string().contains("xml entity escapes"));
+
+        let escaped_quote = parse_module_xml(
+            r#"<module name="main"><const name="v" type="string">&quot;x&quot;</const></module>"#,
+        )
+        .expect_err("quote entity should fail");
+        assert!(escaped_quote.to_string().contains("&quot;"));
+
+        let numeric = parse_module_xml(r#"<module name="main"><text>&#34;x&#34;</text></module>"#)
+            .expect_err("numeric entity should fail");
+        assert!(numeric.to_string().contains("numeric entity"));
     }
 
     #[test]

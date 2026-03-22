@@ -4,7 +4,7 @@
     <goto script="@main.loop_check"/>
   </script>
   <script name="loop_check">
-    <if when="counter &lt; 3">
+    <if when="counter LT 3">
       <goto script="@main.loop_body"/>
     </if>
     <goto script="@main.after_loop"/>

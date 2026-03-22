@@ -12,6 +12,7 @@
   - 不依赖任何其他本地 crate
 - `sl-parser`
   - 负责 `XML -> Form`
+  - 会在 XML parse 前拒绝 `&quot;`、`&lt;`、`&amp;`、`&#...;` 这类实体转义写法
   - 只依赖 `sl-core`
 - `sl-compiler`
   - 负责 `Form -> CompiledArtifact`
@@ -105,6 +106,17 @@
 - 在 `children` 中递归保留文本项和子 form 的顺序
 
 parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 XML 结构化成可供宏和编译层消费的宿主无关前表示。
+
+另外，parser 当前会在 XML parse 之前直接拒绝实体转义写法：
+
+- `&quot;`
+- `&apos;`
+- `&lt;`
+- `&gt;`
+- `&amp;`
+- `&#...;` / `&#x...;`
+
+当前约定是不允许用户在 XML 源里写这些转义实体；expr 里的比较/逻辑应走 ScriptLang 自己的 expr 规则，而不是回退到 XML 实体。
 
 ### Compiler
 
