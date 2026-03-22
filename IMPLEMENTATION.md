@@ -351,23 +351,29 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 
 当前 REPL session 会持久维护三类状态：
 
+- 顶层 program state
+  - REPL 自己输入的顶层 `<module>` 与顶层 `<import>/<require>/<alias>`
+  - 这些 form 会作为 session 的持久顶层程序参与后续编译
 - 编译期 session context
-  - 通过顶层 `<import>` / `<require>` / `<alias>` 追加到隐藏 session module
+  - 由持久顶层 program state 中的 `<import>` / `<require>` / `<alias>` 投影得到
 - module overlay
   - `:load PATH` 读入的外部 XML module
-  - 以及后续在 REPL 里定义的 `<module>`
-  - 同名顶层 module 以后一次为准
+  - 与 REPL 自己输入的顶层 `<module>` 一起参与编译
+  - 同名 module 以后一次为准，REPL 输入会覆盖同名 loaded module
 - 运行时状态
   - 顶层用户 `<temp>` 声明形成的持久 temp 绑定
   - 已执行全局变量的 runtime 值
 
-顶层 statement fragment 的执行模型当前是：
+顶层 XML 的执行模型当前是：
 
-- compiler 会为隐藏 session script 生成 temp prelude
+- REPL 会先把输入解析成一组顶层 form
+- `<module>` 与顶层 `<import>/<require>/<alias>` 会进入 session 的持久顶层程序
+- 顶层可执行 form 会作为本次增量入口执行
+- compiler 会为隐藏 session script 生成 temp prelude 和本次增量执行入口
 - prelude 只负责把旧 temp 名字重新声明回当前编译单元
 - runtime 在 prelude 执行后，把上一次成功执行时保存的 temp / global 值恢复回当前 engine
-- statement fragment 后面会自动接一个 internal `ReturnToHost`
-- 普通 fragment 跑到 `ReturnToHost` 后回到提示符
+- 本次增量入口后面会自动接一个 internal `ReturnToHost`
+- 普通顶层执行跑到 `ReturnToHost` 后回到提示符
 - `<choice>` 会 suspend，等待后续 `choose`
 - `<end>` 会真实结束 REPL
 - `<goto>` 如果跳到别的 script，则沿着目标 script 跑到真实 `End`；由于 `goto` 已放弃当前 session script 上下文，所以目标 script 结束时 REPL 也结束
@@ -384,8 +390,9 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
   - 每条输入仍然走和交互模式相同的命令 / XML 提交语义
 - 文件执行模式
   - `sl-repl --file path/to/session.repl`
-  - 文件内容按 REPL transcript 解释：顶层以 `:` 开头的行会被当成 host command，其余内容按 XML fragment 多行配平后提交
-  - 因此一个文件里可以混合 `:load`、`:choose`、`<module>`、`<goto>` 和多行 XML 片段
+  - 文件内容现在按“顶层 XML 输入”解释，而不是 transcript helper 模式
+  - 一个文件里可以直接混合多个顶层 `<module>`、顶层 `<import>/<require>/<alias>` 和顶层可执行 XML
+  - `--file` 不再支持把 `:load` / `:choose` 这类 host command 写进文件里
 
 仓库级别另外提供了一个便捷脚本 [`scripts/repl-run.sh`](/Users/xuming/work/scriptlang-new/scripts/repl-run.sh)：
 
@@ -395,7 +402,7 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 - 传入任意文件时
   - 一律按 `sl-repl --file` 方式执行
   - 不再区分“module XML”和“REPL XML”
-  - 因此 `<module>`、`<text>`、`<goto>`、以及多段顶层 XML 都在同一套 REPL 文件语义下执行
+  - 因此 `<module>`、`<text>`、`<goto>`、以及多段顶层 XML 都在同一套顶层 session 语义下执行
 
 当前支持的 host-side helper commands 有：
 

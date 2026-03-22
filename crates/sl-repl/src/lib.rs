@@ -88,8 +88,8 @@ struct PendingExecution {
 
 pub struct ReplSession {
     kernel_form: Form,
-    modules: BTreeMap<String, Form>,
-    session_context: Vec<Form>,
+    loaded_modules: BTreeMap<String, Form>,
+    top_level_forms: Vec<Form>,
     persistent_temps: Vec<PersistedTemp>,
     persisted_globals: BTreeMap<String, Dynamic>,
     base_build: BuildOutput,
@@ -129,8 +129,8 @@ impl ReplSession {
 
         let mut session = Self {
             kernel_form,
-            modules: BTreeMap::new(),
-            session_context: Vec::new(),
+            loaded_modules: BTreeMap::new(),
+            top_level_forms: Vec::new(),
             persistent_temps: Vec::new(),
             persisted_globals: BTreeMap::new(),
             base_build: placeholder.clone(),
@@ -139,10 +139,10 @@ impl ReplSession {
             exited: false,
         };
         let base_build = session.build_program_with(
-            &session.modules,
-            &session.session_context,
+            &session.loaded_modules,
+            &session.top_level_forms,
             &session.persistent_temps,
-            None,
+            &[],
         )?;
         session.base_build = base_build.clone();
         session.last_build = base_build;
@@ -178,7 +178,7 @@ impl ReplSession {
         self.ensure_ready_for_mutation()?;
 
         let loaded_forms = load_modules_from_path(path.as_ref())?;
-        let mut candidate_modules = self.modules.clone();
+        let mut candidate_modules = self.loaded_modules.clone();
         let mut loaded_names = Vec::new();
         for form in loaded_forms {
             validate_loaded_module(&form)?;
@@ -191,11 +191,11 @@ impl ReplSession {
 
         let build = self.build_program_with(
             &candidate_modules,
-            &self.session_context,
+            &self.top_level_forms,
             &self.persistent_temps,
-            None,
+            &[],
         )?;
-        self.modules = candidate_modules;
+        self.loaded_modules = candidate_modules;
         self.base_build = build.clone();
         self.last_build = build;
         Ok(LoadResult {
@@ -204,13 +204,32 @@ impl ReplSession {
     }
 
     pub fn submit_xml(&mut self, xml: &str) -> Result<SubmissionResult, ScriptLangError> {
-        self.ensure_ready_for_mutation()?;
         let trimmed = xml.trim();
         if trimmed.is_empty() {
             return Err(ScriptLangError::message("empty repl xml input"));
         }
         let form = parse_xml_fragment(trimmed)?;
-        self.submit_form(form)
+        let mut results = self.submit_forms_transactionally(vec![form])?;
+        debug_assert_eq!(results.len(), 1);
+        Ok(results.remove(0))
+    }
+
+    pub fn submit_top_level_xml(
+        &mut self,
+        xml: &str,
+    ) -> Result<Vec<SubmissionResult>, ScriptLangError> {
+        let forms = parse_top_level_forms(xml)?;
+        if forms.is_empty() {
+            return Err(ScriptLangError::message("empty repl xml input"));
+        }
+        self.submit_forms_transactionally(forms)
+    }
+
+    pub fn submit_file_source(
+        &mut self,
+        source: &str,
+    ) -> Result<Vec<SubmissionResult>, ScriptLangError> {
+        self.submit_top_level_xml(source)
     }
 
     pub fn choose(&mut self, index: usize) -> Result<ExecutionResult, ScriptLangError> {
@@ -268,7 +287,10 @@ impl ReplSession {
                     format_persisted_bindings(&self.persistent_temps, &self.persisted_globals)
                 }
             }
-            InspectTarget::Modules => format_modules(&self.modules),
+            InspectTarget::Modules => format_modules(
+                &self.loaded_modules,
+                collect_repl_modules(&self.top_level_forms),
+            ),
         }
     }
 
@@ -312,6 +334,45 @@ impl ReplSession {
         }
     }
 
+    fn submit_forms_transactionally(
+        &mut self,
+        forms: Vec<Form>,
+    ) -> Result<Vec<SubmissionResult>, ScriptLangError> {
+        self.ensure_ready_for_mutation()?;
+        let mut candidate = self.transactional_clone();
+        let mut results = Vec::with_capacity(forms.len());
+        for form in forms {
+            let result = candidate.submit_form(form)?;
+            let exited = matches!(
+                &result,
+                SubmissionResult::Executed(ExecutionResult {
+                    state: ExecutionState::Exited,
+                    ..
+                })
+            );
+            results.push(result);
+            if exited {
+                break;
+            }
+        }
+        *self = candidate;
+        Ok(results)
+    }
+
+    fn transactional_clone(&self) -> Self {
+        Self {
+            kernel_form: self.kernel_form.clone(),
+            loaded_modules: self.loaded_modules.clone(),
+            top_level_forms: self.top_level_forms.clone(),
+            persistent_temps: self.persistent_temps.clone(),
+            persisted_globals: self.persisted_globals.clone(),
+            base_build: self.base_build.clone(),
+            last_build: self.last_build.clone(),
+            pending: None,
+            exited: self.exited,
+        }
+    }
+
     fn submit_form(&mut self, form: Form) -> Result<SubmissionResult, ScriptLangError> {
         match form.head.as_str() {
             "module" => self.submit_module_definition(form),
@@ -329,30 +390,26 @@ impl ReplSession {
     ) -> Result<SubmissionResult, ScriptLangError> {
         validate_repl_module(&form)?;
         let module_name = module_name(&form)?.to_string();
-        let mut candidate_modules = self.modules.clone();
-        candidate_modules.insert(module_name.clone(), form);
+        upsert_top_level_module(&mut self.top_level_forms, form);
         let build = self.build_program_with(
-            &candidate_modules,
-            &self.session_context,
+            &self.loaded_modules,
+            &self.top_level_forms,
             &self.persistent_temps,
-            None,
+            &[],
         )?;
-        self.modules = candidate_modules;
         self.base_build = build.clone();
         self.last_build = build;
         Ok(SubmissionResult::ModuleUpdated { module_name })
     }
 
     fn submit_session_context(&mut self, form: Form) -> Result<SubmissionResult, ScriptLangError> {
-        let mut candidate_context = self.session_context.clone();
-        candidate_context.push(form);
+        self.top_level_forms.push(form);
         let build = self.build_program_with(
-            &self.modules,
-            &candidate_context,
+            &self.loaded_modules,
+            &self.top_level_forms,
             &self.persistent_temps,
-            None,
+            &[],
         )?;
-        self.session_context = candidate_context;
         self.base_build = build.clone();
         self.last_build = build;
         Ok(SubmissionResult::ContextUpdated)
@@ -361,10 +418,10 @@ impl ReplSession {
     fn submit_statement(&mut self, form: Form) -> Result<SubmissionResult, ScriptLangError> {
         let capture_bindings = build_capture_bindings(&self.persistent_temps, &form)?;
         let build = self.build_program_with(
-            &self.modules,
-            &self.session_context,
+            &self.loaded_modules,
+            &self.top_level_forms,
             &self.persistent_temps,
-            Some(&form),
+            &[form],
         )?;
         self.last_build = build.clone();
 
@@ -498,8 +555,12 @@ impl ReplSession {
             })
             .collect::<Vec<_>>();
 
-        let candidate_base =
-            self.build_program_with(&self.modules, &self.session_context, &candidate_temps, None)?;
+        let candidate_base = self.build_program_with(
+            &self.loaded_modules,
+            &self.top_level_forms,
+            &candidate_temps,
+            &[],
+        )?;
         self.persisted_globals = candidate_globals;
         self.persistent_temps = candidate_temps;
         self.base_build = candidate_base;
@@ -508,18 +569,21 @@ impl ReplSession {
 
     fn build_program_with(
         &self,
-        modules: &BTreeMap<String, Form>,
-        session_context: &[Form],
+        loaded_modules: &BTreeMap<String, Form>,
+        top_level_forms: &[Form],
         persistent_temps: &[PersistedTemp],
-        statement: Option<&Form>,
+        exec_forms: &[Form],
     ) -> Result<BuildOutput, ScriptLangError> {
-        let mut forms = Vec::with_capacity(modules.len() + 2);
+        let repl_modules = collect_repl_modules(top_level_forms);
+        let session_context = collect_session_context(top_level_forms);
+        let mut forms = Vec::with_capacity(loaded_modules.len() + repl_modules.len() + 2);
         forms.push(self.kernel_form.clone());
-        forms.extend(modules.values().cloned());
+        forms.extend(loaded_modules.values().cloned());
+        forms.extend(repl_modules.into_values());
         forms.push(build_session_module(
-            session_context,
+            &session_context,
             persistent_temps,
-            statement,
+            exec_forms,
         ));
 
         let mut pipeline = compile_pipeline_with_options(
@@ -672,7 +736,7 @@ fn collect_temp_decls(
 fn build_session_module(
     session_context: &[Form],
     persistent_temps: &[PersistedTemp],
-    statement: Option<&Form>,
+    exec_forms: &[Form],
 ) -> Form {
     let mut module_children = session_context
         .iter()
@@ -694,8 +758,8 @@ fn build_session_module(
             ))
         })
         .collect::<Vec<_>>();
-    if let Some(statement) = statement {
-        script_children.push(FormItem::Form(statement.clone()));
+    for exec_form in exec_forms {
+        script_children.push(FormItem::Form(exec_form.clone()));
     }
     script_children.push(FormItem::Form(build_form(
         "code",
@@ -829,6 +893,118 @@ fn load_modules_from_path(path: &Path) -> Result<Vec<Form>, ScriptLangError> {
     )))
 }
 
+fn parse_top_level_forms(xml: &str) -> Result<Vec<Form>, ScriptLangError> {
+    let fragments = split_top_level_fragments(xml)?;
+    fragments
+        .into_iter()
+        .map(|fragment| parse_xml_fragment(fragment.trim()))
+        .collect()
+}
+
+fn split_top_level_fragments(input: &str) -> Result<Vec<&str>, ScriptLangError> {
+    let bytes = input.as_bytes();
+    let mut cursor = 0usize;
+    let mut fragment_start = None::<usize>;
+    let mut stack = Vec::<String>::new();
+    let mut fragments = Vec::new();
+
+    while cursor < bytes.len() {
+        if bytes[cursor].is_ascii_whitespace() && fragment_start.is_none() {
+            cursor += 1;
+            continue;
+        }
+
+        if bytes[cursor] != b'<' {
+            if fragment_start.is_none() {
+                return Err(ScriptLangError::message(
+                    "top-level repl xml must start with an element",
+                ));
+            }
+            cursor += 1;
+            continue;
+        }
+
+        if fragment_start.is_none() {
+            fragment_start = Some(cursor);
+        }
+
+        if input[cursor..].starts_with("<!--") {
+            let Some(end) = input[cursor + 4..].find("-->") else {
+                return Err(ScriptLangError::message("incomplete xml comment"));
+            };
+            cursor += 4 + end + 3;
+            continue;
+        }
+
+        if input[cursor..].starts_with("<?") {
+            let Some(end) = input[cursor + 2..].find("?>") else {
+                return Err(ScriptLangError::message(
+                    "incomplete xml processing instruction",
+                ));
+            };
+            cursor += 2 + end + 2;
+            continue;
+        }
+
+        if input[cursor..].starts_with("<![CDATA[") {
+            let Some(end) = input[cursor + 9..].find("]]>") else {
+                return Err(ScriptLangError::message("incomplete xml cdata section"));
+            };
+            cursor += 9 + end + 3;
+            continue;
+        }
+
+        let Some(tag_end) = find_tag_end(input, cursor + 1) else {
+            return Err(ScriptLangError::message("incomplete xml tag"));
+        };
+        let raw = input[cursor + 1..tag_end].trim();
+        if raw.is_empty() {
+            return Err(ScriptLangError::message("empty xml tag"));
+        }
+
+        if let Some(stripped) = raw.strip_prefix('/') {
+            let name = parse_tag_name(stripped.trim());
+            let Some(expected) = stack.pop() else {
+                return Err(ScriptLangError::message("unexpected closing xml tag"));
+            };
+            if expected != name {
+                return Err(ScriptLangError::message(format!(
+                    "mismatched closing xml tag `{name}`; expected `{expected}`"
+                )));
+            }
+            if stack.is_empty() {
+                let start = fragment_start.expect("fragment start should exist");
+                fragments.push(input[start..tag_end + 1].trim());
+                fragment_start = None;
+            }
+        } else if !raw.starts_with('!') {
+            let self_closing = raw.ends_with('/');
+            let name = parse_tag_name(raw.trim_end_matches('/').trim());
+            if name.is_empty() {
+                return Err(ScriptLangError::message("empty xml element name"));
+            }
+            if self_closing && stack.is_empty() {
+                let start = fragment_start.expect("fragment start should exist");
+                fragments.push(input[start..tag_end + 1].trim());
+                fragment_start = None;
+            } else if !self_closing {
+                stack.push(name.to_string());
+            }
+        }
+
+        cursor = tag_end + 1;
+    }
+
+    if !stack.is_empty() {
+        return Err(ScriptLangError::message("incomplete xml fragment"));
+    }
+    if fragment_start.is_some() {
+        return Err(ScriptLangError::message("incomplete xml fragment"));
+    }
+
+    Ok(fragments)
+}
+
 fn read_file(path: &Path) -> Result<String, ScriptLangError> {
     fs::read_to_string(path).map_err(|error| {
         ScriptLangError::message(format!("failed to read `{}`: {error}", path.display()))
@@ -843,6 +1019,36 @@ fn validate_repl_module(form: &Form) -> Result<(), ScriptLangError> {
     validate_reserved_module_name(form)
 }
 
+fn upsert_top_level_module(top_level_forms: &mut Vec<Form>, form: Form) {
+    let module_ref = module_name(&form).expect("module form should have a name");
+    if let Some(index) = top_level_forms.iter().position(|existing| {
+        existing.head == "module" && module_name(existing).is_ok_and(|name| name == module_ref)
+    }) {
+        top_level_forms[index] = form;
+    } else {
+        top_level_forms.push(form);
+    }
+}
+
+fn collect_repl_modules(top_level_forms: &[Form]) -> BTreeMap<String, Form> {
+    let mut modules = BTreeMap::new();
+    for form in top_level_forms {
+        if form.head == "module" {
+            let name = module_name(form).expect("repl module should have a name");
+            modules.insert(name.to_string(), form.clone());
+        }
+    }
+    modules
+}
+
+fn collect_session_context(top_level_forms: &[Form]) -> Vec<Form> {
+    top_level_forms
+        .iter()
+        .filter(|form| matches!(form.head.as_str(), "import" | "require" | "alias"))
+        .cloned()
+        .collect()
+}
+
 fn validate_reserved_module_name(form: &Form) -> Result<(), ScriptLangError> {
     let name = module_name(form)?;
     if name == RESERVED_SESSION_MODULE {
@@ -851,6 +1057,32 @@ fn validate_reserved_module_name(form: &Form) -> Result<(), ScriptLangError> {
         )));
     }
     Ok(())
+}
+
+fn find_tag_end(input: &str, start: usize) -> Option<usize> {
+    let bytes = input.as_bytes();
+    let mut cursor = start;
+    let mut quote = None::<u8>;
+
+    while cursor < bytes.len() {
+        let current = bytes[cursor];
+        if let Some(active) = quote {
+            if current == active {
+                quote = None;
+            }
+        } else if current == b'\'' || current == b'"' {
+            quote = Some(current);
+        } else if current == b'>' {
+            return Some(cursor);
+        }
+        cursor += 1;
+    }
+
+    None
+}
+
+fn parse_tag_name(raw: &str) -> &str {
+    raw.split_whitespace().next().unwrap_or("")
 }
 
 fn module_name(form: &Form) -> Result<&str, ScriptLangError> {
@@ -986,9 +1218,17 @@ fn format_execution_result(result: &ExecutionResult) -> String {
     lines.join("\n")
 }
 
-fn format_modules(modules: &BTreeMap<String, Form>) -> String {
+fn format_modules(
+    loaded_modules: &BTreeMap<String, Form>,
+    repl_modules: BTreeMap<String, Form>,
+) -> String {
     let mut names = vec!["kernel".to_string()];
-    names.extend(modules.keys().cloned());
+    names.extend(loaded_modules.keys().cloned());
+    for name in repl_modules.keys() {
+        if !names.iter().any(|existing| existing == name) {
+            names.push(name.clone());
+        }
+    }
     names.join("\n")
 }
 
@@ -1654,5 +1894,52 @@ mod tests {
             .expect("goto should run repl-defined script");
         assert_eq!(text_events(&result), vec!["picked".to_string()]);
         assert_eq!(execution_state(result), ExecutionState::Exited);
+    }
+
+    #[test]
+    fn top_level_xml_submission_can_mix_module_and_executable_forms() {
+        let mut repl = ReplSession::new().expect("repl");
+
+        let results = repl
+            .submit_top_level_xml(
+                r#"
+                <module name="demo">
+                  <script name="run">
+                    <text>inside</text>
+                    <end/>
+                  </script>
+                </module>
+                <text>before</text>
+                <goto script="@demo.run"/>
+                "#,
+            )
+            .expect("top-level xml should submit");
+
+        assert_eq!(results.len(), 3);
+        assert_eq!(text_events(&results[1]), vec!["before".to_string()]);
+        assert_eq!(text_events(&results[2]), vec!["inside".to_string()]);
+        assert!(repl.is_exited());
+    }
+
+    #[test]
+    fn failed_top_level_xml_submission_does_not_mutate_session() {
+        let mut repl = ReplSession::new().expect("repl");
+
+        let error = repl
+            .submit_top_level_xml(
+                r#"
+                <module name="demo">
+                  <script name="run">
+                    <text>inside</text>
+                    <end/>
+                  </script>
+                </module>
+                <goto script="@missing.run"/>
+                "#,
+            )
+            .expect_err("submission should fail transactionally");
+        assert!(error.to_string().contains("unknown script `missing.run`"));
+
+        assert_eq!(repl.inspect(InspectTarget::Modules), "kernel");
     }
 }

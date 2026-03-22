@@ -105,7 +105,9 @@ fn run_commands(
 
 fn run_file(session: &mut ReplSession, path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let source = fs::read_to_string(path)?;
-    run_transcript(session, &source)?;
+    for result in session.submit_file_source(&source)? {
+        print_submission(result);
+    }
     Ok(())
 }
 
@@ -123,41 +125,6 @@ fn run_repl_input(session: &mut ReplSession, input: &str) -> Result<(), ScriptLa
     } else {
         print_submission(session.submit_xml(trimmed)?);
     }
-    Ok(())
-}
-
-fn run_transcript(session: &mut ReplSession, source: &str) -> Result<(), ScriptLangError> {
-    let mut buffer = String::new();
-    for line in source.lines() {
-        if session.is_exited() {
-            break;
-        }
-        let trimmed = line.trim();
-        if buffer.is_empty() && trimmed.starts_with(':') {
-            run_repl_input(session, trimmed)?;
-            continue;
-        }
-        if buffer.is_empty() && trimmed.is_empty() {
-            continue;
-        }
-        buffer.push_str(line);
-        buffer.push('\n');
-        if xml_fragment_is_balanced(&buffer) {
-            let input = std::mem::take(&mut buffer);
-            run_repl_input(session, &input)?;
-        }
-    }
-
-    if !buffer.trim().is_empty() {
-        if !xml_fragment_is_balanced(&buffer) {
-            return Err(ScriptLangError::message(
-                "incomplete xml fragment in repl input file",
-            ));
-        }
-        let input = std::mem::take(&mut buffer);
-        run_repl_input(session, &input)?;
-    }
-
     Ok(())
 }
 
@@ -425,7 +392,7 @@ fn parse_tag_name(raw: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::{CliMode, parse_cli_mode, run_transcript};
+    use super::{CliMode, parse_cli_mode};
     use sl_repl::ReplSession;
     use std::path::PathBuf;
 
@@ -475,26 +442,25 @@ mod tests {
     }
 
     #[test]
-    fn transcript_runner_supports_commands_and_multiline_xml() {
+    fn file_mode_submission_supports_multiple_top_level_forms() {
         let mut session = ReplSession::new().expect("session should build");
-        run_transcript(
-            &mut session,
-            ":help\n<temp name=\"hero\" type=\"int\">1</temp>\n<text>{@hero}</text>\n",
-        )
-        .expect("transcript should execute");
+        let results = session
+            .submit_file_source("<temp name=\"hero\" type=\"int\">1</temp>\n<text>${hero}</text>\n")
+            .expect("file source should execute");
 
+        assert_eq!(results.len(), 2);
         let bindings = session.inspect(sl_repl::InspectTarget::Bindings);
         assert!(bindings.contains("hero"));
     }
 
     #[test]
-    fn transcript_runner_can_define_module_script_and_execute_it() {
+    fn file_mode_submission_can_define_module_script_and_execute_it() {
         let mut session = ReplSession::new().expect("session should build");
-        run_transcript(
-            &mut session,
-            "<module name=\"demo\">\n  <script name=\"run\">\n    <text>ok</text>\n    <end/>\n  </script>\n</module>\n<goto script=\"@demo.run\"/>\n",
-        )
-        .expect("transcript should execute repl-defined script");
+        session
+            .submit_file_source(
+                "<module name=\"demo\">\n  <script name=\"run\">\n    <text>ok</text>\n    <end/>\n  </script>\n</module>\n<goto script=\"@demo.run\"/>\n",
+            )
+            .expect("file source should execute repl-defined script");
 
         assert!(session.is_exited());
     }
