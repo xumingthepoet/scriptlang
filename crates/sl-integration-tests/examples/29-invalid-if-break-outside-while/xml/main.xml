@@ -1,0 +1,8 @@
+<module name="main">
+  <script name="main">
+    <if when="true">
+      <break />
+    </if>
+    <end />
+  </script>
+</module>

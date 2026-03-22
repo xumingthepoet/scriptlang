@@ -113,7 +113,7 @@ fn analyze_stmt(
                 remaining_const_names,
                 shadowed_names,
             )?,
-            captures_loop_control: parse_loop_capture_attr(form)?,
+            skip_loop_control_capture: parse_skip_loop_control_capture_attr(form)?,
             body: analyze_block(
                 &child_forms(form)?,
                 const_env,
@@ -201,14 +201,14 @@ fn analyze_stmt(
     }
 }
 
-fn parse_loop_capture_attr(form: &Form) -> Result<bool, ScriptLangError> {
-    match attr(form, "__sl_loop_capture") {
-        None => Ok(true),
+fn parse_skip_loop_control_capture_attr(form: &Form) -> Result<bool, ScriptLangError> {
+    match attr(form, "__sl_skip_loop_control_capture") {
+        None => Ok(false),
         Some("true") => Ok(true),
         Some("false") => Ok(false),
         Some(other) => Err(error_at(
             form,
-            format!("invalid boolean value `{other}` for `__sl_loop_capture`"),
+            format!("invalid boolean value `{other}` for `__sl_skip_loop_control_capture`"),
         )),
     }
 }
@@ -375,7 +375,10 @@ mod tests {
                             )),
                             child(node(
                                 "while",
-                                vec![("when", "counter == 41"), ("__sl_loop_capture", "false")],
+                                vec![
+                                    ("when", "counter == 41"),
+                                    ("__sl_skip_loop_control_capture", "true"),
+                                ],
                                 vec![child(node("text", vec![], vec![text("ok")]))],
                             )),
                             child(node(
@@ -446,7 +449,7 @@ mod tests {
             SemanticStmt::While {
                 when,
                 body,
-                captures_loop_control: false
+                skip_loop_control_capture: true
             }
                 if when == "counter == 41"
                     && matches!(&body[0], SemanticStmt::Text { .. })
@@ -456,7 +459,7 @@ mod tests {
             SemanticStmt::While {
                 when,
                 body,
-                captures_loop_control: true
+                skip_loop_control_capture: false
             }
                 if when == "counter < 45"
                     && matches!(&body[0], SemanticStmt::Continue)
@@ -592,7 +595,10 @@ mod tests {
                     vec![("name", "main")],
                     vec![child(node(
                         "while",
-                        vec![("when", "true"), ("__sl_loop_capture", "maybe")],
+                        vec![
+                            ("when", "true"),
+                            ("__sl_skip_loop_control_capture", "maybe"),
+                        ],
                         vec![child(node("end", vec![], vec![]))],
                     ))],
                 ))],

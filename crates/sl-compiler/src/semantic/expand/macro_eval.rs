@@ -321,7 +321,10 @@ mod tests {
                     )),
                     child(node(
                         "while",
-                        vec![("when", "!condition"), ("__sl_loop_capture", "false")],
+                        vec![
+                            ("when", "!condition"),
+                            ("__sl_skip_loop_control_capture", "true"),
+                        ],
                         vec![
                             child(node("code", vec![], vec![text_item("condition = true;")])),
                             child(node("unquote", vec![], vec![text_item("content_ast")])),

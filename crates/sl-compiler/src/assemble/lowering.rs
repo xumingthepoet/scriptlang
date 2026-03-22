@@ -78,7 +78,7 @@ fn lower_block(
             SemanticStmt::While {
                 when,
                 body,
-                captures_loop_control,
+                skip_loop_control_capture,
             } => {
                 let head_pc = draft.instructions.len();
                 draft.instructions.push(Instruction::EvalCond {
@@ -88,7 +88,7 @@ fn lower_block(
                 draft
                     .instructions
                     .push(Instruction::JumpIfFalse { target_pc: 0 });
-                if *captures_loop_control {
+                if !skip_loop_control_capture {
                     loop_stack.push(LoopFrame {
                         head_pc,
                         break_jump_indices: Vec::new(),
@@ -101,7 +101,7 @@ fn lower_block(
                 let exit_pc = draft.instructions.len();
                 draft.instructions[exit_jump_index] =
                     Instruction::JumpIfFalse { target_pc: exit_pc };
-                if *captures_loop_control {
+                if !skip_loop_control_capture {
                     let frame = loop_stack.pop().expect("loop frame should exist");
                     for jump_index in frame.break_jump_indices {
                         draft.instructions[jump_index] = Instruction::Jump { target_pc: exit_pc };
@@ -334,7 +334,7 @@ mod tests {
                 },
                 SemanticStmt::While {
                     when: "x > 1".to_string(),
-                    captures_loop_control: false,
+                    skip_loop_control_capture: true,
                     body: vec![
                         SemanticStmt::Temp {
                             name: "x".to_string(),
@@ -392,7 +392,7 @@ mod tests {
             name: "entry".to_string(),
             body: vec![SemanticStmt::While {
                 when: "flag".to_string(),
-                captures_loop_control: true,
+                skip_loop_control_capture: false,
                 body: vec![
                     SemanticStmt::Continue,
                     SemanticStmt::Break,
@@ -476,7 +476,7 @@ mod tests {
                 name: "entry".to_string(),
                 body: vec![SemanticStmt::While {
                     when: "true".to_string(),
-                    captures_loop_control: false,
+                    skip_loop_control_capture: true,
                     body: vec![SemanticStmt::Break],
                 }],
             },
@@ -495,7 +495,7 @@ mod tests {
                 name: "entry".to_string(),
                 body: vec![SemanticStmt::While {
                     when: "true".to_string(),
-                    captures_loop_control: false,
+                    skip_loop_control_capture: true,
                     body: vec![SemanticStmt::Continue],
                 }],
             },

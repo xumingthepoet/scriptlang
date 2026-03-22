@@ -10,7 +10,7 @@
       <temp name="condition" type="bool">
         <unquote>when_expr</unquote>
       </temp>
-      <while when="condition" __sl_loop_capture="false">
+      <while when="condition" __sl_skip_loop_control_capture="true">
         <code>condition = false;</code>
         <unquote>content_ast</unquote>
       </while>
@@ -27,7 +27,7 @@
       <temp name="condition" type="bool">
         <unquote>when_expr</unquote>
       </temp>
-      <while when="!condition" __sl_loop_capture="false">
+      <while when="!condition" __sl_skip_loop_control_capture="true">
         <code>condition = true;</code>
         <unquote>content_ast</unquote>
       </while>
@@ -48,11 +48,11 @@
         <unquote>when_expr</unquote>
       </temp>
       <temp name="else_condition" type="bool">!condition</temp>
-      <while when="condition" __sl_loop_capture="false">
+      <while when="condition" __sl_skip_loop_control_capture="true">
         <code>condition = false;</code>
         <unquote>do_ast</unquote>
       </while>
-      <while when="else_condition" __sl_loop_capture="false">
+      <while when="else_condition" __sl_skip_loop_control_capture="true">
         <code>else_condition = false;</code>
         <unquote>else_ast</unquote>
       </while>

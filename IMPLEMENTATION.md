@@ -225,6 +225,10 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 - `<goto>` 当前不再做 script ref 名字解析；它只保留表达式并 lower 成运行时动态跳转
 - `kernel.xml` 当前只保留最小控制流宏集；API 单测和 integration example 已覆盖 required module macro 可见性解析，以及基于 `quote / unquote` 的 `if` / `unless` / `if-else` 标准宏
 - `kernel` 当前还提供标准 `<if>` 宏；它通过 non-capturing `<while>` 结构实现，底层已不再保留单独的 builtin `if` lowering
+- `<while>` 当前还支持 compiler-internal 属性 `__sl_skip_loop_control_capture="true"`
+  - 默认值为 `false`
+  - 默认情况下 `<while>` 会捕获内部 `<break>` / `<continue>`
+  - `kernel` 中基于 `<while>` 实现的 `if / unless / if-else` 会显式打开这个内部开关，从而让这些控制流继续绑定外层真实循环
 - `script_text` / `zero` 这类更偏示例性质的能力当前不再放在 kernel；对应示例改为用户 module 自己定义：
   - `19-user-script-text` 展示用户自定义 module macro 生成 `<script>`
   - `12-kernel-lib-const` 当前实际展示“用户自定义 `zero` const”的局部常量写法

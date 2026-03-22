@@ -95,7 +95,7 @@ pub(crate) enum SemanticStmt {
     While {
         when: String,
         body: Vec<SemanticStmt>,
-        captures_loop_control: bool,
+        skip_loop_control_capture: bool,
     },
     Break,
     Continue,

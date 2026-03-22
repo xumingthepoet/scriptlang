@@ -270,7 +270,10 @@ mod tests {
                     vec![],
                     vec![form_item(
                         "while",
-                        vec![("when", "${when_expr}"), ("__sl_loop_capture", "false")],
+                        vec![
+                            ("when", "${when_expr}"),
+                            ("__sl_skip_loop_control_capture", "true"),
+                        ],
                         vec![
                             form_item("code", vec![], vec![text_item("flag = false;")]),
                             form_item("unquote", vec![], vec![text_item("content_ast")]),
