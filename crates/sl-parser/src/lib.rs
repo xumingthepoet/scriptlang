@@ -14,6 +14,10 @@ pub fn parse_modules_from_xml_map(
         .collect::<Result<Vec<_>, _>>()
 }
 
+pub fn parse_xml_fragment(xml: &str) -> Result<Form, ScriptLangError> {
+    parse_xml_fragment_with_source(xml, None)
+}
+
 pub fn parse_module_xml(xml: &str) -> Result<Form, ScriptLangError> {
     parse_module_xml_with_source(xml, None)
 }
@@ -29,6 +33,15 @@ fn parse_module_xml_with_source(
         return Err(ScriptLangError::message("root element must be <module>"));
     }
     Ok(parse_form(&doc, root, source_name))
+}
+
+fn parse_xml_fragment_with_source(
+    xml: &str,
+    source_name: Option<&str>,
+) -> Result<Form, ScriptLangError> {
+    reject_xml_entities(xml)?;
+    let doc = Document::parse(xml)?;
+    Ok(parse_form(&doc, doc.root_element(), source_name))
 }
 
 fn reject_xml_entities(xml: &str) -> Result<(), ScriptLangError> {
@@ -105,7 +118,7 @@ mod tests {
 
     use sl_core::{Form, FormField, FormItem, FormValue};
 
-    use super::{CHILDREN_FIELD, parse_module_xml, parse_modules_from_xml_map};
+    use super::{CHILDREN_FIELD, parse_module_xml, parse_modules_from_xml_map, parse_xml_fragment};
 
     fn field<'a>(form: &'a Form, name: &str) -> &'a FormField {
         form.fields
@@ -147,6 +160,16 @@ mod tests {
         let error = parse_module_xml("<script name=\"entry\" />").expect_err("should fail");
 
         assert_eq!(error.to_string(), "root element must be <module>");
+    }
+
+    #[test]
+    fn parse_xml_fragment_accepts_non_module_root() {
+        let fragment =
+            parse_xml_fragment(r#"<text tag="line">hello</text>"#).expect("fragment should parse");
+
+        assert_eq!(fragment.head, "text");
+        assert_eq!(string_field(&fragment, "tag"), "line");
+        assert_eq!(text_item(&children(&fragment)[0]), "hello");
     }
 
     #[test]

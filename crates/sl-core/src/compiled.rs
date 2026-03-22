@@ -67,6 +67,7 @@ pub enum Instruction {
     JumpScriptExpr {
         expr: String,
     },
+    ReturnToHost,
     End,
 }
 
@@ -138,6 +139,7 @@ mod tests {
             Instruction::JumpScriptExpr {
                 expr: "\"main.entry\"".to_string(),
             },
+            Instruction::ReturnToHost,
             Instruction::End,
         ];
         let artifact = CompiledArtifact {
@@ -238,6 +240,7 @@ mod tests {
             &instructions[9],
             Instruction::JumpScriptExpr { expr } if expr == "\"main.entry\""
         ));
-        assert!(matches!(&instructions[10], Instruction::End));
+        assert!(matches!(&instructions[10], Instruction::ReturnToHost));
+        assert!(matches!(&instructions[11], Instruction::End));
     }
 }

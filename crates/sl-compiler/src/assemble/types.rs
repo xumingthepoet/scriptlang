@@ -7,7 +7,6 @@ pub(crate) struct ProgramAssembler {
     pub(crate) scripts: Vec<ScriptDraft>,
     pub(crate) script_refs: BTreeMap<String, ScriptId>,
     pub(crate) globals: Vec<GlobalDecl>,
-    pub(crate) default_entry_script_id: Option<ScriptId>,
 }
 
 pub(crate) struct GlobalDecl {

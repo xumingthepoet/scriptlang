@@ -4,8 +4,9 @@ mod pipeline;
 mod semantic;
 
 pub use pipeline::{
-    CompilePipeline, assemble_semantic_program, compile_artifact, compile_pipeline,
-    expand_to_semantic,
+    CompileOptions, CompilePipeline, assemble_semantic_program,
+    assemble_semantic_program_with_options, compile_artifact, compile_artifact_with_options,
+    compile_pipeline, compile_pipeline_with_options, expand_to_semantic,
 };
 pub use semantic::types::{
     DeclaredType, SemanticChoiceOption, SemanticFunction, SemanticModule, SemanticProgram,

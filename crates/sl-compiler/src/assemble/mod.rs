@@ -5,6 +5,7 @@ mod types;
 
 use std::collections::BTreeMap;
 
+use crate::pipeline::CompileOptions;
 use crate::semantic::SemanticProgram;
 use sl_core::{CompiledArtifact, CompiledScript, ScriptLangError};
 
@@ -15,24 +16,37 @@ pub(crate) use self::types::ScriptDraft;
 pub(crate) fn assemble_artifact(
     program: &SemanticProgram,
 ) -> Result<CompiledArtifact, ScriptLangError> {
+    assemble_artifact_with_options(program, &CompileOptions::default())
+}
+
+pub(crate) fn assemble_artifact_with_options(
+    program: &SemanticProgram,
+    options: &CompileOptions,
+) -> Result<CompiledArtifact, ScriptLangError> {
     let mut assembler = ProgramAssembler {
         functions: BTreeMap::new(),
         scripts: Vec::new(),
         script_refs: BTreeMap::new(),
         globals: Vec::new(),
-        default_entry_script_id: None,
     };
 
     assembler.collect_declarations(&program.modules)?;
     assembler.lower_modules(&program.modules)?;
 
-    let default_entry_script_id = assembler.default_entry_script_id.ok_or_else(|| {
-        if assembler.scripts.is_empty() {
-            ScriptLangError::message("no <script> declarations found")
-        } else {
-            ScriptLangError::message("default entry script `main.main` does not exist")
-        }
-    })?;
+    let default_entry_script_id = assembler
+        .script_refs
+        .get(options.default_entry_script_ref.as_str())
+        .copied()
+        .ok_or_else(|| {
+            if assembler.scripts.is_empty() {
+                ScriptLangError::message("no <script> declarations found")
+            } else {
+                ScriptLangError::message(format!(
+                    "default entry script `{}` does not exist",
+                    options.default_entry_script_ref
+                ))
+            }
+        })?;
 
     let boot_script_id = assembler.scripts.len();
     let boot_script = assembler.build_boot_script(default_entry_script_id);
@@ -75,7 +89,9 @@ mod tests {
         SemanticChoiceOption, SemanticModule, SemanticProgram, SemanticScript, SemanticStmt,
     };
 
-    use super::{ProgramAssembler, assemble_artifact};
+    use crate::pipeline::CompileOptions;
+
+    use super::{ProgramAssembler, assemble_artifact, assemble_artifact_with_options};
 
     fn program(modules: Vec<SemanticModule>) -> SemanticProgram {
         SemanticProgram { modules }
@@ -111,6 +127,27 @@ mod tests {
             error.to_string(),
             "default entry script `main.main` does not exist"
         );
+    }
+
+    #[test]
+    fn assemble_artifact_allows_custom_default_entry_script() {
+        let artifact = assemble_artifact_with_options(
+            &program(vec![SemanticModule {
+                name: "main".to_string(),
+                functions: Vec::new(),
+                vars: Vec::new(),
+                scripts: vec![SemanticScript {
+                    name: "entry".to_string(),
+                    body: vec![SemanticStmt::End],
+                }],
+            }]),
+            &CompileOptions {
+                default_entry_script_ref: "main.entry".to_string(),
+            },
+        )
+        .expect("custom entry should compile");
+
+        assert_eq!(artifact.default_entry_script_id, 0);
     }
 
     #[test]
@@ -241,7 +278,6 @@ mod tests {
             scripts: Vec::new(),
             script_refs: Default::default(),
             globals: Vec::new(),
-            default_entry_script_id: Some(0),
         };
 
         assert!(matches!(

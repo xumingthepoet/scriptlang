@@ -137,6 +137,11 @@ fn execute_run(
                 actual.push("end".to_string());
                 break;
             }
+            StepResult::Completed(Completion::ReturnToHost) => {
+                return Err(ScriptLangError::message(
+                    "integration test engine unexpectedly returned to host",
+                ));
+            }
             StepResult::Progress => unreachable!("next_visible filters progress"),
         }
     }

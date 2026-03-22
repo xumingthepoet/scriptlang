@@ -8,8 +8,6 @@ use super::{
     types::{GlobalDecl, ScriptDraft},
 };
 
-const DEFAULT_ENTRY_SCRIPT_REF: &str = "main.main";
-
 impl ProgramAssembler {
     pub(super) fn collect_declarations(
         &mut self,
@@ -52,9 +50,6 @@ impl ProgramAssembler {
                 }
                 let script_id = self.scripts.len();
                 self.script_refs.insert(script_ref.clone(), script_id);
-                if script_ref == DEFAULT_ENTRY_SCRIPT_REF {
-                    self.default_entry_script_id = Some(script_id);
-                }
                 self.scripts.push(ScriptDraft {
                     local_names: Vec::new(),
                     local_lookup: std::collections::HashMap::new(),

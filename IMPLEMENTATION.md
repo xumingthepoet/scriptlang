@@ -25,8 +25,9 @@
   - 自动把 crate 内置 `lib/*.xml` 加入高层编译入口
   - 提供较方便的一体化入口
 - `sl-repl`
-  - 提供类似 IEx 的最小调试/观察层
-  - 负责把 parser / compiler / runtime 的阶段产物和运行时 snapshot 以命令式 inspect 接口暴露出来
+  - 提供类似 IEx 的真实执行型 REPL
+  - 默认只加载 `kernel`，并维护隐藏 session module / script
+  - 支持按单个 XML fragment 编译执行、`:load PATH`、choice 恢复和中间产物 inspect
 - `sl-integration-tests`
   - 独立的集成测试 crate
   - 通过 `sl-api` 驱动例子用例
@@ -104,6 +105,7 @@
 
 - 读取 XML
 - 校验根节点必须为 `<module>`
+- 另外也提供单根 fragment 解析入口，供 `sl-repl` 接收 `<text>` / `<if>` / `<module>` 这类单条交互输入
 - 生成宿主无关的编译前表示 `Form { head, meta, fields }`
 - 保留属性顺序，并在 `fields` 末尾固定追加 `children`
 - 在 `children` 中递归保留文本项和子 form 的顺序
@@ -134,6 +136,8 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
     - `expand_to_semantic`
     - `assemble_semantic_program`
     - `compile_pipeline`
+  - 当前还支持 `CompileOptions { default_entry_script_ref }`
+  - 无 options 的兼容入口仍默认以 `main.main` 作为默认入口
 - 源码目录当前按阶段分成：
   - 顶层 `pipeline.rs`
   - `semantic/`：名称解析、`<const>` 编译期求值、文本模板解析和语义下沉；当前包含 `env.rs`、`form.rs`、`expand/`、`expr/` 和 `types.rs`
@@ -213,7 +217,7 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 - 在 assemble 阶段收集 module 级 `<var>` 声明、为 script 分配全局唯一 `script_id`
 - 构造 `CompiledArtifact`
 - 生成 boot script，先执行全局初始化，再跳转到默认入口
-- 默认入口当前固定为 `main.main`；若不存在则编译报错
+- 默认入口当前由 `CompileOptions.default_entry_script_ref` 决定；兼容入口仍默认使用 `main.main`
 - `<const>` 当前只支持 module 级，且只支持 builtin 常量值与对前面已定义 const 的引用
 - `<const>` 会按声明类型做编译期校验；当前已覆盖 `int / bool / string / script / function / array / object`
 - `type="script"` 的 `<const>` 只允许 script 字面量或前置 script const 引用
@@ -270,6 +274,7 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 - `Jump`
 - `JumpScript`
 - `JumpScriptExpr`
+- `ReturnToHost`
 - `End`
 
 `<choice>` 当前会 lower 成：
@@ -288,6 +293,7 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 - 使用 Rhai 执行表达式和代码块
 - 首次执行某段 Rhai 源码时编译 AST，并在 runtime 内缓存
 - 对 `JumpScriptExpr` 先求值出 script key 字符串，再通过 `artifact.script_refs` 做跳转
+- `ReturnToHost` 是 compiler/runtime internal instruction；它会结束当前执行并把控制权交还给宿主，而不是表示真实程序结束
 - 运行时会为 expr / code 注册 `invoke` 和 compiler-internal `__sl_call`
 - module function 当前编译进 `CompiledArtifact.functions`，运行时按函数 key 查找并在独立 Rhai scope 中执行函数体
 
@@ -317,25 +323,68 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 
 ## REPL
 
-`sl-repl` 当前提供一个可嵌入的最小 session API，用来做类似 IEx 的阶段观察，而不是先做终端 UI：
+`sl-repl` 当前已经从 inspect-only 工具变成真实执行型 REPL。它启动时只带 `kernel` 和一个隐藏的 session module / script，不会自动执行项目里的 `main.main`。
 
-- `ReplSession::load_from_xml_map`
+当前公开的主接口有：
+
+- `ReplSession::new`
+- `ReplSession::load_path`
+- `ReplSession::submit_xml`
+- `ReplSession::choose`
+- `ReplSession::inspect`
 - `ReplSession::eval_command`
 
-当前支持的命令有：
+`submit_xml` 当前接受三类顶层输入：
+
+- statement-style fragment
+  - 例如 `<text>`、`<temp>`、`<if>`、`<choice>`、`<goto>`、`<end>`
+  - 也允许经过 `require` 后直接输入 statement macro 调用
+- session context fragment
+  - `<import>`
+  - `<require>`
+  - `<alias>`
+- `<module>`
+  - 允许在 REPL 内定义 module 级 macro / const / var / import / require / alias
+  - 但当前显式禁止在 REPL typed module 里放 `<script>` 或 `<function>`，包括嵌套子模块里也不允许
+
+当前 REPL session 会持久维护三类状态：
+
+- 编译期 session context
+  - 通过顶层 `<import>` / `<require>` / `<alias>` 追加到隐藏 session module
+- module overlay
+  - `:load PATH` 读入的外部 XML module
+  - 以及后续在 REPL 里定义的 `<module>`
+  - 同名顶层 module 以后一次为准
+- 运行时状态
+  - 顶层用户 `<temp>` 声明形成的持久 temp 绑定
+  - 已执行全局变量的 runtime 值
+
+顶层 statement fragment 的执行模型当前是：
+
+- compiler 会为隐藏 session script 生成 temp prelude
+- prelude 只负责把旧 temp 名字重新声明回当前编译单元
+- runtime 在 prelude 执行后，把上一次成功执行时保存的 temp / global 值恢复回当前 engine
+- statement fragment 后面会自动接一个 internal `ReturnToHost`
+- 普通 fragment 跑到 `ReturnToHost` 后回到提示符
+- `<choice>` 会 suspend，等待后续 `choose`
+- `<end>` 会真实结束 REPL
+- `<goto>` 如果跳到别的 script，则沿着目标 script 跑到真实 `End`；由于 `goto` 已放弃当前 session script 上下文，所以目标 script 结束时 REPL 也结束
+
+当前 `sl-repl` crate 还带一个交互式 binary。CLI 会持续读入多行，直到当前 XML fragment 标签配平后再提交。
+
+当前支持的 host-side helper commands 有：
 
 - `:help`
+- `:load PATH`
 - `:ast`
 - `:semantic`
 - `:ir`
-- `:runtime`
-- `:start [script_ref]`
-- `:reset`
-- `:step`
-- `:run`
+- `:bindings`
+- `:modules`
 - `:choose INDEX`
+- `:quit`
 
-当前 `sl-repl` 的定位是把 macro 展开、semantic lowering、runtime instruction 和执行 snapshot 放进同一个调试入口里，优先服务 compiler / macro 开发，而不是提供完整交互式 shell 功能。
+当前 REPL 的定位已经不是“手动 step runtime 的调试壳”，而是让 macro / lowering / runtime 行为都能以接近 IEx 的交互方式直接验证，同时保留 `:ast / :semantic / :ir` 这种中间态观察能力。
 
 ## Integration Tests
 

@@ -259,9 +259,11 @@ dependencies = [
 name = "sl-repl"
 version = "0.1.0"
 dependencies = [
+ "rhai",
  "sl-api",
  "sl-compiler",
  "sl-core",
+ "sl-parser",
  "sl-runtime",
 ]
 

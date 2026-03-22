@@ -25,6 +25,7 @@ pub enum Suspension {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Completion {
+    ReturnToHost,
     End,
 }
 
@@ -90,6 +91,7 @@ mod tests {
             prompt: Some("pick".to_string()),
             items: vec!["a".to_string(), "b".to_string()],
         });
+        let host_return = StepResult::Completed(Completion::ReturnToHost);
         let completed = StepResult::Completed(Completion::End);
 
         assert!(matches!(StepResult::Progress, StepResult::Progress));
@@ -102,6 +104,10 @@ mod tests {
             suspended,
             StepResult::Suspended(Suspension::Choice { prompt, items })
                 if prompt.as_deref() == Some("pick") && items == vec!["a".to_string(), "b".to_string()]
+        ));
+        assert!(matches!(
+            host_return,
+            StepResult::Completed(Completion::ReturnToHost)
         ));
         assert!(matches!(completed, StepResult::Completed(Completion::End)));
 

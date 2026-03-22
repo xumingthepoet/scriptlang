@@ -117,6 +117,10 @@ impl Engine {
                 self.jump_to_script(next_script_id);
                 Ok(StepResult::Progress)
             }
+            Instruction::ReturnToHost => {
+                self.state.halted = true;
+                Ok(StepResult::Completed(Completion::ReturnToHost))
+            }
             Instruction::End => {
                 self.state.halted = true;
                 Ok(StepResult::Completed(Completion::End))

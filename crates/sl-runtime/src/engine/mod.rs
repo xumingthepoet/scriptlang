@@ -488,6 +488,17 @@ mod tests {
             StepResult::Completed(Completion::End)
         ));
         assert!(exhausted_engine.state.halted);
+
+        let mut host_return_engine = simple_engine(vec![Instruction::ReturnToHost]);
+        host_return_engine.state.started = true;
+        host_return_engine.state.script_id = 0;
+        host_return_engine.state.pc = 0;
+        host_return_engine.state.locals = vec![Dynamic::UNIT, Dynamic::UNIT];
+        assert!(matches!(
+            host_return_engine.step().expect("step should work"),
+            StepResult::Completed(Completion::ReturnToHost)
+        ));
+        assert!(host_return_engine.state.halted);
     }
 
     #[test]
