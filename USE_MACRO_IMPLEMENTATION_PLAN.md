@@ -750,3 +750,60 @@ B. **暂时保持当前状态，进入 Step 2**：
 - Step 2 的参数协议改动相对独立
 - Step 3 的 reducer 是关键架构变更，届时统一处理 evaluator 集成更合理
 - 降低每一步的复杂度和风险
+
+---
+
+### 2026-03-22: Step 1 基础设施扩展完成（第二轮）
+
+**本轮工作：**
+
+1. **新增 XML-to-AST 转换器** (`semantic/macro_lang/convert.rs`)
+   - 实现了从旧 XML macro body 到新 compile-time AST 的完整转换逻辑
+   - 支持 `<let>`, `<set>`, `<if>`, `<return>` 语句转换
+   - 支持 `<get-attribute>`, `<get-content>` provider 转换
+   - 提取 `<quote>` 模板用于后续处理
+   - 所有函数标记为 `#[allow(dead_code)]`，待后续集成
+
+2. **新增 builtin 函数**
+   - `parse_bool(value)` - 字符串转布尔值
+   - `parse_int(value)` - 字符串转整数值
+   - 支持类型转换链：`attr -> parse_bool/parse_int`
+
+3. **文档更新**
+   - 更新 `IMPLEMENTATION.md`，记录 `semantic/macro_lang/` 模块
+   - 更新 `USE_MACRO_IMPLEMENTATION_PLAN.md`，详细记录进度和挑战
+
+4. **代码质量**
+   - 所有测试通过（113 compiler + 7 runtime + 9 integration）
+   - `make gate` 通过
+   - 代码格式化正确
+   - Clippy 检查通过
+
+**提交记录：**
+- `aea6f4c` feat: add XML-to-AST converter for compile-time macro language (Step 1 partial)
+- `24b319f` docs: update IMPLEMENTATION.md with new macro_lang module
+
+**技术要点：**
+
+1. **转换器设计**：
+   - `convert_macro_body()` 返回 `(CtBlock, Option<Vec<FormItem>>)`
+   - `CtBlock` 包含所有 compile-time 语句
+   - `Option<Vec<FormItem>>` 包含 quote 模板（如果存在）
+   - 这样设计是为了保持与旧 quote.rs 的兼容性
+
+2. **向后兼容策略**：
+   - 转换器暂未集成到 `macro_eval.rs`
+   - 现有 kernel 宏继续使用旧模板方式工作
+   - 新基础设施随时可用，不影响现有功能
+
+3. **下一步路径选择**：
+   - **选项 A**：完成 Step 1 完整集成（集成 evaluator 到 macro_eval.rs，创建测试 30/31）
+   - **选项 B**：进入 Step 2（宏参数协议），在 Step 3 时统一集成
+
+**结论：**
+
+Step 1 基础设施建设已基本完成，转换器已就绪。下一步可根据风险偏好选择：
+- 保守策略：选择 B，先完成 Step 2，降低单步复杂度
+- 激进策略：选择 A，立即完成 Step 1 的完整集成
+
+无论选择哪条路径，当前基础设施都已就绪，不会阻塞后续工作。
