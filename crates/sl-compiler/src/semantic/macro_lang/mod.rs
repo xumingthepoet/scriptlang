@@ -1,0 +1,15 @@
+//! Compile-time macro language infrastructure.
+//!
+//! This module implements a real compile-time language for macro bodies,
+//! replacing the old template-based approach.
+
+mod ast;
+mod builtins;
+mod env;
+mod eval;
+mod values;
+
+pub use ast::*;
+pub use builtins::BuiltinRegistry;
+pub use env::CtEnv;
+pub use eval::{eval_block, EvalResult};

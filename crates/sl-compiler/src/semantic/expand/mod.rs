@@ -2,7 +2,7 @@ mod const_eval;
 mod declared_types;
 mod dispatch;
 mod imports;
-mod macro_env;
+pub(crate) mod macro_env;
 mod macro_eval;
 mod macro_values;
 mod macros;

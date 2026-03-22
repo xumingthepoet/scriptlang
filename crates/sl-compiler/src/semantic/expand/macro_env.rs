@@ -52,6 +52,30 @@ impl MacroEnv {
             self.aliases.len()
         )
     }
+
+    /// Get a macro invocation attribute value.
+    pub(crate) fn get_attribute(&self, name: &str) -> Option<&String> {
+        self.attributes.get(name)
+    }
+
+    /// Check if macro invocation has an attribute.
+    pub(crate) fn has_attribute(&self, name: &str) -> bool {
+        self.attributes.contains_key(name)
+    }
+
+    /// Get macro invocation content (all children).
+    pub(crate) fn get_content(&self) -> Vec<FormItem> {
+        self.content.clone()
+    }
+
+    /// Get macro invocation content filtered by head tag.
+    pub(crate) fn get_content_with_head(&self, head: &str) -> Vec<FormItem> {
+        self.content
+            .iter()
+            .filter(|item| matches!(item, FormItem::Form(form) if form.head == head))
+            .cloned()
+            .collect()
+    }
 }
 
 #[cfg(test)]

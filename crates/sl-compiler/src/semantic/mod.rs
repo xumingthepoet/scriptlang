@@ -2,6 +2,7 @@ mod env;
 mod expand;
 mod expr;
 mod form;
+pub mod macro_lang;
 pub mod types;
 
 pub(crate) use expand::expand_forms;
