@@ -1,8 +1,10 @@
+mod normalize;
 mod rewrite;
 mod scan;
 mod template;
 mod types;
 
+pub(crate) use normalize::normalize_expr_escapes;
 pub(crate) use rewrite::{
     rewrite_expr_function_calls, rewrite_expr_idents, rewrite_expr_with_consts,
     rewrite_expr_with_vars, rewrite_special_literals, rewrite_template_special_literals,

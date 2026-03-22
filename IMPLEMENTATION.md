@@ -136,6 +136,11 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
   - [`declared_types.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/declared_types.rs)：声明类型解析与 `<const>` 声明注册
   - [`const_eval.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/const_eval.rs)：builtin 常量求值与常量替换
 - `semantic/expr/` 统一承载 expr 前端处理；`script literal` 会先经过统一 token 扫描，模板 `${...}` 的洞会先落到 `ExprSource` 外壳后再回到当前 `TextTemplate` 主路径
+- `semantic/expr/` 当前还统一负责 expr 记号预处理：
+  - 把 `LT / LTE / AND` 规范化成 Rhai 对应操作符
+  - 把单引号字符串统一转成 Rhai 的双引号字符串表示
+  - 这层只按“expr 字符串”工作，不按 `when` / `goto` / `${...}` / `<var>` 等具体槽位分散实现
+  - 普通 expr body 和模板 `${...}` 洞共享同一套预处理入口
 - builtin form 的 expand 处理当前已收敛到 [`semantic/expand/dispatch.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/dispatch.rs) 的统一调度；macro 定义和宏展开细节则收敛到 [`semantic/expand/macros.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/macros.rs)
 - `ExpandRegistry` 当前已经提供 builtin / macro 共用的统一分发入口；macro 当前支持：
   - 当前宏展开要求产出恰好一个根 form

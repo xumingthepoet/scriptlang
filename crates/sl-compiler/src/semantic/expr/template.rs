@@ -1,7 +1,7 @@
 use sl_core::{ScriptLangError, TextSegment, TextTemplate};
 
-use super::scan::scan_expr_source;
 use super::types::{ExprKind, ExprSource};
+use super::{normalize_expr_escapes, scan::scan_expr_source};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct TemplateExprHole {
@@ -35,10 +35,8 @@ pub(crate) fn parse_text_template(source: &str) -> Result<TextTemplate, ScriptLa
             break;
         };
         let expr_end = expr_start + end_offset;
-        let hole = TemplateExprHole::new(scan_expr_source(
-            source[expr_start..expr_end].trim(),
-            ExprKind::TemplateHole,
-        )?);
+        let normalized = normalize_expr_escapes(source[expr_start..expr_end].trim())?;
+        let hole = TemplateExprHole::new(scan_expr_source(&normalized, ExprKind::TemplateHole)?);
         segments.push(TextSegment::Expr(hole.expr.raw));
         cursor = expr_end + 1;
     }
@@ -81,6 +79,16 @@ mod tests {
         assert_eq!(
             dangling.segments,
             vec![TextSegment::Literal("start ${unterminated".to_string())]
+        );
+
+        let normalized = parse_text_template("a ${hp LTE 1 AND ready} b").expect("normalized");
+        assert_eq!(
+            normalized.segments,
+            vec![
+                TextSegment::Literal("a ".to_string()),
+                TextSegment::Expr("hp <= 1 && ready".to_string()),
+                TextSegment::Literal(" b".to_string()),
+            ]
         );
     }
 }

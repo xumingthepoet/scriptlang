@@ -6,9 +6,9 @@ use super::{
     ConstCatalog, ConstEnv, ModuleCatalog, ModuleScope, ScopeResolver, parse_declared_type_form,
 };
 use crate::semantic::expr::{
-    parse_text_template, rewrite_expr_function_calls, rewrite_expr_with_consts,
-    rewrite_expr_with_vars, rewrite_special_literals, rewrite_template_special_literals,
-    rewrite_template_with_consts, rewrite_template_with_vars,
+    normalize_expr_escapes, parse_text_template, rewrite_expr_function_calls,
+    rewrite_expr_with_consts, rewrite_expr_with_vars, rewrite_special_literals,
+    rewrite_template_special_literals, rewrite_template_with_consts, rewrite_template_with_vars,
 };
 use crate::semantic::types::{SemanticChoiceOption, SemanticScript, SemanticStmt};
 use crate::semantic::{attr, body_expr, body_template, child_forms, error_at, required_attr};
@@ -220,8 +220,9 @@ pub(super) fn rewrite_var_expr(
     remaining_const_names: &BTreeSet<String>,
     shadowed_names: &BTreeSet<String>,
 ) -> Result<String, ScriptLangError> {
+    let normalized = normalize_expr_escapes(source)?;
     let rewritten = rewrite_expr_with_consts(
-        source,
+        &normalized,
         const_env,
         resolver,
         remaining_const_names,
@@ -239,8 +240,9 @@ pub(super) fn rewrite_function_body(
     remaining_const_names: &BTreeSet<String>,
     shadowed_names: &BTreeSet<String>,
 ) -> Result<String, ScriptLangError> {
+    let normalized = normalize_expr_escapes(source)?;
     let rewritten = rewrite_expr_with_consts(
-        source,
+        &normalized,
         const_env,
         resolver,
         remaining_const_names,
