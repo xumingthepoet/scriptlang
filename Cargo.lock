@@ -256,6 +256,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sl-repl"
+version = "0.1.0"
+dependencies = [
+ "sl-api",
+ "sl-compiler",
+ "sl-core",
+ "sl-runtime",
+]
+
+[[package]]
 name = "sl-runtime"
 version = "0.1.0"
 dependencies = [

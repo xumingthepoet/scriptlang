@@ -1,11 +1,35 @@
 use sl_core::{CompiledArtifact, Form, ScriptLangError};
 
 use crate::assemble::assemble_artifact;
-use crate::semantic::expand_forms;
+use crate::semantic::{SemanticProgram, expand_forms};
+
+#[derive(Clone, Debug)]
+pub struct CompilePipeline {
+    pub semantic_program: SemanticProgram,
+    pub artifact: CompiledArtifact,
+}
+
+pub fn expand_to_semantic(forms: &[Form]) -> Result<SemanticProgram, ScriptLangError> {
+    expand_forms(forms)
+}
+
+pub fn assemble_semantic_program(
+    semantic_program: &SemanticProgram,
+) -> Result<CompiledArtifact, ScriptLangError> {
+    assemble_artifact(semantic_program)
+}
+
+pub fn compile_pipeline(forms: &[Form]) -> Result<CompilePipeline, ScriptLangError> {
+    let semantic_program = expand_to_semantic(forms)?;
+    let artifact = assemble_semantic_program(&semantic_program)?;
+    Ok(CompilePipeline {
+        semantic_program,
+        artifact,
+    })
+}
 
 pub fn compile_artifact(forms: &[Form]) -> Result<CompiledArtifact, ScriptLangError> {
-    let semantic_program = expand_forms(forms)?;
-    assemble_artifact(&semantic_program)
+    Ok(compile_pipeline(forms)?.artifact)
 }
 
 #[cfg(test)]

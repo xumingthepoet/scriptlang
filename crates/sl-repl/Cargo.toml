@@ -1,0 +1,10 @@
+[package]
+name = "sl-repl"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+sl-api = { path = "../sl-api" }
+sl-compiler = { path = "../sl-compiler" }
+sl-core = { path = "../sl-core" }
+sl-runtime = { path = "../sl-runtime" }

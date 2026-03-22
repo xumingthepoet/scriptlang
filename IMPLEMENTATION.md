@@ -24,6 +24,9 @@
   - 负责组合 parser / compiler / runtime
   - 自动把 crate 内置 `lib/*.xml` 加入高层编译入口
   - 提供较方便的一体化入口
+- `sl-repl`
+  - 提供类似 IEx 的最小调试/观察层
+  - 负责把 parser / compiler / runtime 的阶段产物和运行时 snapshot 以命令式 inspect 接口暴露出来
 - `sl-integration-tests`
   - 独立的集成测试 crate
   - 通过 `sl-api` 驱动例子用例
@@ -127,6 +130,10 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
   - `expand` 直接消费 raw `Form`，顺序推进定义期状态，并把 module children / exports / imports / requires / aliases / const declarations / macro definitions 沉淀到 `ProgramState`
   - `expand` 是当前唯一的前端语义入口；其内部通过 `ExpandEnv`、`ExpandRegistry` 和 `semantic/expand/*` 子模块完成定义期状态推进、macro 分派、名称解析和结构降解
   - `semantic program -> runtime IR`
+  - 对外还公开了分段 inspect 入口：
+    - `expand_to_semantic`
+    - `assemble_semantic_program`
+    - `compile_pipeline`
 - 源码目录当前按阶段分成：
   - 顶层 `pipeline.rs`
   - `semantic/`：名称解析、`<const>` 编译期求值、文本模板解析和语义下沉；当前包含 `env.rs`、`form.rs`、`expand/`、`expr/` 和 `types.rs`
@@ -200,6 +207,7 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 - semantic 当前的 module 导出目录已由 expand 阶段写入 `ProgramState`，`semantic/expand/*` 内部 helper 再做查询与消费，并解析 const / var 引用及 script 字面量
 - semantic 当前会区分“module 内声明存在”和“对 import 暴露的导出成员”；`private="true"` 会从导出目录中隐藏该声明
 - `assemble` 不再消费 import / scope / context 信息；它只消费已经解析好的语义结果
+- `SemanticProgram / SemanticModule / SemanticScript / SemanticStmt / SemanticFunction / SemanticVar / DeclaredType` 当前已经作为 public inspect surface 暴露，供 `sl-repl` 读取中间结果
 - semantic 中的 var 引用当前会先重写成“已解析变量占位符”；真正的 runtime global 命名只在 assemble 阶段生成
 - `semantic/expand/const_eval.rs` 当前负责 builtin 常量求值、稳定字面量回写和表达式 / 模板替换，不再自己实现 import 可见性规则
 - 在 assemble 阶段收集 module 级 `<var>` 声明、为 script 分配全局唯一 `script_id`
@@ -306,6 +314,28 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 当前 `sl-api` 会在这些高层入口里自动加载内置库 XML。现阶段内置库只提供 `crates/sl-api/lib/kernel.xml`，并把它作为普通 module 一起参与编译；kernel 当前主要承载标准控制流宏，而不是示例性质的常量或文本宏。
 
 这是当前最推荐的对外入口。
+
+## REPL
+
+`sl-repl` 当前提供一个可嵌入的最小 session API，用来做类似 IEx 的阶段观察，而不是先做终端 UI：
+
+- `ReplSession::load_from_xml_map`
+- `ReplSession::eval_command`
+
+当前支持的命令有：
+
+- `:help`
+- `:ast`
+- `:semantic`
+- `:ir`
+- `:runtime`
+- `:start [script_ref]`
+- `:reset`
+- `:step`
+- `:run`
+- `:choose INDEX`
+
+当前 `sl-repl` 的定位是把 macro 展开、semantic lowering、runtime instruction 和执行 snapshot 放进同一个调试入口里，优先服务 compiler / macro 开发，而不是提供完整交互式 shell 功能。
 
 ## Integration Tests
 

@@ -1,38 +1,38 @@
 use sl_core::TextTemplate;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct SemanticProgram {
-    pub(crate) modules: Vec<SemanticModule>,
+pub struct SemanticProgram {
+    pub modules: Vec<SemanticModule>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct SemanticModule {
-    pub(crate) name: String,
-    pub(crate) functions: Vec<SemanticFunction>,
-    pub(crate) vars: Vec<SemanticVar>,
-    pub(crate) scripts: Vec<SemanticScript>,
+pub struct SemanticModule {
+    pub name: String,
+    pub functions: Vec<SemanticFunction>,
+    pub vars: Vec<SemanticVar>,
+    pub scripts: Vec<SemanticScript>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct SemanticFunction {
-    pub(crate) name: String,
-    pub(crate) param_names: Vec<String>,
-    pub(crate) return_type: DeclaredType,
-    pub(crate) body: String,
+pub struct SemanticFunction {
+    pub name: String,
+    pub param_names: Vec<String>,
+    pub return_type: DeclaredType,
+    pub body: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct SemanticVar {
-    pub(crate) name: String,
-    pub(crate) declared_type: DeclaredType,
-    pub(crate) expr: String,
+pub struct SemanticVar {
+    pub name: String,
+    pub declared_type: DeclaredType,
+    pub expr: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct ModulePath(pub(crate) String);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum DeclaredType {
+pub enum DeclaredType {
     Array,
     Bool,
     Function,
@@ -73,13 +73,13 @@ impl ResolvedRef {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct SemanticScript {
-    pub(crate) name: String,
-    pub(crate) body: Vec<SemanticStmt>,
+pub struct SemanticScript {
+    pub name: String,
+    pub body: Vec<SemanticStmt>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum SemanticStmt {
+pub enum SemanticStmt {
     Temp {
         name: String,
         declared_type: DeclaredType,
@@ -110,7 +110,7 @@ pub(crate) enum SemanticStmt {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct SemanticChoiceOption {
-    pub(crate) text: TextTemplate,
-    pub(crate) body: Vec<SemanticStmt>,
+pub struct SemanticChoiceOption {
+    pub text: TextTemplate,
+    pub body: Vec<SemanticStmt>,
 }

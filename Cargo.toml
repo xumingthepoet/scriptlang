@@ -5,6 +5,7 @@ members = [
     "crates/sl-compiler",
     "crates/sl-runtime",
     "crates/sl-api",
+    "crates/sl-repl",
     "crates/sl-integration-tests",
 ]
 resolver = "3"
