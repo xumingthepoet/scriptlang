@@ -659,9 +659,10 @@
 1. **新 compile-time macro language 基础设施** (`semantic/macro_lang/`)
    - `ast.rs`: CtBlock, CtStmt, CtExpr, CtValue 完整定义
    - `eval.rs`: eval_block, eval_stmt, eval_expr 评估器
-   - `builtins.rs`: BuiltinRegistry + 7 个 builtin 函数
+   - `builtins.rs`: BuiltinRegistry + 9 个 builtin 函数
    - `env.rs`: CtEnv 环境管理
    - `values.rs`: 类型重导出
+   - `convert.rs`: 旧 XML 格式转换器
    - `mod.rs`: 模块组织
 
 2. **CtValue 类型覆盖：**
@@ -686,6 +687,8 @@
    - `keyword_has(keyword, key)` - 检查 keyword 键
    - `list_length(list)` - 列表长度
    - `to_string(value)` - 转字符串
+   - `parse_bool(value)` - 解析布尔值
+   - `parse_int(value)` - 解析整数值
 
 5. **MacroEnv 增强：**
    - `get_attribute()` / `has_attribute()`
@@ -709,18 +712,41 @@
 **未完成（Step 1 要求）：**
 
 - `macro_eval.rs` 未改用 `macro_lang::eval`（仍用旧模板方式）
+  - 转换器已创建但未集成
+  - 需要完整集成 evaluator 并桥接 quote/unquote
 - 集成测试 `30-real-macro-compile-time-if` 未创建
 - 集成测试 `31-real-macro-local-bindings` 未创建
 - quote/unquote 完整实现（需要真正从 CtValue 产出 FormItem AST）
+
+**技术挑战：**
+
+1. **quote/unquote 桥接**：新系统使用 CtValue::Ast，旧系统使用 MacroValue::AstItems，需要类型转换
+2. **向后兼容**：必须保持现有 kernel 宏正常工作
+3. **quote 处理**：旧 quote.rs 有复杂的模板处理逻辑（${var} splicing, hygiene, gensym），需要与新系统集成
 
 **提交：**
 - `8805a80` feat: introduce real compile-time macro language (Step 1 foundation)
 - `72abe0b` test: add unit tests for compile-time macro language
 - `c8b4a3e` fix: resolve clippy warnings and formatting issues
+- 新增 `convert.rs` 模块（未提交）
 
-**下一步：**
-需要完成 Step 1 剩余部分：
-1. 修改 `macro_eval.rs` 调用 `macro_lang::eval`
-2. 实现 quote/unquote 的完整 AST 生成
-3. 创建集成测试 30/31
-4. 然后才能进入 Step 2
+**下一步建议：**
+
+有两个选择：
+
+A. **完成 Step 1 完整集成**：
+   1. 修改 `macro_eval.rs` 使用新 evaluator
+   2. 实现 CtValue <-> MacroValue 转换
+   3. 创建集成测试 30/31
+   4. 验证所有现有测试通过
+
+B. **暂时保持当前状态，进入 Step 2**：
+   - Step 2 专注于宏参数协议，不依赖完整的 evaluator 集成
+   - 可以在 Step 3（module reducer）时一并处理 evaluator 集成
+   - 降低单步改动风险
+
+**建议选择 B**，理由：
+- 基础设施已就位，随时可用
+- Step 2 的参数协议改动相对独立
+- Step 3 的 reducer 是关键架构变更，届时统一处理 evaluator 集成更合理
+- 降低每一步的复杂度和风险

@@ -33,6 +33,10 @@ impl BuiltinRegistry {
         self.register("content", builtin_content);
         self.register("has_attr", builtin_has_attr);
 
+        // Parsing utilities
+        self.register("parse_bool", builtin_parse_bool);
+        self.register("parse_int", builtin_parse_int);
+
         // New compile-time utilities
         self.register("keyword_get", builtin_keyword_get);
         self.register("keyword_has", builtin_keyword_has);
@@ -288,4 +292,68 @@ fn builtin_to_string(
     };
 
     Ok(CtValue::String(s))
+}
+
+/// `parse_bool(value)`: Parse a string value as bool.
+fn builtin_parse_bool(
+    args: &[CtValue],
+    _macro_env: &MacroEnv,
+    _ct_env: &mut CtEnv,
+) -> BuiltinResult {
+    if args.len() != 1 {
+        return Err(ScriptLangError::Message {
+            message: "parse_bool() requires exactly 1 argument".to_string(),
+        });
+    }
+
+    let s = match &args[0] {
+        CtValue::String(s) => s,
+        other => {
+            return Err(ScriptLangError::Message {
+                message: format!(
+                    "parse_bool() argument must be string, got {}",
+                    other.type_name()
+                ),
+            });
+        }
+    };
+
+    match s.as_str() {
+        "true" => Ok(CtValue::Bool(true)),
+        "false" => Ok(CtValue::Bool(false)),
+        other => Err(ScriptLangError::Message {
+            message: format!("cannot parse `{}` as macro bool attribute", other),
+        }),
+    }
+}
+
+/// `parse_int(value)`: Parse a string value as int.
+fn builtin_parse_int(
+    args: &[CtValue],
+    _macro_env: &MacroEnv,
+    _ct_env: &mut CtEnv,
+) -> BuiltinResult {
+    if args.len() != 1 {
+        return Err(ScriptLangError::Message {
+            message: "parse_int() requires exactly 1 argument".to_string(),
+        });
+    }
+
+    let s = match &args[0] {
+        CtValue::String(s) => s,
+        other => {
+            return Err(ScriptLangError::Message {
+                message: format!(
+                    "parse_int() argument must be string, got {}",
+                    other.type_name()
+                ),
+            });
+        }
+    };
+
+    s.parse::<i64>()
+        .map(CtValue::Int)
+        .map_err(|_| ScriptLangError::Message {
+            message: format!("cannot parse `{}` as macro int attribute", s),
+        })
 }

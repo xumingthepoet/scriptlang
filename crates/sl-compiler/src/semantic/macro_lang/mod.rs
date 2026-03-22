@@ -5,6 +5,7 @@
 
 mod ast;
 mod builtins;
+mod convert;
 mod env;
 mod eval;
 mod values;
@@ -14,6 +15,8 @@ mod tests;
 
 pub use ast::*;
 pub use builtins::BuiltinRegistry;
+#[allow(unused_imports)]
+pub use convert::convert_macro_body;
 pub use env::CtEnv;
 #[allow(unused_imports)]
 pub use eval::{EvalResult, eval_block};
