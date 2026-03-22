@@ -1,13 +1,15 @@
 //! Compile-time builtin functions.
 
-use super::{CtValue, CtEnv};
+use super::{CtEnv, CtValue};
 use crate::semantic::expand::macro_env::MacroEnv;
 use sl_core::ScriptLangError;
 
 /// Result of a builtin function call.
+#[allow(dead_code)]
 pub type BuiltinResult = Result<CtValue, ScriptLangError>;
 
 /// A compile-time builtin function.
+#[allow(dead_code)]
 pub type BuiltinFn = fn(&[CtValue], &MacroEnv, &mut CtEnv) -> BuiltinResult;
 
 /// Registry of compile-time builtin functions.
@@ -79,10 +81,8 @@ fn builtin_attr(args: &[CtValue], macro_env: &MacroEnv, _ct_env: &mut CtEnv) -> 
     macro_env
         .get_attribute(&attr_name)
         .map(|s| CtValue::String(s.clone()))
-        .ok_or_else(|| {
-            ScriptLangError::Message {
-                message: format!("Attribute '{}' not found", attr_name),
-            }
+        .ok_or_else(|| ScriptLangError::Message {
+            message: format!("Attribute '{}' not found", attr_name),
         })
 }
 
@@ -148,7 +148,10 @@ fn builtin_has_attr(args: &[CtValue], macro_env: &MacroEnv, _ct_env: &mut CtEnv)
         CtValue::String(s) => s.clone(),
         other => {
             return Err(ScriptLangError::Message {
-                message: format!("has_attr() argument must be string, got {}", other.type_name()),
+                message: format!(
+                    "has_attr() argument must be string, got {}",
+                    other.type_name()
+                ),
             });
         }
     };
@@ -157,7 +160,11 @@ fn builtin_has_attr(args: &[CtValue], macro_env: &MacroEnv, _ct_env: &mut CtEnv)
 }
 
 /// `keyword_get(keyword, key)`: Get a value from a keyword list.
-fn builtin_keyword_get(args: &[CtValue], _macro_env: &MacroEnv, _ct_env: &mut CtEnv) -> BuiltinResult {
+fn builtin_keyword_get(
+    args: &[CtValue],
+    _macro_env: &MacroEnv,
+    _ct_env: &mut CtEnv,
+) -> BuiltinResult {
     if args.len() != 2 {
         return Err(ScriptLangError::Message {
             message: "keyword_get() requires exactly 2 arguments".to_string(),
@@ -192,15 +199,17 @@ fn builtin_keyword_get(args: &[CtValue], _macro_env: &MacroEnv, _ct_env: &mut Ct
         .iter()
         .find(|(k, _)| k == key)
         .map(|(_, v)| v.clone())
-        .ok_or_else(|| {
-            ScriptLangError::Message {
-                message: format!("Key '{}' not found in keyword list", key),
-            }
+        .ok_or_else(|| ScriptLangError::Message {
+            message: format!("Key '{}' not found in keyword list", key),
         })
 }
 
 /// `keyword_has(keyword, key)`: Check if a keyword list has a key.
-fn builtin_keyword_has(args: &[CtValue], _macro_env: &MacroEnv, _ct_env: &mut CtEnv) -> BuiltinResult {
+fn builtin_keyword_has(
+    args: &[CtValue],
+    _macro_env: &MacroEnv,
+    _ct_env: &mut CtEnv,
+) -> BuiltinResult {
     if args.len() != 2 {
         return Err(ScriptLangError::Message {
             message: "keyword_has() requires exactly 2 arguments".to_string(),
@@ -235,7 +244,11 @@ fn builtin_keyword_has(args: &[CtValue], _macro_env: &MacroEnv, _ct_env: &mut Ct
 }
 
 /// `list_length(list)`: Get the length of a list.
-fn builtin_list_length(args: &[CtValue], _macro_env: &MacroEnv, _ct_env: &mut CtEnv) -> BuiltinResult {
+fn builtin_list_length(
+    args: &[CtValue],
+    _macro_env: &MacroEnv,
+    _ct_env: &mut CtEnv,
+) -> BuiltinResult {
     if args.len() != 1 {
         return Err(ScriptLangError::Message {
             message: "list_length() requires exactly 1 argument".to_string(),
@@ -255,7 +268,11 @@ fn builtin_list_length(args: &[CtValue], _macro_env: &MacroEnv, _ct_env: &mut Ct
 }
 
 /// `to_string(value)`: Convert a value to string.
-fn builtin_to_string(args: &[CtValue], _macro_env: &MacroEnv, _ct_env: &mut CtEnv) -> BuiltinResult {
+fn builtin_to_string(
+    args: &[CtValue],
+    _macro_env: &MacroEnv,
+    _ct_env: &mut CtEnv,
+) -> BuiltinResult {
     if args.len() != 1 {
         return Err(ScriptLangError::Message {
             message: "to_string() requires exactly 1 argument".to_string(),

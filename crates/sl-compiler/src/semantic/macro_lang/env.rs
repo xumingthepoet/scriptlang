@@ -1,7 +1,7 @@
 //! Compile-time environment for macro evaluation.
 
-use std::collections::HashMap;
 use super::CtValue;
+use std::collections::HashMap;
 
 /// Environment for compile-time macro evaluation.
 pub struct CtEnv {
@@ -10,6 +10,7 @@ pub struct CtEnv {
 }
 
 impl CtEnv {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             locals: HashMap::new(),
@@ -37,6 +38,7 @@ impl CtEnv {
     }
 
     /// Create a child environment (for nested scopes).
+    #[allow(dead_code)]
     pub fn child(&self) -> Self {
         Self {
             locals: self.locals.clone(),

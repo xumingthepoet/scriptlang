@@ -1,10 +1,9 @@
 //! Unit tests for the compile-time macro language.
 
 #[cfg(test)]
-mod tests {
-    use crate::semantic::macro_lang::*;
+mod ct_lang_tests {
     use crate::semantic::expand::macro_env::MacroEnv;
-    use sl_core::FormItem;
+    use crate::semantic::macro_lang::*;
 
     fn empty_macro_env() -> MacroEnv {
         MacroEnv::default()
@@ -13,21 +12,19 @@ mod tests {
     #[test]
     fn compile_time_if_selects_correct_branch() {
         let block = CtBlock {
-            stmts: vec![
-                CtStmt::If {
-                    cond: CtExpr::Literal(CtValue::Bool(true)),
-                    then_block: CtBlock {
-                        stmts: vec![CtStmt::Return {
-                            value: CtExpr::Literal(CtValue::String("yes".to_string())),
-                        }],
-                    },
-                    else_block: Some(CtBlock {
-                        stmts: vec![CtStmt::Return {
-                            value: CtExpr::Literal(CtValue::String("no".to_string())),
-                        }],
-                    }),
+            stmts: vec![CtStmt::If {
+                cond: CtExpr::Literal(CtValue::Bool(true)),
+                then_block: CtBlock {
+                    stmts: vec![CtStmt::Return {
+                        value: CtExpr::Literal(CtValue::String("yes".to_string())),
+                    }],
                 },
-            ],
+                else_block: Some(CtBlock {
+                    stmts: vec![CtStmt::Return {
+                        value: CtExpr::Literal(CtValue::String("no".to_string())),
+                    }],
+                }),
+            }],
         };
 
         let macro_env = empty_macro_env();

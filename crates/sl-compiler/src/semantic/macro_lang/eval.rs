@@ -1,10 +1,11 @@
 //! Compile-time evaluator for the macro language.
 
-use super::{CtBlock, CtStmt, CtExpr, CtValue, CtEnv, BuiltinRegistry};
+use super::{BuiltinRegistry, CtBlock, CtEnv, CtExpr, CtStmt, CtValue};
 use crate::semantic::expand::macro_env::MacroEnv;
 use sl_core::ScriptLangError;
 
 /// Result of evaluation (may return early).
+#[allow(dead_code)]
 pub enum EvalResult {
     /// Normal completion with a value
     Value(CtValue),
@@ -13,6 +14,7 @@ pub enum EvalResult {
 }
 
 impl EvalResult {
+    #[allow(dead_code)]
     pub fn into_value(self) -> Result<CtValue, ScriptLangError> {
         match self {
             EvalResult::Value(v) => Ok(v),
@@ -22,6 +24,7 @@ impl EvalResult {
 }
 
 /// Evaluate a compile-time block.
+#[allow(dead_code)]
 pub fn eval_block(
     block: &CtBlock,
     macro_env: &MacroEnv,
@@ -43,6 +46,7 @@ pub fn eval_block(
 }
 
 /// Evaluate a compile-time statement.
+#[allow(dead_code)]
 pub fn eval_stmt(
     stmt: &CtStmt,
     macro_env: &MacroEnv,
@@ -60,9 +64,7 @@ pub fn eval_stmt(
             let val = eval_expr(value, macro_env, ct_env, builtins)?;
             ct_env
                 .update(name, val)
-                .map_err(|e| ScriptLangError::Message {
-                    message: e,
-                })?;
+                .map_err(|e| ScriptLangError::Message { message: e })?;
             Ok(EvalResult::Value(CtValue::Nil))
         }
 
@@ -96,6 +98,7 @@ pub fn eval_stmt(
 }
 
 /// Evaluate a compile-time expression.
+#[allow(dead_code)]
 pub fn eval_expr(
     expr: &CtExpr,
     macro_env: &MacroEnv,
@@ -105,25 +108,25 @@ pub fn eval_expr(
     match expr {
         CtExpr::Literal(value) => Ok(value.clone()),
 
-        CtExpr::Var { name, .. } => ct_env
-            .get(name)
-            .cloned()
-            .ok_or_else(|| {
-                ScriptLangError::Message {
+        CtExpr::Var { name, .. } => {
+            ct_env
+                .get(name)
+                .cloned()
+                .ok_or_else(|| ScriptLangError::Message {
                     message: format!("Undefined variable: {}", name),
-                }
-            }),
+                })
+        }
 
         CtExpr::BuiltinCall {
             name: func_name,
             args,
             ..
         } => {
-            let builtin = builtins.get(func_name).ok_or_else(|| {
-                ScriptLangError::Message {
+            let builtin = builtins
+                .get(func_name)
+                .ok_or_else(|| ScriptLangError::Message {
                     message: format!("Unknown builtin function: {}", func_name),
-                }
-            })?;
+                })?;
 
             // Evaluate arguments
             let evaluated_args: Result<Vec<_>, _> = args

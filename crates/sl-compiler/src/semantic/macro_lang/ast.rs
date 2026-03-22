@@ -9,18 +9,13 @@ pub struct CtBlock {
 }
 
 /// A compile-time statement.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum CtStmt {
     /// Variable binding: `let name = expr`
-    Let {
-        name: String,
-        value: CtExpr,
-    },
+    Let { name: String, value: CtExpr },
     /// Variable mutation: `set name = expr`
-    Set {
-        name: String,
-        value: CtExpr,
-    },
+    Set { name: String, value: CtExpr },
     /// Conditional execution: `if cond { ... }`
     If {
         cond: CtExpr,
@@ -28,41 +23,30 @@ pub enum CtStmt {
         else_block: Option<CtBlock>,
     },
     /// Return a value: `return expr`
-    Return {
-        value: CtExpr,
-    },
+    Return { value: CtExpr },
     /// Expression statement (for side effects or builtin calls)
-    Expr {
-        expr: CtExpr,
-    },
+    Expr { expr: CtExpr },
 }
 
 /// A compile-time expression.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum CtExpr {
     /// Literal value
     Literal(CtValue),
     /// Variable reference
-    Var {
-        name: String,
-    },
+    Var { name: String },
     /// Builtin function call
-    BuiltinCall {
-        name: String,
-        args: Vec<CtExpr>,
-    },
+    BuiltinCall { name: String, args: Vec<CtExpr> },
     /// Quote: produce AST from compile-time value
-    Quote {
-        body: Box<CtExpr>,
-    },
+    Quote { body: Box<CtExpr> },
     /// Unquote: splice compile-time value into AST
-    Unquote {
-        expr: Box<CtExpr>,
-    },
+    Unquote { expr: Box<CtExpr> },
 }
 
 /// A compile-time value.
 #[derive(Debug, Clone, PartialEq)]
+#[allow(dead_code)]
 pub enum CtValue {
     Nil,
     Bool(bool),
