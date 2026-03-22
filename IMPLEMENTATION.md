@@ -877,3 +877,169 @@ error expanding `{macro}` from `{provider}` (called from `{caller}`): {error}
 - Step 6: hygiene、冲突检测和错误定位
 - Step 7: nested module 和 private 宏可见性
 - Step 8: kernel 宏迁移到新系统
+
+## Step 1: compile-time macro language 基础设施（2026-03-22）
+
+完成状态：已完成
+
+### 架构变更
+
+#### 新增 `semantic/macro_lang/` 模块
+
+- [`ast.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/macro_lang/ast.rs)
+  - `CtBlock`: compile-time 代码块
+  - `CtStmt`: 语句（Let / Set / If / Return / ExprStmt）
+  - `CtExpr`: 表达式（Literal / Var / Call / BuiltinCall / Quote / Unquote）
+  - `CtValue`: compile-time 值（Nil / Bool / Int / String / Keyword / List / ModuleRef / Ast / CallerEnv）
+
+- [`eval.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/macro_lang/eval.rs)
+  - `eval_block()`: 评估 compile-time 代码块
+  - `eval_stmt()`: 评估语句
+  - `eval_expr()`: 评估表达式
+  - `macro_value_to_ct_value()`: MacroValue 到 CtValue 的类型桥接
+
+- [`builtins.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/macro_lang/builtins.rs)
+  - `BuiltinRegistry`: builtin 函数注册表
+  - `attr(name)`: 获取宏属性
+  - `content()` / `content(head=...)`: 获取宏内容
+  - `has_attr(name)`: 检查属性存在
+  - `keyword_get(keyword, key)`: 从 keyword 取值
+  - `keyword_has(keyword, key)`: 检查 keyword 键
+  - `list_length(list)`: 列表长度
+  - `to_string(value)`: 转字符串
+  - `parse_bool(value)` / `parse_int(value)`: 类型转换
+  - `caller_env()`: 返回 caller 环境（module/imports/requires/aliases）
+  - `caller_module()`: 返回当前模块名
+  - `expand_alias(module_ref)`: 解析别名
+  - `require_module(module_ref)`: 添加 require
+  - `define_import(module_ref)`: 添加 import
+  - `define_alias(module_ref, as)`: 添加 alias
+  - `define_require(module_ref)`: 添加 require
+  - `invoke_macro(module, macro_name, args)`: 远程宏调用
+  - `keyword_attr(name)`: 从 locals 获取 keyword
+
+- [`env.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/macro_lang/env.rs)
+  - `CtEnv`: compile-time 环境
+  - `let()` / `set()` / `lookup()`: 变量管理
+  - `all()`: 导出所有绑定用于 MacroEnv 同步
+
+- [`convert.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/macro_lang/convert.rs)
+  - `convert_macro_body()`: 旧 XML macro body → 新 compile-time AST
+  - 支持 `<let>`, `<set>`, `<if>`, `<return>`, `<get-attribute>`, `<get-content>`, `<quote>`, `<var>`, `<require_module>`, `<expand_alias>`, `<keyword_attr>`, `<invoke_macro>`
+
+- [`values.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/macro_lang/values.rs)
+  - 类型重导出
+
+#### CtValue 类型覆盖
+
+- `Nil` / `Bool` / `Int` / `String`
+- `Keyword(Vec<(String, CtValue)>)` - 保持属性顺序
+- `List(Vec<CtValue>)`
+- `ModuleRef(String)`
+- `Ast(Vec<FormItem>)` - 产出 AST 片段
+- `CallerEnv` - caller 环境标记
+
+#### compile-time 语言特性
+
+- `let` / `set` / `return`: 局部绑定
+- `if` / `else`: 条件分支
+- `quote` / `unquote`: AST 构造
+- builtin call: 内置函数调用
+
+### 测试状态
+
+- 单元测试覆盖 compile-time if 分支、let/set/return 作用域、keyword 顺序、value truthiness、嵌套 if
+- 所有 113+ compiler unit tests 通过
+- `make gate` 通过
+
+## Step 9: 文档、清理和最终门禁（2026-03-23）
+
+完成状态：已完成
+
+### 本轮工作
+
+1. **更新 IMPLEMENTATION.md**
+   - 补充 Step 1 完整章节（在主 body 和末尾历史记录区）
+   - 添加 Step 9 完成记录
+   - 确认所有宏系统文档与代码一致
+
+2. **验证 `make gate` 通过**
+
+### 完整宏系统文档
+
+#### 新宏定义协议
+
+`<macro>` 支持 `params` 属性，格式为逗号分隔的 `type:name` 对：
+
+```xml
+<macro name="__using__" params="keyword:opts">
+  <quote>
+    <script name="main">
+      <text>hello</text>
+      <end/>
+    </script>
+  </quote>
+</macro>
+```
+
+支持参数类型：`expr`, `ast`, `string`, `bool`, `int`, `keyword`, `module`。
+
+向后兼容：`attributes="..."` + `content="..."` 旧协议仍通过适配层工作。
+
+#### compile-time language 能力边界
+
+已支持：
+- `let` / `set` / `return`
+- `if` / `else`
+- `quote` / `unquote`
+- builtin call（attr / content / keyword_* / invoke_macro / caller_env / 等）
+
+尚未支持：
+- `for` / `while` compile-time 循环
+- `match` compile-time 模式匹配
+- compile-time 模块系统
+
+#### `use` 语义
+
+`<use module="helper"/>` 等价于：
+
+1. 读取 `module` 属性
+2. 收集其它属性为 ordered keyword `opts`
+3. `require_module(module)` 确保目标在 scope 内
+4. `invoke_macro(module, "__using__", [opts])`
+5. 返回 AST 和定义期副作用通过 module reducer 回灌 caller
+
+#### 远程宏 / require / alias / caller env 规则
+
+- 调用远程宏前必须 `require` 目标模块
+- 支持 alias 展开后的 module path
+- `caller_env()` 返回 `{current_module, imports, requires, aliases}`
+- 未 require 的远程宏调用报错：`macro 'X' from 'Y' requires 'require Y' first`
+
+#### Hygiene 规则
+
+- `<temp>` 元素通过 gensym 自动重命名：`__macro_{macro_name}_{seed}_{prefix}_{counter}`
+- 隐藏 helper 名不污染 caller 命名空间
+- 公开成员冲突检测：`use` 注入的公开名若与 caller 已有成员冲突，报编译错误
+
+#### 私有宏规则
+
+- `<macro private="true">` 仅在其定义的 module 内可见
+- 其他 module 通过 `require` 或 `invoke_macro` 无法调用私有宏
+- `private="true"` 的 `__using__` 不能被其他 module `use`
+
+### 测试状态
+
+- 所有测试通过（166 compiler unit tests + 7 runtime tests + 20 integration tests）
+- Coverage: >= 89.9% lines, >= 90% functions
+- `make gate` 通过
+
+### 最小完成定义满足情况
+
+- ✅ `use` 通过普通 macro 协议工作
+- ✅ `__using__` 是远程宏调用协议的一部分
+- ✅ 宏体运行在真实 compile-time language 上
+- ✅ 宏生成的 module-level form 会推进 caller 的定义期环境
+- ✅ kernel 宏迁移到新系统
+- ✅ `make gate` 通过
+- ✅ `IMPLEMENTATION.md` 已同步
