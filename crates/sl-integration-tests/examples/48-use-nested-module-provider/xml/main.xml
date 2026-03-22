@@ -1,0 +1,18 @@
+<module name="main">
+  <module name="helper">
+    <macro name="__using__" params="keyword:opts">
+      <quote>
+        <script name="from_nested">
+          <text>nested module use works</text>
+          <end/>
+        </script>
+      </quote>
+    </macro>
+  </module>
+
+  <use module="helper"/>
+
+  <script name="main">
+    <goto script="@from_nested"/>
+  </script>
+</module>

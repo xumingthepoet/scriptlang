@@ -118,12 +118,25 @@ fn parse_macro_definition(
         None
     };
 
+    // Parse private attribute
+    let is_private = form
+        .fields
+        .iter()
+        .find(|field| field.name == "private")
+        .and_then(|field| match &field.value {
+            FormValue::String(value) => Some(value.as_str()),
+            _ => None,
+        })
+        .map(|value| value == "true")
+        .unwrap_or(false);
+
     Ok(MacroDefinition {
         module_name: module_name.to_string(),
         name,
         params,
         legacy_protocol,
         body,
+        is_private,
     })
 }
 
@@ -350,6 +363,7 @@ mod tests {
                 params: None,
                 legacy_protocol: None,
                 body,
+                is_private: false,
             })
             .expect("register macro");
     }
@@ -382,6 +396,7 @@ mod tests {
                     vec![],
                     vec![form_item("script", vec![("name", "main")], vec![])],
                 )],
+                is_private: false,
             })
             .expect_err("duplicate macro");
         assert!(err.contains("duplicate macro declaration"));

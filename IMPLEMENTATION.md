@@ -43,7 +43,7 @@
 - `<require>`
 - `<alias>`
 - `<macro>`
-- `private="true"` attribute on module-level `<const>`, `<var>`, `<script>`, `<function>`
+- `private="true"` attribute on module-level `<const>`, `<var>`, `<script>`, `<function>`, `<macro>`
 - `<script>`
 - `<function>`
 - `<var>`
@@ -86,7 +86,9 @@
 - `<while>` 当前已支持 `break` / `continue`
 - `<goto script="">` 现在是表达式槽位，运行时要求其结果为 script key 字符串
 - `<import>`、`<require>`、`<alias>` 只能出现在 `<module>` 下，并按源码顺序向后影响当前 module 的编译期上下文
-- `private="true"` 目前只影响 module 边界导出；同一 module 内仍可直接引用 private const / var / script / function
+- `private="true"` 目前只影响 module 边界导出和宏可见性；同一 module 内仍可直接引用 private const / var / script / function / macro
+- `private="true"` 的宏只能在其定义的 module 内被调用，不能被其他 module 通过 `require` 或 `invoke_macro` 调用
+- `private="true"` 的 `__using__` 宏不能被其他 module 通过 `use` 调用
 - `@main.loop` / `@loop` 是 script 字面量；`@loop` 会在编译期展开为当前 module 下的完整 script key
 - `#main.pick` / `#pick` 是 function 字面量；`#pick` 会在编译期展开为当前 module 下的完整 function key
 - `var / temp / const` 的 `type="..."` 现在是必填

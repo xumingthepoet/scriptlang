@@ -917,6 +917,16 @@ fn builtin_invoke_macro(
             ),
         })?;
 
+    // Step 7: Check macro visibility (private macros only visible in defining module)
+    if definition.is_private && definition.module_name != caller_module {
+        return Err(ScriptLangError::Message {
+            message: format!(
+                "cannot invoke private macro `{}.{}` from module `{}`",
+                definition.module_name, macro_name, caller_module
+            ),
+        });
+    }
+
     // Build synthetic invocation form from args
     let args_kw = match &args[2] {
         CtValue::Keyword(kv) => kv.clone(),

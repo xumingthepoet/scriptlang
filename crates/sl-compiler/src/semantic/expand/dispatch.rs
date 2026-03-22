@@ -281,6 +281,7 @@ mod tests {
                 params: None,
                 legacy_protocol: None,
                 body: vec![child(node("quote", vec![], vec![text("hi")]))],
+                is_private: false,
             })
             .expect("register macro");
 
@@ -330,6 +331,7 @@ mod tests {
                         child(node("text", vec![], vec![text("b")])),
                     ],
                 ))],
+                is_private: false,
             })
             .expect("register multi macro");
         env.program
@@ -354,6 +356,7 @@ mod tests {
                         vec![child(node("unquote", vec![], vec![text("label")]))],
                     )),
                 ],
+                is_private: false,
             })
             .expect("register string macro");
 

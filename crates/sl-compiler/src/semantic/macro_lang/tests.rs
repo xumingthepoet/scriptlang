@@ -860,6 +860,7 @@ mod ct_lang_tests {
                 }]),
                 legacy_protocol: None,
                 body: macro_body,
+                is_private: false,
             })
             .expect("register macro");
 
@@ -1933,5 +1934,117 @@ mod ct_lang_tests {
         )
         .expect("to_string should succeed");
         assert_eq!(result, CtValue::String("ModuleRef(\"test\")".to_string()));
+    }
+
+    #[test]
+    fn builtin_invoke_macro_rejects_private_macro() {
+        use sl_core::{FormField, FormMeta, FormValue, SourcePosition};
+
+        let mut macro_env = MacroEnv {
+            current_module: Some("caller".to_string()),
+            ..Default::default()
+        };
+        macro_env.requires.push("helper".to_string());
+
+        // Register helper module with a private macro
+        let mut expand_env = empty_expand_env();
+        expand_env
+            .begin_module(Some("helper".to_string()), Some("helper.xml".to_string()))
+            .expect("helper module");
+
+        let quote_meta = FormMeta {
+            source_name: Some("helper.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 10 },
+            start_byte: 0,
+            end_byte: 10,
+        };
+
+        // Helper to build Form structures cleanly
+        fn make_form(meta: &FormMeta, head: &str, fields: Vec<FormField>) -> sl_core::Form {
+            sl_core::Form {
+                head: head.to_string(),
+                meta: meta.clone(),
+                fields,
+            }
+        }
+        fn make_field(name: &str, value: FormValue) -> FormField {
+            FormField {
+                name: name.to_string(),
+                value,
+            }
+        }
+        fn make_seq(items: Vec<FormItem>) -> FormValue {
+            FormValue::Sequence(items)
+        }
+        fn make_text(content: &str) -> FormItem {
+            FormItem::Text(content.to_string())
+        }
+        fn make_form_item(meta: &FormMeta, head: &str, fields: Vec<FormField>) -> FormItem {
+            FormItem::Form(make_form(meta, head, fields))
+        }
+
+        let text_child = make_form_item(
+            &quote_meta,
+            "text",
+            vec![make_field(
+                "children",
+                make_seq(vec![make_text("private result")]),
+            )],
+        );
+        let macro_body = vec![make_form_item(
+            &quote_meta,
+            "quote",
+            vec![make_field("children", make_seq(vec![text_child]))],
+        )];
+
+        // Register a PRIVATE macro
+        expand_env
+            .program
+            .register_macro(crate::semantic::env::MacroDefinition {
+                module_name: "helper".to_string(),
+                name: "__private__".to_string(),
+                params: Some(vec![crate::semantic::env::MacroParam {
+                    param_type: crate::semantic::env::MacroParamType::Keyword,
+                    name: "opts".to_string(),
+                }]),
+                legacy_protocol: None,
+                body: macro_body,
+                is_private: true, // This is a private macro
+            })
+            .expect("register macro");
+
+        expand_env
+            .begin_module(Some("caller".to_string()), Some("caller.xml".to_string()))
+            .expect("caller module");
+
+        // Add helper to caller's requires list
+        expand_env.module.requires.push("helper".to_string());
+
+        let mut ct_env = CtEnv::new();
+        let builtins = BuiltinRegistry::new();
+
+        // Try to invoke the private macro from a different module
+        let err = builtins.get("invoke_macro").unwrap()(
+            &[
+                CtValue::String("helper".to_string()),
+                CtValue::String("__private__".to_string()),
+                CtValue::Keyword(vec![]),
+            ],
+            &macro_env,
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect_err("should reject private macro");
+        assert!(
+            err.to_string().contains("private macro"),
+            "error should mention private macro: {}",
+            err
+        );
+        assert!(
+            err.to_string().contains("helper.__private__"),
+            "error should mention macro name: {}",
+            err
+        );
     }
 }

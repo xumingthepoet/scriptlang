@@ -123,6 +123,8 @@ pub(crate) struct MacroDefinition {
     /// Legacy attribute/content protocol for backward compatibility
     pub(crate) legacy_protocol: Option<LegacyProtocol>,
     pub(crate) body: Vec<FormItem>,
+    /// Whether the macro is private to its defining module
+    pub(crate) is_private: bool,
 }
 
 impl ExpandEnv {
