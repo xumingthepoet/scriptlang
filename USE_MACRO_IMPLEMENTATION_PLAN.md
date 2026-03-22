@@ -1,0 +1,649 @@
+# Real Macro Language And Elixir-Style `use` Plan
+
+本文档不是状态说明，而是给下级 agent 的执行说明。目标不是把当前 `if / unless / if-else` 这种“模板替换式 macro”再修补一层，而是把 compiler 内部真正升级为一套可承载 Elixir 风格宏协议的编译期语言，并最终落地 `use -> require + __using__` 这条链路。
+
+## 目标终态
+
+最终必须满足以下语义：
+
+- `use` 不是 runtime primitive，也不是 compiler 特判语义糖衣后直接写死结果
+- `use` 最终等价于：
+  - 解析目标 module ref
+  - 在 caller compile-time env 中建立 `require`
+  - 远程调用目标模块的 `__using__` macro
+  - 把返回的 AST 和定义期副作用真正注入 caller module
+- `__using__` 必须是普通 macro 协议的一部分，而不是只给 `use` 开特例
+- macro body 必须运行在 compiler 内部的 compile-time language 上，而不是只支持 `<let> + <quote> + <get-attribute> + <get-content>` 这类模板式 provider
+- macro 展开产生的 module-level form，必须重新进入同一套定义期 reducer，像源码原生写出来的一样推进 `import / require / alias / const / var / function / script / module` 状态
+- hygiene 不能只覆盖 `<temp>`；至少要把 macro 引入的隐藏 helper 名和局部 compile-time 绑定处理到不会污染 caller
+- 现有 kernel 宏最终要迁移到新 compile-time language 上，旧模板 evaluator 应删除或仅保留短期兼容层
+
+## 硬约束
+
+- 不新增 runtime primitive 承担 `use` 或通用宏逻辑
+- compile-time evaluator 只存在于 compiler 内部，不进入 `sl-runtime`
+- 每一步只要修改了 `crates/` 下代码，完成前都必须跑通 `make gate`
+- 每一步改动如果改变支持范围、编译流程、crate 职责、测试结构或公开语义，必须同步更新 `IMPLEMENTATION.md`
+- 所有集成验收用例都按 `crates/sl-integration-tests/examples/<id>-<name>/...` 结构新增
+
+## 参考的 Elixir 源码
+
+下级 agent 在设计和实现时，应直接参考本地 Elixir 源码，而不是只参考表面语法：
+
+- `Kernel.use/2`
+  - `elixir/lib/elixir/lib/kernel.ex`
+- `Macro.Env`
+  - `elixir/lib/elixir/lib/macro/env.ex`
+- macro expand / remote dispatch
+  - `elixir/lib/elixir/lib/macro.ex`
+  - `elixir/lib/elixir/src/elixir_dispatch.erl`
+
+在本仓库对应重点参考位置：
+
+- 当前宏注册与展开：
+  - `crates/sl-compiler/src/semantic/expand/macros.rs`
+  - `crates/sl-compiler/src/semantic/expand/macro_eval.rs`
+  - `crates/sl-compiler/src/semantic/expand/quote.rs`
+- 当前定义期 module 推进：
+  - `crates/sl-compiler/src/semantic/expand/module.rs`
+  - `crates/sl-compiler/src/semantic/env.rs`
+- 当前 kernel 宏：
+  - `crates/sl-api/lib/kernel.xml`
+
+## 执行原则
+
+- 每一步都必须是可独立落地、可独立验收、可独立回滚的增量
+- 不要一开始就大规模重写所有宏；先建立新基础设施，再迁移 kernel 和 `use`
+- 允许短期兼容旧 `<macro attributes="..." content="...">` 定义方式，但兼容层必须是过渡方案，不允许成为永久主路径
+- 不要在 parser 层硬编码 `use` 语义；`use` 的核心逻辑应该最终落到 kernel 标准库宏或 compile-time builtin API 之上
+
+## 目标语法和协议
+
+为避免下级 agent 在实现时自行发散，先固定 MVP 目标协议：
+
+### 1. 宏定义协议
+
+新增显式参数协议：
+
+```xml
+<macro name="__using__" params="keyword:opts">
+  ...
+</macro>
+```
+
+规则：
+
+- `params` 是逗号分隔的参数声明，形如 `type:name`
+- 第一阶段支持的参数类型：
+  - `expr`
+  - `ast`
+  - `string`
+  - `bool`
+  - `int`
+  - `keyword`
+  - `module`
+- `attributes="..."` / `content="..."` 继续短期兼容，但内部应 lower 成同一套参数绑定协议
+
+### 2. 宏调用协议
+
+保留 XML form 调用风格，不引入文本式 `foo(...)` 宏调用。
+
+示例：
+
+```xml
+<if when="value GT 0">
+  <text>ok</text>
+</if>
+```
+
+对 `use` 固定采用如下 XML-native 表层：
+
+```xml
+<use module="helper" async="true" label="'demo'"/>
+```
+
+规则：
+
+- `module` 是 `use` 的保留属性
+- 其它所有属性按源码顺序收集为 `keyword` 值，传给目标模块的 `__using__`
+- 属性值作为 compile-time expr 解析，而不是简单裸字符串拼接
+- 第一阶段 `use` 不带 body
+
+### 3. `use` 终态协议
+
+目标是让 kernel 中的 `use` 宏在语义上等价于：
+
+1. expand alias / module ref
+2. `require` 目标 module
+3. 远程调用 `target.__using__(opts)`
+4. 把返回 AST 和定义期副作用重放到 caller module
+
+## 分阶段实施
+
+下面每一步都包含：
+
+- 目标
+- 实现方案
+- 代码落点
+- 验收标准
+
+---
+
+## Step 1. 引入真正的 compile-time value / IR / evaluator
+
+### 目标
+
+先把“编译期语言”本身建出来，不再让 macro evaluator 只有模板 provider。
+
+### 实现方案
+
+- 在 `sl-compiler` 新增独立子模块，建议命名：
+  - `crates/sl-compiler/src/semantic/macro_lang/mod.rs`
+  - `.../ast.rs`
+  - `.../values.rs`
+  - `.../eval.rs`
+  - `.../builtins.rs`
+  - `.../env.rs`
+- 新 compile-time IR 至少要有：
+  - `CtBlock`
+  - `CtStmt`
+  - `CtExpr`
+  - `CtValue`
+- `CtValue` 第一阶段至少覆盖：
+  - `Nil`
+  - `Bool`
+  - `Int`
+  - `String`
+  - `Keyword(Vec<(String, CtValue)>)`
+  - `List(Vec<CtValue>)`
+  - `ModuleRef(String)`
+  - `Ast(Vec<FormItem>)`
+  - `CallerEnv`
+- compile-time 语言第一阶段至少支持：
+  - `let`
+  - `set`
+  - `if`
+  - `quote`
+  - `unquote`
+  - `return`
+  - builtin call
+- 现有 `macro_eval.rs` 不再直接解释 `<let>/<quote>`；它应该转而调用 `macro_lang::eval`
+- 现有模板 provider 逻辑保留为兼容 builtin：
+  - `attr("x")`
+  - `content()`
+  - `content(head="...")`
+  - 但实现上要成为 compile-time builtin，而不是 evaluator 特判
+
+### 代码落点
+
+- 新增 `semantic/macro_lang/*`
+- 修改：
+  - `crates/sl-compiler/src/semantic/expand/macro_eval.rs`
+  - `crates/sl-compiler/src/semantic/expand/macro_values.rs`
+  - `crates/sl-compiler/src/semantic/expand/macros.rs`
+  - `crates/sl-compiler/src/semantic/expand/mod.rs`
+
+### 验收标准
+
+单元测试：
+
+- compile-time `if` 正确选择分支
+- `let` / `set` / `return` 的局部作用域正确
+- `keyword` 值保持属性顺序
+- `quote/unquote` 可从 compile-time value 产出 AST
+
+集成测试新增：
+
+- `30-real-macro-compile-time-if`
+  - `helper.xml` 定义一个宏，根据 compile-time 条件返回不同 `<text>`
+  - `main.xml` 调用该宏两次
+  - `results.txt` 必须精确包含两条不同文本，证明 macro body 发生了真实分支，而不是单纯模板拼接
+- `31-real-macro-local-bindings`
+  - 宏先计算 compile-time 局部变量，再在 `quote` 中使用
+  - 输出必须证明局部绑定和二次引用都生效
+
+完成条件：
+
+- 以上测试通过
+- 现有 `18-kernel-macro-basic`、`20-imported-module-macro`、`21-kernel-unless`、`22-kernel-if-else`、`26-kernel-if-via-while` 仍全部通过
+
+---
+
+## Step 2. 给宏定义加显式参数协议，并把旧属性/内容协议 lower 到新模型
+
+### 目标
+
+把当前“只靠 invocation attrs/content 隐式取值”的宏定义，升级成真正的 macro signature。
+
+### 实现方案
+
+- 扩展 `MacroDefinition`：
+  - 增加 `params`
+  - body 改存新 compile-time IR
+- 新增 macro 参数绑定器：
+  - 把 XML 调用点 `<tag ...>children</tag>` 转成参数实参
+  - `attributes="..." content="..."` 旧协议通过 adapter lower 成 `params`
+- 明确参数类型转换规则：
+  - `expr` -> compile-time expr source
+  - `ast` -> child AST
+  - `string / bool / int` -> compile-time scalar
+  - `keyword` -> 有序 key/value
+  - `module` -> 经过 module path/alias expand 之前的引用值
+- 明确错误：
+  - 缺参数
+  - 重复参数
+  - 参数类型不匹配
+
+### 代码落点
+
+- 修改：
+  - `crates/sl-compiler/src/semantic/env.rs`
+  - `crates/sl-compiler/src/semantic/expand/macros.rs`
+  - `crates/sl-compiler/src/semantic/expand/macro_env.rs`
+  - `crates/sl-compiler/src/semantic/expand/macro_eval.rs`
+- 如有必要新增：
+  - `crates/sl-compiler/src/semantic/expand/macro_params.rs`
+
+### 验收标准
+
+单元测试：
+
+- `params="expr:when,ast:body"` 绑定正常
+- 旧 `attributes="when:expr" content="ast"` 通过适配层绑定成同样结果
+- 参数缺失与类型错误报错文本稳定
+
+集成测试新增：
+
+- `32-macro-params-explicit-signature`
+  - 用新 `params` 协议重写一个简单宏
+  - 输出与旧风格一致
+- `33-invalid-macro-param-type`
+  - 传入错误类型参数
+  - `error.txt` 断言错误片段包含参数名和期望类型
+
+完成条件：
+
+- kernel 宏可以先保留旧风格，但底层统一走新参数绑定器
+
+---
+
+## Step 3. 重写 module expand 为“定义期 reducer”，让宏产物重新进入同一状态机
+
+### 目标
+
+这是整条路线最关键的一步。必须让宏生成的 `import / require / alias / const / var / function / script / module` 真正影响 caller module 的后续编译期环境。
+
+### 实现方案
+
+- 重构 `expand/module.rs`
+- 不再按“读到源码 child.head 再手工分支”的方式一次性处理
+- 改成统一 reducer：
+  - 输入：待处理 `FormItem` 队列
+  - 输出：
+    - 规范化后的 module children
+    - 实时更新后的 `ExpandEnv.module`
+  - 每个 item 都按同一规则进入 reducer
+  - 如果 item 是 macro 调用，先展开，产出新 items，再按顺序重新入队
+  - 如果 item 是 `import / require / alias / const / var / function / script / module`，则执行与源码一致的定义期副作用
+- 注意顺序语义：
+  - 展开的 form 必须按源码位置立即生效
+  - 后续 sibling 必须看得到前面 macro 注入的 import/require/alias/exports
+
+### 代码落点
+
+- 重点修改：
+  - `crates/sl-compiler/src/semantic/expand/module.rs`
+  - `crates/sl-compiler/src/semantic/expand/dispatch.rs`
+  - `crates/sl-compiler/src/semantic/env.rs`
+- 建议新增：
+  - `crates/sl-compiler/src/semantic/expand/module_reducer.rs`
+
+### 验收标准
+
+单元测试：
+
+- 宏展开出 `<script>` 后会注册到 module exports
+- 宏展开出 `<require>` 后，后续 sibling 可见该 require 的宏
+- 宏展开出 `<alias>` 后，后续 sibling 可使用 alias
+- 宏展开出 nested `<module>` 后，会像源码一样展平并注册 child alias
+
+集成测试新增：
+
+- `34-macro-generated-script-registers`
+  - helper 宏生成两个 script，前一个 `goto` 后一个
+  - 结果必须成功输出，证明 macro 生成的 script 已进入 module catalog
+- `35-macro-generated-import-affects-following-form`
+  - helper 宏生成 `<import name="m1"/>`
+  - caller 在该宏之后直接使用 `m1` 导出的短名 const/var/function
+  - 结果必须成功
+- `36-macro-generated-require-enables-following-macro`
+  - helper1 宏生成 `<require name="helper2"/>`
+  - caller 紧接着调用 `helper2` 提供的宏
+  - 结果必须成功
+
+完成条件：
+
+- 当前“宏只能注入最终 AST，但不能推进定义期环境”的限制被移除
+
+---
+
+## Step 4. 支持远程 macro 调用和更完整的 caller env
+
+### 目标
+
+为 `target.__using__(opts)` 铺底，不先写 `use`。
+
+### 实现方案
+
+- 给 compile-time language 增加 builtin：
+  - `caller_env()`
+  - `expand_alias(module_ref)`
+  - `require_module(module_ref)`
+  - `invoke_macro(module_ref, macro_name, args)`
+  - `define_import(module_ref)`
+  - `define_alias(module_ref, as)`
+  - `define_require(module_ref)`
+- `caller_env()` 第一阶段至少暴露：
+  - current module
+  - source file
+  - line
+  - imports
+  - requires
+  - aliases
+- 远程宏分派规则：
+  - 必须先 `require`
+  - 支持 alias 展开后的 module path
+  - 调用目标模块的已注册 macro
+  - 保留源位置信息，错误文本必须带 caller 位置信息
+
+### 代码落点
+
+- 修改：
+  - `crates/sl-compiler/src/semantic/expand/macro_env.rs`
+  - `crates/sl-compiler/src/semantic/env.rs`
+  - `crates/sl-compiler/src/semantic/expand/macros.rs`
+  - `crates/sl-compiler/src/semantic/expand/imports.rs`
+  - `crates/sl-compiler/src/semantic/expand/modules.rs`
+  - `crates/sl-compiler/src/semantic/macro_lang/builtins.rs`
+
+### 验收标准
+
+单元测试：
+
+- alias 展开与 require 校验正确
+- 未 require 的远程宏调用稳定报错
+- `caller_env()` 返回当前 module/imports/requires/aliases
+
+集成测试新增：
+
+- `37-remote-macro-basic`
+  - `main` require `helper`
+  - `main` 中的宏通过 `invoke_macro(helper, "__mk__", ...)` 间接调用 helper 宏
+  - 结果成功
+- `38-invalid-remote-macro-without-require`
+  - 不先 require，直接远程调用
+  - `error.txt` 断言包含 `requires`
+- `39-macro-caller-env-basic`
+  - 宏读取 caller module 名并把它写进输出
+  - 输出必须是 caller 的完整 module 名，而不是定义宏的 module 名
+
+完成条件：
+
+- 此时还没实现 `use`，但已经有实现 `use` 需要的底层能力
+
+---
+
+## Step 5. 实现 `__using__` 协议和 kernel `use` 宏
+
+### 目标
+
+在不新增 runtime primitive 的前提下，真正落地 Elixir 风格 `use`。
+
+### 实现方案
+
+- 固定协议：
+  - provider module 通过 `<macro name="__using__" params="keyword:opts">...</macro>` 暴露 hook
+- 在 `kernel.xml` 中新增 `use` 宏，不做 compiler 内建特判
+- `use` 宏逻辑：
+  1. 读取 `module` 属性
+  2. 收集其它属性为 ordered keyword `opts`
+  3. `expand_alias(module)`
+  4. `require_module(module)`
+  5. `invoke_macro(module, "__using__", [opts])`
+- `use` 的返回 AST 与定义期副作用都通过 Step 3 的 reducer 回灌 caller
+- 明确错误：
+  - 目标 module 不存在
+  - 目标 module 未导出 `__using__`
+  - `__using__` 签名不匹配
+
+### 代码落点
+
+- 修改：
+  - `crates/sl-api/lib/kernel.xml`
+  - `crates/sl-compiler/src/semantic/macro_lang/builtins.rs`
+  - 与远程宏调用相关的 dispatch / env 文件
+
+### 验收标准
+
+集成测试新增：
+
+- `40-use-basic`
+  - `helper.__using__` 向 caller 注入 `import`、`alias` 和一个 function/script
+  - caller 在 `use` 之后直接使用这些能力
+  - 结果成功
+- `41-use-with-options`
+  - `<use module="helper" async="true" label="'demo'"/>`
+  - `helper.__using__` 读取 `opts`
+  - 注入代码根据 `opts` 分支
+  - 结果必须体现 options 已按 compile-time 值生效
+- `42-use-via-alias`
+  - caller 先 alias provider module，再 `use` alias 名
+  - 结果成功
+- `43-invalid-use-missing-using`
+  - provider module 不定义 `__using__`
+  - `error.txt` 必须断言错误文本包含 `__using__`
+- `44-invalid-use-target-not-module`
+  - `module` 指向不存在或不可解析目标
+  - 报错稳定
+
+完成条件：
+
+- `use` 已经是普通 macro 协议上的一个实例，而不是一条 compiler 特例支路
+
+---
+
+## Step 6. 扩展 hygiene、冲突检测和错误定位
+
+### 目标
+
+让 `use` 能承载真实项目里的注入，而不是一跑就名字污染。
+
+### 实现方案
+
+- 扩展 hygiene 范围：
+  - 不只处理 `<temp>`
+  - 对 macro 引入的隐藏 helper function/script/const/var 支持 gensym 或隐藏命名约定
+- 对公开注入成员做冲突检测：
+  - 如果 `use` 要注入的公开名字与 caller 已有公开成员冲突，给出确定性编译错误
+  - 错误必须指出冲突名、caller module、provider module
+- 改善错误定位：
+  - 远程宏展开失败时，错误堆栈至少带 caller source 和 provider source
+
+### 代码落点
+
+- 修改：
+  - `crates/sl-compiler/src/semantic/expand/quote.rs`
+  - `crates/sl-compiler/src/semantic/expand/module.rs`
+  - `crates/sl-compiler/src/semantic/env.rs`
+  - `crates/sl-core/src/error.rs`（如需扩展错误上下文）
+
+### 验收标准
+
+集成测试新增：
+
+- `45-use-hygiene-hidden-helper`
+  - provider 在 `__using__` 中引入隐藏 temp/helper
+  - caller 自己定义同名公开成员
+  - 结果必须成功，证明隐藏 helper 没污染 caller
+- `46-invalid-use-public-name-conflict`
+  - provider 注入公开 function/script，caller 已有同名定义
+  - `error.txt` 断言冲突错误文本
+- `47-use-order-affects-following-forms`
+  - caller 在 `use` 之后立即使用被注入的 import/alias/function/script
+  - 结果成功
+
+完成条件：
+
+- `use` 在复杂 module body 中的行为可预测、可诊断
+
+---
+
+## Step 7. 支持 nested module / private 边界上的 `use`
+
+### 目标
+
+把 `use` 放进真实 module system，而不是只在平坦 module 上可用。
+
+### 实现方案
+
+- 验证 `use` 在 nested module 展平后的行为：
+  - provider 是 `main.helper`
+  - caller 是父模块或兄弟模块
+- 验证 private 成员/宏边界：
+  - `__using__` 可见性规则必须明确
+  - 默认要求 `__using__` 对被 `use` 的 caller 可见
+- 如果 `private="true"` 适用于 macro，要明确其对 `__using__` 的影响
+
+### 代码落点
+
+- 修改：
+  - `crates/sl-compiler/src/semantic/expand/modules.rs`
+  - `crates/sl-compiler/src/semantic/expand/scope.rs`
+  - `crates/sl-compiler/src/semantic/env.rs`
+
+### 验收标准
+
+集成测试新增：
+
+- `48-use-nested-module-provider`
+  - provider 位于 nested module
+  - caller 通过 alias 或完整 module path `use`
+  - 结果成功
+- `49-invalid-use-private-using`
+  - `__using__` 不可见
+  - `error.txt` 断言错误文本包含不可见/未导出语义
+
+完成条件：
+
+- `use` 在 module system 边界上的规则稳定
+
+---
+
+## Step 8. 迁移 kernel 宏到新 compile-time language，并删除旧模板主路径
+
+### 目标
+
+证明新系统是真主路径，而不是旁路。
+
+### 实现方案
+
+- 把 `kernel.xml` 中的 `if / unless / if-else` 改写到新 macro signature + 新 compile-time builtin
+- 删除或降级以下旧模板专用路径：
+  - evaluator 中对 `<let>` provider 的硬编码
+  - 只为模板宏存在的值分支
+  - 与新参数绑定器重复的旧 attribute/content 取值逻辑
+- 保留旧语法兼容时，必须确保最终仍走新 evaluator，而不是双栈长期共存
+
+### 代码落点
+
+- 修改：
+  - `crates/sl-api/lib/kernel.xml`
+  - `crates/sl-compiler/src/semantic/expand/macro_eval.rs`
+  - `crates/sl-compiler/src/semantic/expand/macro_values.rs`
+  - 其它旧模板路径文件
+
+### 验收标准
+
+必须保证以下现有 examples 全部继续通过：
+
+- `18-kernel-macro-basic`
+- `20-imported-module-macro`
+- `21-kernel-unless`
+- `22-kernel-if-else`
+- `26-kernel-if-via-while`
+
+新增集成测试：
+
+- `50-kernel-if-on-real-macro-language`
+  - 单独证明 `if` 现在运行在新 compile-time language 之上
+  - 不允许再依赖旧模板 evaluator
+
+完成条件：
+
+- 仓库中不存在“旧模板宏是主路径，新宏语言只服务 `use`”的局面
+
+---
+
+## Step 9. 文档、清理和最终门禁
+
+### 目标
+
+把实现、测试和文档收口，避免出现“代码已变，文档还停留在旧宏模型”的情况。
+
+### 实现方案
+
+- 更新：
+  - `IMPLEMENTATION.md`
+  - 如有必要，`plan.md`
+  - 相关 crate 内注释与测试说明
+- 在 `IMPLEMENTATION.md` 中明确写出：
+  - 新 macro 定义协议
+  - compile-time language 能力边界
+  - `use` 语义
+  - remote macro / require / alias / caller env 规则
+  - 已支持与未支持的 compile-time 语言特性
+- 最终跑 `make gate`
+
+### 验收标准
+
+- `make gate` 通过
+- `IMPLEMENTATION.md` 对宏系统的描述与真实代码一致
+- 所有新增 example 名称、结果和错误文本稳定
+
+## 建议的落地顺序与提交粒度
+
+建议按以下粒度分开提交，避免大爆炸式改动：
+
+1. Step 1 + Step 2
+2. Step 3
+3. Step 4
+4. Step 5
+5. Step 6 + Step 7
+6. Step 8 + Step 9
+
+每个提交都必须：
+
+- 补当前步骤对应的单元测试
+- 补当前步骤对应的集成 examples
+- 跑 `make gate`
+- 更新 `IMPLEMENTATION.md`
+
+## 明确不接受的实现方向
+
+- 把 `use` 做成 compiler 内特殊硬编码，然后绕开普通宏协议
+- 让宏继续只会“读 attribute / content 然后模板替换”
+- 让宏产物只进入最终 AST，不推进 caller compile-time env
+- 把 `use` 语义下沉到 runtime
+- 为了赶进度保留两套长期并存的宏系统
+
+## 最小完成定义
+
+只有当以下条件同时满足，这个任务才算完成：
+
+- `use` 通过普通 macro 协议工作
+- `__using__` 是远程宏调用协议的一部分
+- 宏体运行在真实 compile-time language 上
+- 宏生成的 module-level form 会推进 caller 的定义期环境
+- kernel 宏迁移到新系统
+- `make gate` 通过
+- `IMPLEMENTATION.md` 已同步
