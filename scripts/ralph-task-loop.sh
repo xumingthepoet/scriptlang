@@ -52,9 +52,46 @@ if [[ -z "${CLAUDE_LOOP_TEST_CMD}" ]] && ! command -v claude >/dev/null 2>&1; th
 fi
 
 TASK_DOC_ABS="$(cd "$(dirname "${TASK_DOC_PATH}")" && pwd)/$(basename "${TASK_DOC_PATH}")"
+CURRENT_TIME="$(date '+%Y-%m-%d %H:%M:%S %Z')"
 
-PROMPT_ROUND_1="阅读任务文档 \`${TASK_DOC_ABS}\`，把它作为唯一目标，以 ralph 模式持续推进。如果当前工作区不干净，检查能否在当前代码改到哪个下继续本次工作。如果实在不行就reset。你在一个循环里工作：每一轮都按文档里的当前进度执行下一条任务，直接动手，不要跳步，不要空转，不要偏离任务去做无关整理。遵守仓库里的 AGENTS.md；如果本轮改动涉及 crates/ 或会影响 crate 行为、公共接口、测试结果、编译流程，就同步更新 IMPLEMENTATION.md，并在准备把这一轮视为完成前跑通 make gate。如果本次任务完成就可以git提交了。尽量采用TODO工具，让subagent分担上下文压力。"
-PROMPT_ROUND_2="当前修改完成了既定步骤的任务吗？还是让事情更糟糕了？如果完成了，请把任务进度更新追加到任务文档 \`${TASK_DOC_ABS}\` 的最后，方便后续工作继续，并提交一次当前代码；如果让事情更糟糕，不要犹豫，reset当前修改让工作目录保持干净。"
+PROMPT_ROUND_1="当前时间：${CURRENT_TIME}。
+
+## 任务
+阅读 \`${TASK_DOC_ABS}\`，按文档中的当前进度执行下一条任务。不要跳步，不要空转，不要偏离任务做无关整理。
+
+## 工作区状态
+- 如果工作区干净：直接开始本轮任务。
+- 如果有未提交变更：用 git diff 和 git status 仔细评估：这些改动是否能接上本次任务？是部分有用还是完全无用？
+  - **部分有用**：保留有用部分，commit 或 stash，继续在此基础上推进。
+  - **完全无用或冲突**：git reset --hard 丢弃，回到干净状态。
+- 如果本轮改动涉及 crates/ 或会影响 crate 行为/接口/测试结果/编译流程，必须同步更新 IMPLEMENTATION.md，并在本轮结束前跑通 make gate。
+
+## 提交
+任务有实质进展就 git commit，不要等到最后一起交。
+
+## 进度记录
+本轮任务执行完成后，把本次工作进度追加到 \`${TASK_DOC_ABS}\` 末尾。包括：当前步骤标题、本次做了什么、下一步方向。
+
+## 工具
+优先用 TODO 工具分配任务给 subagent，分担上下文压力。"
+
+PROMPT_ROUND_2="当前时间：${CURRENT_TIME}。
+
+## 审计
+这是第二轮。你是一个严厉的 reviewer，必须指出 Round 1 的问题。
+
+检查点：
+- **git commit 规范吗**：commit 信息能清晰描述本次做了什么吗？还是"提交了个寂寞"？
+- **工作有实质内容吗**：本轮是否真的推进了任务，还是做了无关整理、语法美化、重复造轮子？
+- **任务真的完成了吗**：Round 1 设定的目标达成了吗？还是跳步了、缩水了、或根本没做？
+
+处理方式：
+- 如果以上都 OK：在 Round 1 的进度记录末尾追加"[自测通过]"，本轮结束。
+- 如果有问题：直接用 git reset --soft / commit --amend / rebase -i 等工具纠正，不要等到下一轮。
+- 如果本轮完全无意义：用 git reset --hard 丢弃，回到干净状态。
+
+## 不要合理化
+不要为 Round 1 的问题找借口。不要说\"差不多完成了\"。如果有问题，就纠正。"
 
 PROMPTS=(
   "${PROMPT_ROUND_1}"
