@@ -229,6 +229,7 @@ PROMPT_DECOMPOSE="当前时间：${CURRENT_TIME}。
 - 不要修改与当前步骤无关的其他步骤
 - 不要做代码实现，只做任务分解
 - 不要 git push
+"
 
 PROMPTS=(
   "${PROMPT_ROUND_1}"
@@ -429,9 +430,9 @@ for ((round = 1; round <= MAX_ROUNDS; round++)); do
 
   # Retry on failure: only count as stuck if it took long enough
   if [[ "${claude_failed}" -ne 0 ]]; then
-    local duration=$((SECONDS - ROUND_START_SECONDS))
-    local minutes=$((duration / 60))
-    local seconds=$((duration % 60))
+    duration=$((SECONDS - ROUND_START_SECONDS))
+    minutes=$((duration / 60))
+    seconds=$((duration % 60))
     if [[ "${duration}" -ge "${STUCK_MIN_DURATION_SECONDS}" ]]; then
       NO_PROGRESS_ROUNDS=$((NO_PROGRESS_ROUNDS + 1))
       echo "claude failed in round ${round} (stuck: ${NO_PROGRESS_ROUNDS}/2, duration: ${minutes}m${seconds}s); sleeping ${BACKOFF_SLEEP_SECONDS}s before retry."
