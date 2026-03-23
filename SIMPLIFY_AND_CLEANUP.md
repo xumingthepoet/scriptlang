@@ -389,3 +389,28 @@ SIMPLIFY_AND_CLEANUP 全部完成，可以关闭。
 - 50 个集成测试（01-50）全部存在 ✅
 
 **结论**：Round 1 结论正确，但过程跳步（未独立验证）。SIMPLIFY_AND_CLEANUP 全部完成。
+
+### 2026-03-23 17:10: IMPLEMENTATION.md 同步修正
+
+**本轮工作：**
+
+审计 IMPLEMENTATION.md 与实际代码的差异，发现 4 处历史遗留的过时描述：
+
+1. **`values.rs` 两处引用**：该文件在 commit `30fe5a8` 中已删除，但文档在模块列表（line 161）和文件索引（line 930）处仍有引用 → 删除两处
+
+2. **`ExpandRegistry` 描述过时**：commit `30fe5a8` 将 `ExpandRegistry` 零大小结构体扁平化为 `dispatch.rs` 中的 free functions（`dispatch_rule`、`has_builtin_rule`、`expand_form_items`），但文档 line 135 和 line 189 仍描述为 struct → 更新为 free functions 描述
+
+3. **`向后兼容适配层` 描述错误**：Goal 3 Round 1 已删除 `bind_legacy_protocol`/`parse_legacy_protocol`/`MacroDefinition.legacy_protocol`，但文档 line 204 仍声称"保留旧协议的向后兼容适配层" → 修正为：invocation attributes 仍可通过 `attr()` builtin 读取（`<mymacro name="foo">` 形式）
+
+**验证结果：**
+- make gate: 通过
+- Coverage: 91.19% lines, 94.02% functions, 92.27% branches
+
+**发现的问题：**
+- IMPLEMENTATION.md 作为代码状态的权威文档，需要在每次重构后同步更新，否则会误导后续开发
+- `ExpandRegistry` 被扁平化后，文档中"统一分发入口"的描述本质仍然正确，只是实现方式变了——free functions 而非 struct method
+
+**下一步：**
+SIMPLIFY_AND_CLEANUP 全部完成，无剩余工作。
+
+[自测通过]
