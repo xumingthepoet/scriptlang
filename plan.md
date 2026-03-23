@@ -38,6 +38,8 @@ Status: pending
 
 ### Step 2.1: 审计现有 CtValue / MacroValue 的差异和丢失点
 
+Status: **已完成** (2026-03-23)
+
 **目标：** 先不动代码，把现状摸清楚。
 
 具体工作：
