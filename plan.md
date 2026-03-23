@@ -52,7 +52,7 @@
 
 ## 1. 真正的 Module-Qualified Remote Macro Dispatch
 
-Status: pending
+Status: **已完成** (2026-03-23)
 
 目标：
 
@@ -381,3 +381,29 @@ Status: pending
 - 所有步骤对应的 examples 和单元测试都已补齐
 - `make gate` 通过
 - `IMPLEMENTATION.md` 已同步到当前真实状态
+
+## 进度记录
+
+### Step 1: 真正的 Module-Qualified Remote Macro Dispatch (2026-03-23)
+
+**本次做了什么：**
+- 新增 `ProgramState::resolve_macro_in(target_module, name)` API，严格在目标 module 中查找宏
+- `builtin_invoke_macro` 改用 `resolve_macro_in` 替代 `resolve_macro`，消除 fallback 到当前 module / imports / kernel 的误命中风险
+- 新增 `ExpandEnv::use_provider_module` 字段，`expand_macro_hook` 在展开 `kernel.use` 时设置
+- `check_use_conflict` 使用 `use_provider_module` 报告准确的 provider 信息（之前显示 `<unknown>`）
+- `builtin_invoke_macro` 错误模型改为三层：
+  1. Module not known（不在 `module_macros` 中）
+  2. Module not in scope（存在但未 require）
+  3. Macro not defined in module（module 存在但没有该宏）
+- 更新单元测试期望值以匹配新错误消息
+- 集成测试 51/52/53 验收通过
+
+**本次发现的问题、踩的坑：**
+- `begin_module` 只设置 `env.module`（当前 in-progress module），不写入 `program.module_macros`；后者只在 `register_macro` 时写入；测试需要用 `register_module_for_test` 辅助方法
+- `<goto script="a_script">` 中的 `script` 属性是 Rhai 表达式，会把 `a_script` 当变量查找；需用 `<const type="script">@a_script</const>` 声明 const 后再引用
+- `<const type="string">from a</const>` 的值被 `const_eval` 解析为 reference path（不识别空格）；正确写法是 `<const type="string">"from a"</const>`
+- `module="a"` 在 `convert.rs` 中因 `"a"` 是 alphanumeric 被当作变量引用（`CtExpr::Var`）；实际值在 `opts` keyword 中，需要通过 `string:module_name` 参数传递
+
+**下一步方向：**
+- Step 2: 统一 CtValue / MacroValue / quote / invoke_macro 值模型
+- 关键点：确保 `List` / `Keyword` / `Ast` / `ModuleRef` 跨宏边界流动时不退化为字符串占位
