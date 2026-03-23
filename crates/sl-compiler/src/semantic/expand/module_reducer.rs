@@ -128,7 +128,7 @@ fn process_form(
             Ok(ProcessedItem::Skip)
         }
         "import" => {
-            if let Some(import_name) = super::string_attr(form, "name") {
+            if let Some(import_name) = attr(form, "name") {
                 env.add_import(import_name.to_string());
                 // In Elixir, `import A` automatically also does `require A`
                 // so that macros from A become available.
@@ -137,7 +137,7 @@ fn process_form(
             Ok(ProcessedItem::Output(vec![FormItem::Form(form.clone())]))
         }
         "require" => {
-            if let Some(require_name) = super::string_attr(form, "name") {
+            if let Some(require_name) = attr(form, "name") {
                 env.add_require(require_name.to_string());
             }
             Ok(ProcessedItem::Output(vec![FormItem::Form(form.clone())]))

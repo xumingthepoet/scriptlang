@@ -193,7 +193,7 @@ fn expand_macro_invocation(
 ) -> Result<Vec<FormItem>, ScriptLangError> {
     // Use new parameter binder
     let runtime = super::macro_params::bind_macro_params(&definition, invocation, env)?;
-    let expanded_items = evaluate_macro_items(&definition.body, invocation, env, scope, runtime)?
+    let expanded_items = evaluate_macro_items(&definition.body, invocation, env, runtime)?
         .into_iter()
         .filter(|item| match item {
             FormItem::Text(text) => !text.trim().is_empty(),

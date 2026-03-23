@@ -6,7 +6,7 @@ use super::dispatch::{ExpandRuleScope, expand_form_items};
 use super::macro_env::MacroEnv;
 use super::macro_eval::eval_unquote;
 use super::macro_values::MacroValue;
-use super::string_attr;
+use crate::semantic::attr;
 use crate::semantic::env::ExpandEnv;
 use crate::semantic::error_at;
 use crate::semantic::expr::rewrite_expr_idents;
@@ -70,7 +70,7 @@ fn quote_form(
     renames: &mut BTreeMap<String, String>,
 ) -> Result<Form, ScriptLangError> {
     let temp_name = if form.head == "temp" {
-        string_attr(form, "name").map(str::to_string)
+        attr(form, "name").map(str::to_string)
     } else {
         None
     };
@@ -505,20 +505,17 @@ mod tests {
             FormItem::Form(form) => form,
             _ => panic!("expected temp form"),
         };
-        assert_eq!(string_attr(temp, "name"), Some("__macro_m_0_condition_1"));
+        assert_eq!(attr(temp, "name"), Some("__macro_m_0_condition_1"));
         let while_form = match &items[1] {
             FormItem::Form(form) => form,
             _ => panic!("expected while form"),
         };
-        assert_eq!(
-            string_attr(while_form, "when"),
-            Some("!__macro_m_0_condition_1")
-        );
+        assert_eq!(attr(while_form, "when"), Some("!__macro_m_0_condition_1"));
         let text_form = match &items[2] {
             FormItem::Form(form) => form,
             _ => panic!("expected text form"),
         };
-        assert_eq!(string_attr(text_form, "tag"), Some("greeting"));
+        assert_eq!(attr(text_form, "tag"), Some("greeting"));
         assert!(matches!(&items[3], FormItem::Text(text) if text == "greeting"));
     }
 
@@ -563,7 +560,7 @@ mod tests {
             &mut BTreeMap::new(),
         )
         .expect("quote form");
-        assert_eq!(string_attr(&form_result, "script"), Some("hello"));
+        assert_eq!(attr(&form_result, "script"), Some("hello"));
 
         assert_eq!(gensym(&mut runtime, "label"), "__macro_m_0_label_1");
     }

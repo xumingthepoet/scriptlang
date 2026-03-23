@@ -1,7 +1,7 @@
 use sl_core::{Form, FormField, FormItem, FormValue, ScriptLangError};
 
 use super::macros::expand_macro_hook;
-use super::string_attr;
+use crate::semantic::attr;
 use crate::semantic::env::ExpandEnv;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -15,9 +15,6 @@ pub(crate) enum ExpandDispatch {
     Builtin,
     MacroHook,
 }
-
-#[derive(Clone, Copy, Debug, Default)]
-pub(crate) struct ExpandRegistry;
 
 pub(crate) fn expand_with_rules(
     form: &Form,
@@ -45,44 +42,30 @@ pub(crate) fn expand_form_items(
     env: &mut ExpandEnv,
     scope: ExpandRuleScope,
 ) -> Result<Vec<FormItem>, ScriptLangError> {
-    ExpandRegistry.expand(form, env, scope)
+    match dispatch_rule(form, env, scope) {
+        ExpandDispatch::Builtin => match scope {
+            ExpandRuleScope::ModuleChild => expand_module_child(form, env),
+            ExpandRuleScope::Statement => expand_statement_child(form, env),
+        },
+        ExpandDispatch::MacroHook => expand_macro_hook(form, env, scope),
+    }
 }
 
-impl ExpandRegistry {
-    pub(crate) fn expand(
-        self,
-        form: &Form,
-        env: &mut ExpandEnv,
-        scope: ExpandRuleScope,
-    ) -> Result<Vec<FormItem>, ScriptLangError> {
-        match self.dispatch(form, env, scope) {
-            ExpandDispatch::Builtin => match scope {
-                ExpandRuleScope::ModuleChild => expand_module_child(form, env),
-                ExpandRuleScope::Statement => expand_statement_child(form, env),
-            },
-            ExpandDispatch::MacroHook => expand_macro_hook(form, env, scope),
-        }
+fn dispatch_rule(form: &Form, env: &ExpandEnv, scope: ExpandRuleScope) -> ExpandDispatch {
+    if has_builtin_rule(form, scope) {
+        ExpandDispatch::Builtin
+    } else if env.resolve_macro(&form.head).is_some() || is_macro_in_requires(form, env) {
+        ExpandDispatch::MacroHook
+    } else {
+        ExpandDispatch::Builtin
     }
+}
 
-    fn dispatch(self, form: &Form, env: &ExpandEnv, scope: ExpandRuleScope) -> ExpandDispatch {
-        if self.has_builtin_rule(form, scope) {
-            ExpandDispatch::Builtin
-        } else if env.resolve_macro(&form.head).is_some() {
-            ExpandDispatch::MacroHook
-        } else if is_macro_in_requires(form, env) {
-            // Macro might be in a required module - treat as macro hook to get proper error
-            ExpandDispatch::MacroHook
-        } else {
-            ExpandDispatch::Builtin
-        }
-    }
-
-    fn has_builtin_rule(self, form: &Form, scope: ExpandRuleScope) -> bool {
-        match scope {
-            ExpandRuleScope::ModuleChild => matches!(form.head.as_str(), "script" | "var" | "temp"),
-            ExpandRuleScope::Statement => {
-                matches!(form.head.as_str(), "temp" | "while" | "choice" | "option")
-            }
+fn has_builtin_rule(form: &Form, scope: ExpandRuleScope) -> bool {
+    match scope {
+        ExpandRuleScope::ModuleChild => matches!(form.head.as_str(), "script" | "var" | "temp"),
+        ExpandRuleScope::Statement => {
+            matches!(form.head.as_str(), "temp" | "while" | "choice" | "option")
         }
     }
 }
@@ -96,7 +79,7 @@ fn expand_module_child(form: &Form, env: &mut ExpandEnv) -> Result<Vec<FormItem>
         }
         "var" => Ok(vec![FormItem::Form(form.clone())]),
         "temp" => {
-            if let Some(name) = string_attr(form, "name") {
+            if let Some(name) = attr(form, "name") {
                 env.add_local(name.to_string());
             }
             Ok(vec![FormItem::Form(form.clone())])
@@ -120,7 +103,7 @@ fn expand_statement_child(
     env.enter_statement();
     match form.head.as_str() {
         "temp" => {
-            if let Some(name) = string_attr(form, "name") {
+            if let Some(name) = attr(form, "name") {
                 env.add_local(name.to_string());
             }
             Ok(vec![FormItem::Form(form.clone())])
@@ -211,7 +194,7 @@ mod tests {
     use crate::semantic::env::{ExpandEnv, MacroDefinition};
 
     use super::{
-        ExpandDispatch, ExpandRegistry, ExpandRuleScope, expand_form_items, expand_generated_items,
+        ExpandDispatch, ExpandRuleScope, dispatch_rule, expand_form_items, expand_generated_items,
         expand_with_rules, rewrite_form_children,
     };
 
@@ -284,9 +267,8 @@ mod tests {
             })
             .expect("register macro");
 
-        let registry = ExpandRegistry;
         assert_eq!(
-            registry.dispatch(
+            dispatch_rule(
                 &node("script", vec![], vec![]),
                 &env,
                 ExpandRuleScope::ModuleChild
@@ -294,7 +276,7 @@ mod tests {
             ExpandDispatch::Builtin
         );
         assert_eq!(
-            registry.dispatch(
+            dispatch_rule(
                 &node("hello", vec![], vec![]),
                 &env,
                 ExpandRuleScope::Statement
@@ -302,7 +284,7 @@ mod tests {
             ExpandDispatch::MacroHook
         );
         assert_eq!(
-            registry.dispatch(
+            dispatch_rule(
                 &node("unknown", vec![], vec![]),
                 &env,
                 ExpandRuleScope::Statement

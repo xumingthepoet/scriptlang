@@ -1,6 +1,5 @@
 use sl_core::{Form, FormItem, ScriptLangError};
 
-use super::dispatch::ExpandRuleScope;
 use super::macro_env::MacroEnv;
 use super::macro_values::MacroValue;
 use super::raw_body_text;
@@ -20,7 +19,6 @@ pub(crate) fn evaluate_macro_items(
     _body: &[FormItem],
     _invocation: &Form,
     env: &mut ExpandEnv,
-    _scope: ExpandRuleScope,
     runtime: MacroEnv,
 ) -> Result<Vec<FormItem>, ScriptLangError> {
     // Use the new compile-time evaluator

@@ -1,13 +1,14 @@
 use sl_core::{Form, ScriptLangError};
 
-use super::{raw_body_text, string_attr};
+use super::raw_body_text;
+use crate::semantic::attr;
 use crate::semantic::env::ExpandEnv;
 use crate::semantic::error_at;
 use crate::semantic::required_attr;
 use crate::semantic::types::DeclaredType;
 
 pub(crate) fn expand_const_form(form: &Form, env: &mut ExpandEnv) -> Result<Form, ScriptLangError> {
-    if let Some(name) = string_attr(form, "name").map(str::to_string) {
+    if let Some(name) = attr(form, "name").map(str::to_string) {
         let exported = !is_private(form)?;
         if !env.declare_const(name.clone(), exported) {
             let module_name = env.module.module_name.as_deref().unwrap_or("<unknown>");
@@ -24,7 +25,7 @@ pub(crate) fn expand_const_form(form: &Form, env: &mut ExpandEnv) -> Result<Form
 }
 
 pub(crate) fn parse_declared_type_form(form: &Form) -> Result<DeclaredType, ScriptLangError> {
-    parse_declared_type_name(string_attr(form, "type"), &form.head, |message| {
+    parse_declared_type_name(attr(form, "type"), &form.head, |message| {
         form_error(form, message)
     })
 }
@@ -52,7 +53,7 @@ fn form_error(form: &Form, message: impl Into<String>) -> ScriptLangError {
 }
 
 fn is_private(form: &Form) -> Result<bool, ScriptLangError> {
-    match string_attr(form, "private") {
+    match attr(form, "private") {
         None => Ok(false),
         Some("true") => Ok(true),
         Some("false") => Ok(false),

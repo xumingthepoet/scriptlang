@@ -50,15 +50,6 @@ fn expand_form(form: &Form, env: &mut ExpandEnv) -> Result<Form, ScriptLangError
     expand_with_rules(form, env, ExpandRuleScope::ModuleChild)
 }
 
-pub(super) fn string_attr<'a>(form: &'a Form, name: &str) -> Option<&'a str> {
-    form.fields
-        .iter()
-        .find_map(|field| match (&field.name[..], &field.value) {
-            (field_name, FormValue::String(value)) if field_name == name => Some(value.as_str()),
-            _ => None,
-        })
-}
-
 pub(super) fn raw_body_text(form: &Form) -> Option<String> {
     let mut buffer = String::new();
     let mut saw_text = false;

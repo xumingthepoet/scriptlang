@@ -8,7 +8,6 @@ mod builtins;
 pub(crate) mod convert;
 mod env;
 pub(crate) mod eval;
-mod values;
 
 #[cfg(test)]
 mod tests;
