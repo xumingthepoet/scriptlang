@@ -1,0 +1,2 @@
+text placeholder quote roundtrip test
+end

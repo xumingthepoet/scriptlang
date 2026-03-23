@@ -639,7 +639,7 @@ Step 2 已完成，后续工作：
 - `define_alias(module_ref, as)`: 添加别名映射
 - `define_require(module_ref)`: 添加 require
 - `invoke_macro(module, macro_name, args)`: 远程宏调用
-- `keyword_attr(name)`: 从 macro_env.locals 获取 keyword
+- `keyword_attr(name)`: 从 macro_env.locals 获取 keyword（递归保留嵌套 List/Keyword/Bool/Int/Nil/Ast 类型）
 
 #### convert.rs 扩展
 
@@ -915,7 +915,7 @@ error expanding `{macro}` from `{provider}` (called from `{caller}`): {error}
   - `define_alias(module_ref, as)`: 添加 alias
   - `define_require(module_ref)`: 添加 require
   - `invoke_macro(module, macro_name, args)`: 远程宏调用
-  - `keyword_attr(name)`: 从 locals 获取 keyword
+  - `keyword_attr(name)`: 从 locals 获取 keyword（递归保留嵌套类型）
 
 - [`env.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/macro_lang/env.rs)
   - `CtEnv`: compile-time 环境
@@ -944,8 +944,8 @@ error expanding `{macro}` from `{provider}` (called from `{caller}`): {error}
 
 ### 测试状态
 
-- 单元测试覆盖 compile-time if 分支、let/set/return 作用域、keyword 顺序、value truthiness、嵌套 if
-- 所有 113+ compiler unit tests 通过
+- 单元测试覆盖 compile-time if 分支、let/set/return 作用域、keyword 顺序、value truthiness、嵌套 if、CtValue/MacroValue 双向桥接（List、Keyword 嵌套类型保留）
+- 所有 199 sl-compiler 单元测试通过
 - `make gate` 通过
 
 ## Step 9: 文档、清理和最终门禁（2026-03-23）

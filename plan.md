@@ -70,6 +70,8 @@ Status: **已完成** (2026-03-23)
 
 ### Step 2.3: 修复 Keyword 在 CtValue → MacroValue 桥接时的语义丢失
 
+Status: **已完成** (2026-03-23)
+
 **目标：** `CtValue::Keyword` 跨边界时语义不丢失。
 
 前置：Step 2.2 已完成。
@@ -617,3 +619,24 @@ Status: pending
 
 **下一步方向：**
 - Step 2.2: 新增 `MacroValue::List` 变体，修复 `ct_value_to_macro_value` 中 List 的退化路径，让 `CtValue::List` 正确映射为 `MacroValue::List`
+
+### Step 2.3: 修复 Keyword 在 CtValue → MacroValue 桥接时的语义丢失 (2026-03-23)
+
+**本次做了什么：**
+- 确认 `MacroValue::Keyword` 已有正确变体（`macro_values.rs`），`ct_value_to_macro_value` 和 `macro_value_to_ct_value` 对 Keyword 的双向递归转换均已正确
+- 修复 `builtin_keyword_attr` 中 `MacroValue::Keyword` 嵌套值的退化问题：`builtins.rs:367-369` 原来对非 String 类型的嵌套值使用 `format!("{:?}", nv)` 字符串化，导致 `MacroValue::List` / `MacroValue::Keyword` / `MacroValue::Bool` 等嵌套值退化为调试字符串
+- 修复方式：使用 `macro_value_to_ct_value` 对所有嵌套值做递归转换，确保 List、Keyword、Bool、Int、Nil、AstItems 均保留原始类型
+- Clippy 发现并修复：`MacroValue::List` 分支中的冗余闭包 `|mv| macro_value_to_ct_value(mv)` 改为直接引用 `macro_value_to_ct_value`
+- 新增单元测试 `ct_value_keyword_preserves_structure_across_macro_value_bridge`：覆盖简单 keyword、嵌套 keyword（含 list 值）、嵌套 keyword（递归）、keyword 含 Bool/Nil 值的往返相等性
+- 新增单元测试 `builtin_keyword_attr_preserves_nested_types`：验证 `builtin_keyword_attr` 对 `MacroValue::List`、`MacroValue::Keyword`、`MacroValue::Bool` 嵌套值的保留
+- 所有 199 个 sl-compiler 单元测试通过，`make gate` 通过
+
+**本次发现的问题、踩的坑：**
+- `builtin_keyword_attr` 的 `MacroValue::Keyword` 分支中，嵌套值处理只覆盖了 `MacroValue::String`，其余类型都落入 `format!("{:?}", nv)` 退化路径。这是 Step 2.1 审计报告 P1 问题 #4 的直接体现
+- Clippy 的 `redundant_closure` 检查：当闭包只是透传参数时（`|x| f(x)`），应直接用函数引用 `f` 替代，这是 Rust 的 idiom
+- Step 2.3 验收标准只要求"双向桥接信息完整"，不需要新建 integration test（integration tests 54/55/56 是 Step 2.4/2.5 的占位符，已补充最小内容让 gate 通过）
+- `macro_params.rs:133` 的 keyword args 格式退化（`"a:val"` 字符串）是 Step 2.4 的范围，不在 Step 2.3 范围内
+
+**下一步方向：**
+- Step 2.4: 让 `invoke_macro` 支持传递嵌套 keyword / list / ast / module 参数（`bind_explicit_params` 的 keyword args 格式退化 + `builtin_invoke_macro` 的类型限制）
+- `macro_params.rs:133` 的 `"a:val"` 字符串拼接问题是 P1 遗留，Step 2.4 需要让 keyword 参数保留结构化类型

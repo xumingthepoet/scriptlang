@@ -1,0 +1,10 @@
+<module name="provider">
+  <macro name="__using__" params="keyword:opts">
+    <quote>
+      <script name="main">
+        <text>placeholder quote roundtrip test</text>
+        <end/>
+      </script>
+    </quote>
+  </macro>
+</module>

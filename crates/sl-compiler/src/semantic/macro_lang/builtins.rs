@@ -354,24 +354,18 @@ fn builtin_keyword_attr(
                             MacroValue::String(s) => CtValue::String(s.clone()),
                             MacroValue::Expr(s) => CtValue::String(s.clone()),
                             MacroValue::AstItems(items) => CtValue::Ast(items.clone()),
-                            MacroValue::List(items) => CtValue::List(
-                                items.iter().map(|mv| macro_value_to_ct_value(mv)).collect(),
-                            ),
+                            MacroValue::List(items) => {
+                                CtValue::List(items.iter().map(macro_value_to_ct_value).collect())
+                            }
                             MacroValue::Keyword(nested) => {
-                                // Recursively convert nested keywords
-                                let converted: Vec<(String, CtValue)> = nested
-                                    .iter()
-                                    .map(|(nk, nv): &(String, MacroValue)| {
-                                        (
-                                            nk.clone(),
-                                            match nv {
-                                                MacroValue::String(s) => CtValue::String(s.clone()),
-                                                _ => CtValue::String(format!("{:?}", nv)),
-                                            },
-                                        )
-                                    })
-                                    .collect();
-                                CtValue::Keyword(converted)
+                                // Recursively convert nested keywords using macro_value_to_ct_value
+                                // (not just String) so that List, Ast, Bool, Int, etc. are preserved.
+                                CtValue::Keyword(
+                                    nested
+                                        .iter()
+                                        .map(|(nk, nv)| (nk.clone(), macro_value_to_ct_value(nv)))
+                                        .collect(),
+                                )
                             }
                         },
                     )

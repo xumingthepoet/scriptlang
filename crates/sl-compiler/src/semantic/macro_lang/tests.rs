@@ -234,6 +234,154 @@ mod ct_lang_tests {
     }
 
     #[test]
+    fn ct_value_keyword_preserves_structure_across_macro_value_bridge() {
+        // Regression test: CtValue::Keyword must preserve all value types across
+        // the ct_value_to_macro_value / macro_value_to_ct_value bridge.
+        use super::super::eval::{ct_value_to_macro_value, macro_value_to_ct_value};
+
+        // Simple keyword with string value
+        let kw = CtValue::Keyword(vec![
+            ("a".to_string(), CtValue::String("hello".to_string())),
+            ("b".to_string(), CtValue::Int(42)),
+        ]);
+        let round_tripped = macro_value_to_ct_value(&ct_value_to_macro_value(&kw));
+        assert_eq!(
+            kw, round_tripped,
+            "Simple keyword round-trip must preserve value"
+        );
+
+        // Keyword with nested list value
+        let kw_list = CtValue::Keyword(vec![(
+            "items".to_string(),
+            CtValue::List(vec![CtValue::String("first".to_string()), CtValue::Int(2)]),
+        )]);
+        let round_tripped_list = macro_value_to_ct_value(&ct_value_to_macro_value(&kw_list));
+        assert_eq!(
+            kw_list, round_tripped_list,
+            "Keyword with list value must round-trip preserving list"
+        );
+
+        // Keyword with nested keyword value
+        let kw_nested = CtValue::Keyword(vec![(
+            "nested".to_string(),
+            CtValue::Keyword(vec![("x".to_string(), CtValue::Int(1))]),
+        )]);
+        let round_tripped_nested = macro_value_to_ct_value(&ct_value_to_macro_value(&kw_nested));
+        assert_eq!(
+            kw_nested, round_tripped_nested,
+            "Keyword with nested keyword must round-trip preserving nesting"
+        );
+
+        // Keyword with bool value
+        let kw_bool = CtValue::Keyword(vec![("flag".to_string(), CtValue::Bool(true))]);
+        let round_tripped_bool = macro_value_to_ct_value(&ct_value_to_macro_value(&kw_bool));
+        assert_eq!(
+            kw_bool, round_tripped_bool,
+            "Keyword with bool must round-trip"
+        );
+
+        // Keyword with nil value
+        let kw_nil = CtValue::Keyword(vec![("empty".to_string(), CtValue::Nil)]);
+        let round_tripped_nil = macro_value_to_ct_value(&ct_value_to_macro_value(&kw_nil));
+        assert_eq!(
+            kw_nil, round_tripped_nil,
+            "Keyword with nil must round-trip"
+        );
+    }
+
+    #[test]
+    fn builtin_keyword_attr_preserves_nested_types() {
+        // Regression test: builtin_keyword_attr must not degrade nested values
+        // to strings when converting MacroValue::Keyword to CtValue::Keyword.
+        use crate::semantic::expand::macro_values::MacroValue;
+
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = ExpandEnv::default();
+
+        // Case 1: keyword with nested list value
+        let mut macro_env = MacroEnv::default();
+        macro_env.locals.insert(
+            "opts".to_string(),
+            MacroValue::Keyword(vec![(
+                "items".to_string(),
+                MacroValue::List(vec![
+                    MacroValue::String("a".to_string()),
+                    MacroValue::Int(1),
+                ]),
+            )]),
+        );
+
+        let mut ct_env = CtEnv::new();
+        let result = builtins.get("keyword_attr").unwrap()(
+            &[CtValue::String("opts".to_string())],
+            &macro_env,
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("keyword_attr should succeed");
+
+        let expected = CtValue::Keyword(vec![(
+            "items".to_string(),
+            CtValue::List(vec![CtValue::String("a".to_string()), CtValue::Int(1)]),
+        )]);
+        assert_eq!(
+            result, expected,
+            "keyword_attr must preserve list values, got {:?}",
+            result
+        );
+
+        // Case 2: keyword with nested keyword value
+        let mut macro_env2 = MacroEnv::default();
+        macro_env2.locals.insert(
+            "opts".to_string(),
+            MacroValue::Keyword(vec![(
+                "nested".to_string(),
+                MacroValue::Keyword(vec![("x".to_string(), MacroValue::Int(99))]),
+            )]),
+        );
+
+        let result2 = builtins.get("keyword_attr").unwrap()(
+            &[CtValue::String("opts".to_string())],
+            &macro_env2,
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("keyword_attr nested keyword should succeed");
+
+        let expected2 = CtValue::Keyword(vec![(
+            "nested".to_string(),
+            CtValue::Keyword(vec![("x".to_string(), CtValue::Int(99))]),
+        )]);
+        assert_eq!(
+            result2, expected2,
+            "keyword_attr must preserve nested keyword values, got {:?}",
+            result2
+        );
+
+        // Case 3: keyword with bool value
+        let mut macro_env3 = MacroEnv::default();
+        macro_env3.locals.insert(
+            "opts".to_string(),
+            MacroValue::Keyword(vec![("flag".to_string(), MacroValue::Bool(true))]),
+        );
+
+        let result3 = builtins.get("keyword_attr").unwrap()(
+            &[CtValue::String("opts".to_string())],
+            &macro_env3,
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("keyword_attr bool should succeed");
+
+        let expected3 = CtValue::Keyword(vec![("flag".to_string(), CtValue::Bool(true))]);
+        assert_eq!(
+            result3, expected3,
+            "keyword_attr must preserve bool values, got {:?}",
+            result3
+        );
+    }
+
+    #[test]
     fn nested_if_conditions() {
         let block = CtBlock {
             stmts: vec![CtStmt::If {
