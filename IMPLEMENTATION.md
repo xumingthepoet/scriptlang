@@ -870,6 +870,35 @@ Provider module 通过 `<macro name="__using__" params="keyword:opts">` 暴露 h
 - Coverage: 90.22% lines
 - `make gate` 通过
 
+## Step 3.4: AST builtins 端到端验证（2026-03-24）
+
+完成状态：已完成
+
+### 验证目标
+
+确认 AST builtins 产出的 `CtValue::Ast` 能走通整个展开管道：
+`CtValue::Ast` → `MacroValue::AstItems` → `evaluate_macro_items` → `Vec<FormItem>` → `expand_generated_items` → module reducer → runtime
+
+### 测试验证
+
+新增集成测试 59-ast-build-module-fragments：
+- 使用 `ast_attr_set` + `ast_concat` 组合多个 `<script>` fragments
+- `__using__` 返回拼接后的 AST，main script 跳转到 fragment
+- 验证输出：`["text from helper", "text from second", "end"]`
+
+### XML 语法注意事项
+
+- 脚本跳转必须使用模块限定语法：`@main.fragment`（而非变量引用 `fragment`）
+- `<text>` 使用 body content（`<text>内容</text>`），而非 `value` 属性
+- `<text>` 和 `<goto>` 的顺序影响执行：`<text>` 必须在 `<goto>` 之前
+
+### 测试状态
+
+- 新增集成测试 59-ast-build-module-fragments
+- 所有 219 个 compiler 单元测试通过
+- 所有 59 个集成测试通过
+- `make gate` 通过
+
 ## Step 6: Hygiene、冲突检测和错误定位（2026-03-23）
 
 完成状态：已完成
