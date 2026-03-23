@@ -32,7 +32,7 @@ Status: **已完成** (2026-03-23)
 
 ## Step 2: 统一 Compile-Time Value / Quote / Remote Invoke 的值模型
 
-Status: pending
+Status: **已完成** (2026-03-23)
 
 目标：消除 `CtValue`、`MacroValue`、`quote/unquote`、`invoke_macro` 之间的临时桥接和语义丢失。让 `ast / keyword / list / module` 都能作为一等 compile-time 值跨宏边界流动。
 
@@ -104,18 +104,25 @@ Status: **已完成** (2026-03-23)
 
 ### Step 2.5: 统一 quote/unquote 对 List / Keyword / Ast 的支持范围
 
-**目标：** `quote` 产出的 AST 中，list / keyword 不再丢失结构。
+**Status: completed** (2026-03-23)
 
 前置：Step 2.4 已完成。
+
+**目标：** `quote` 产出的 AST 中，list / keyword 不再丢失结构。
 
 具体工作：
 - 检查 `quote.rs` 中 `quote_from_ast` / `unquote` 对 `CtValue` 各变体的处理
 - 补全对 `List` / `Keyword` / `Ast` 变体的 quote/unquote 路径
-- 验证 `56-quote-roundtrip-list-and-keyword` 场景
+- 修复 `MacroValue::List` 在 AST children 位置的展开：每个元素转为独立 FormItem
+- 修复 `MacroValue::Keyword` 在 AST children 位置的 stringification
+- 修复 `splice_string_slots()` 支持 List / Keyword 的字符串化
+- 增强 `builtin_keyword_attr()` 支持嵌套查找（在 `opts` keyword 内查找 `items` 键）
 
 验收：
 - `56-quote-roundtrip-list-and-keyword` 通过
 - compile-time list/keyword 经 quote/unquote 后语义不丢失
+- 所有 211 个 compiler 单元测试通过
+- 所有 56 个集成测试通过
 
 **Step 2 完成定义：**
 - `CtValue -> MacroValue` 不再出现"list 变 keyword / caller_env 变字符串占位"这种临时退化
@@ -657,3 +664,33 @@ Status: pending
 **下一步方向：**
 - Step 2.5: 统一 quote/unquote 对 List / Keyword / Ast 的支持范围（`quote.rs` 的 `quote_from_ast`/`unquote` 对各变体的处理）
 - 注意：`CtValue::Nil`/`ModuleRef`/`CallerEnv` 在 `invoke_macro` keyword args 中仍未支持（传给 remote macro 会报错）；`CtValue::Ast` 传为 `FormValue::Sequence`，round-trip 语义有限（只能作为 opaque sequence，无法在 target macro 中还原为原始 AST 结构）
+
+### Step 2.5: 统一 quote/unquote 对 List / Keyword / Ast 的支持范围 (2026-03-23)
+
+**本次做了什么：**
+- 修复 `quote_ast_items` 中 `MacroValue::List` 和 `MacroValue::Keyword` 的 unquote 支持：
+  - `MacroValue::List` 在 AST children 位置展开为多个 `FormItem`（每个元素一个 Text 或 Ast）
+  - `MacroValue::Keyword` 在 AST children 位置 stringify 为 `"key1:val1,key2:val2"` 格式的 Text
+- 新增 `macro_keyword_to_string()` 和 `macro_value_to_string()` 辅助函数用于 keyword/list 的递归字符串化
+- 修复 `splice_string_slots()` 支持 `MacroValue::List` 和 `MacroValue::Keyword`（递归 stringify 到字符串槽）
+- 增强 `builtin_keyword_attr()` 支持嵌套查找：
+  - 如果 `keyword_attr("items")` 在 `macro_env.locals` 顶层找不到，会搜索所有 `MacroValue::Keyword` 类型的 locals
+  - 允许在 `opts` keyword 参数内部查找 "items" 键并返回其值（不再包装为 keyword）
+- 新增单元测试覆盖：keyword stringify、list unquote 展开、keyword unquote stringify
+- 更新集成测试 56：演示 list 通过 quote/unquote 的 round-trip
+
+**本次发现的问题、踩的坑：**
+- `MacroValue::Keyword` 和 `MacroValue::List` 在 AST children 位置不能直接作为 statement forms（编译器只接受特定 form heads 如 `<text>`, `<script>`, `<end>`）
+- 解决方案：list 展开（每个元素变为独立 FormItem）、keyword stringify（转为 `"key:val,..."` 格式文本）
+- `builtin_keyword_attr("items")` 在 `keyword:opts` 场景下需要查找嵌套值（items 在 opts 内部），原实现只查找顶层 locals
+- `<unquote>var_name</unquote>` 语法要求变量名在 body text 中，不是 `var="..."` 属性
+- Clippy `for_kv_map`：迭代 map 时只用 value 应用 `.values()` 而非 `for (_, v) in &map`
+
+**下一步方向：**
+- Step 3: 把 AST 提升为一等 Compile-Time 数据（新增 AST builtins 如 `ast_head`, `ast_children`, `ast_attr_get`）
+- Step 4: 丰富 Caller Env 与错误定位
+
+**Step 2 完成状态：**
+- Step 2.1-2.5 全部完成
+- `CtValue -> MacroValue` 不再出现"list 变 keyword / caller_env 变字符串占位"这种临时退化
+- 远程宏参数模型和本地宏参数模型一致

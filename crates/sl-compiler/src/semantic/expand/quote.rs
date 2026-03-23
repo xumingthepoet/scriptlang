@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use sl_core::{Form, FormField, FormItem, FormValue, ScriptLangError};
+use sl_core::{Form, FormField, FormItem, FormValue, ScriptLangError, SourcePosition};
 
 use super::dispatch::{ExpandRuleScope, expand_form_items};
 use super::macro_env::MacroEnv;
@@ -10,6 +10,17 @@ use crate::semantic::attr;
 use crate::semantic::env::ExpandEnv;
 use crate::semantic::error_at;
 use crate::semantic::expr::rewrite_expr_idents;
+
+// Helper: build a minimal FormMeta for synthetic forms.
+fn minimal_form_meta() -> sl_core::FormMeta {
+    sl_core::FormMeta {
+        source_name: None,
+        start: SourcePosition { row: 0, column: 0 },
+        end: SourcePosition { row: 0, column: 0 },
+        start_byte: 0,
+        end_byte: 0,
+    }
+}
 
 pub(crate) fn quote_items(
     invocation: &Form,
@@ -39,14 +50,20 @@ fn quote_ast_items(
             FormItem::Form(form) if form.head == "unquote" => match eval_unquote(form, runtime)? {
                 MacroValue::AstItems(items) => output.extend(items),
                 MacroValue::String(text) => output.push(FormItem::Text(text)),
+                MacroValue::List(items) => {
+                    // Each element of the list becomes a FormItem (as text nodes or AST items)
+                    for item in items {
+                        output.push(macro_value_to_form_item(&item)?);
+                    }
+                }
+                MacroValue::Keyword(kv_pairs) => {
+                    // Keyword in AST children: stringify as "key:val,..." text
+                    output.push(FormItem::Text(macro_keyword_to_string(&kv_pairs)));
+                }
                 MacroValue::Nil => {
                     return Err(error_at(form, "<unquote> requires a value, but got nil"));
                 }
-                MacroValue::Expr(_)
-                | MacroValue::Bool(_)
-                | MacroValue::Int(_)
-                | MacroValue::Keyword(_)
-                | MacroValue::List(_) => {
+                MacroValue::Expr(_) | MacroValue::Bool(_) | MacroValue::Int(_) => {
                     return Err(error_at(
                         form,
                         "<unquote> in AST children position requires `ast` or `string` value",
@@ -137,6 +154,137 @@ fn expand_quoted_result(
     scope: ExpandRuleScope,
 ) -> Result<Vec<FormItem>, ScriptLangError> {
     expand_form_items(form, env, scope)
+}
+
+/// Convert a MacroValue to a FormItem for use in AST children position.
+/// Keywords and Lists are stringified (they cannot become valid statement forms).
+fn macro_value_to_form_item(mv: &MacroValue) -> Result<FormItem, ScriptLangError> {
+    match mv {
+        MacroValue::String(s) => Ok(FormItem::Text(s.clone())),
+        MacroValue::AstItems(items) => {
+            if items.len() == 1 {
+                Ok(items[0].clone())
+            } else {
+                // Multiple AST items: wrap in a synthetic <list> form
+                Ok(FormItem::Form(synthetic_list_form(items.clone())))
+            }
+        }
+        MacroValue::Bool(b) => Ok(FormItem::Text(
+            if *b { "true" } else { "false" }.to_string(),
+        )),
+        MacroValue::Int(i) => Ok(FormItem::Text(i.to_string())),
+        MacroValue::Nil => Ok(FormItem::Text("nil".to_string())),
+        MacroValue::Keyword(kv) => Ok(FormItem::Text(macro_keyword_to_string(kv))),
+        MacroValue::Expr(code) => Ok(FormItem::Text(code.clone())),
+        MacroValue::List(_items) => {
+            // Lists must be handled at quote_ast_items level (to extend output)
+            // This arm exists only for recursive calls from list element handling.
+            Err(error_at(
+                &Form {
+                    head: "?".to_string(),
+                    meta: minimal_form_meta(),
+                    fields: Vec::new(),
+                },
+                "list cannot appear as a single item in AST children; each element is expanded",
+            ))
+        }
+    }
+}
+
+/// Convert a MacroValue Keyword to a human-readable string "key1:val1,key2:val2".
+fn macro_keyword_to_string(kv_pairs: &[(String, MacroValue)]) -> String {
+    kv_pairs
+        .iter()
+        .map(|(k, v)| format!("{}:{}", k, macro_value_to_string(v)))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Convert a MacroValue to a string for use in keyword stringification.
+fn macro_value_to_string(mv: &MacroValue) -> String {
+    match mv {
+        MacroValue::String(s) => s.clone(),
+        MacroValue::Bool(b) => if *b { "true" } else { "false" }.to_string(),
+        MacroValue::Int(i) => i.to_string(),
+        MacroValue::Nil => "nil".to_string(),
+        MacroValue::Keyword(kv) => format!("{{{}}}", macro_keyword_to_string(kv)),
+        MacroValue::List(items) => {
+            let inner = items
+                .iter()
+                .map(macro_value_to_string)
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("[{}]", inner)
+        }
+        MacroValue::AstItems(_) => "[ast]".to_string(),
+        MacroValue::Expr(code) => code.clone(),
+    }
+}
+
+/// Convert a MacroValue to a FormValue for use in form attributes.
+#[allow(dead_code)]
+fn macro_value_to_form_value(mv: &MacroValue) -> FormValue {
+    match mv {
+        MacroValue::String(s) => FormValue::String(s.clone()),
+        MacroValue::Bool(b) => FormValue::String(if *b { "true" } else { "false" }.to_string()),
+        MacroValue::Int(i) => FormValue::String(i.to_string()),
+        MacroValue::Nil => FormValue::String("nil".to_string()),
+        MacroValue::AstItems(items) => FormValue::Sequence(items.clone()),
+        MacroValue::Keyword(kv) => FormValue::Sequence(
+            kv.iter()
+                .map(|(k, v)| {
+                    FormItem::Form(Form {
+                        head: "item".to_string(),
+                        meta: minimal_form_meta(),
+                        fields: vec![
+                            FormField {
+                                name: "key".to_string(),
+                                value: FormValue::String(k.clone()),
+                            },
+                            FormField {
+                                name: "value".to_string(),
+                                value: macro_value_to_form_value(v),
+                            },
+                        ],
+                    })
+                })
+                .collect(),
+        ),
+        MacroValue::List(items) => {
+            FormValue::Sequence(items.iter().map(macro_value_to_form_item_solo).collect())
+        }
+        MacroValue::Expr(code) => FormValue::String(code.clone()),
+    }
+}
+
+/// Convert a MacroValue to a single FormItem (never a list wrapper).
+/// Keywords are stringified since they cannot appear as valid statement forms.
+#[allow(dead_code)]
+fn macro_value_to_form_item_solo(mv: &MacroValue) -> FormItem {
+    match mv {
+        MacroValue::String(s) => FormItem::Text(s.clone()),
+        MacroValue::Bool(b) => FormItem::Text(if *b { "true" } else { "false" }.to_string()),
+        MacroValue::Int(i) => FormItem::Text(i.to_string()),
+        MacroValue::Nil => FormItem::Text("nil".to_string()),
+        MacroValue::AstItems(items) if items.len() == 1 => items[0].clone(),
+        MacroValue::AstItems(items) => FormItem::Form(synthetic_list_form(items.clone())),
+        MacroValue::Keyword(kv) => FormItem::Text(macro_keyword_to_string(kv)),
+        MacroValue::List(items) => FormItem::Form(synthetic_list_form(
+            items.iter().map(macro_value_to_form_item_solo).collect(),
+        )),
+        MacroValue::Expr(code) => FormItem::Text(code.clone()),
+    }
+}
+
+fn synthetic_list_form(items: Vec<FormItem>) -> Form {
+    Form {
+        head: "list".to_string(),
+        meta: minimal_form_meta(),
+        fields: vec![FormField {
+            name: "children".to_string(),
+            value: FormValue::Sequence(items),
+        }],
+    }
 }
 
 fn quote_expr(
@@ -259,11 +407,18 @@ fn splice_string_slots(source: &str, runtime: &MacroEnv) -> Result<String, Scrip
             MacroValue::String(text) => output.push_str(text),
             MacroValue::Bool(value) => output.push_str(if *value { "true" } else { "false" }),
             MacroValue::Int(value) => output.push_str(&value.to_string()),
-            MacroValue::Expr(_)
-            | MacroValue::AstItems(_)
-            | MacroValue::Nil
-            | MacroValue::Keyword(_)
-            | MacroValue::List(_) => {
+            MacroValue::List(items) => {
+                let formatted = items
+                    .iter()
+                    .map(macro_value_to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                output.push_str(&format!("[{}]", formatted));
+            }
+            MacroValue::Keyword(kv_pairs) => {
+                output.push_str(&macro_keyword_to_string(kv_pairs));
+            }
+            MacroValue::Expr(_) | MacroValue::AstItems(_) | MacroValue::Nil => {
                 return Err(ScriptLangError::message(format!(
                     "macro local `{key}` cannot be spliced into string slot"
                 )));
@@ -598,5 +753,108 @@ mod tests {
             splice_string_slots("x=${text", &runtime).expect("unterminated passthrough"),
             "x=${text"
         );
+    }
+
+    #[test]
+    fn macro_keyword_to_string_coverts_kv_pairs_to_text() {
+        use super::macro_keyword_to_string;
+        // Simple keyword
+        assert_eq!(
+            macro_keyword_to_string(&[
+                ("mode".to_string(), MacroValue::String("debug".to_string())),
+                ("async".to_string(), MacroValue::Bool(true)),
+            ]),
+            "mode:debug,async:true"
+        );
+        // Nested keyword
+        assert_eq!(
+            macro_keyword_to_string(&[(
+                "config".to_string(),
+                MacroValue::Keyword(vec![("timeout".to_string(), MacroValue::Int(30)),])
+            ),]),
+            "config:{timeout:30}"
+        );
+        // List in keyword
+        assert_eq!(
+            macro_keyword_to_string(&[(
+                "items".to_string(),
+                MacroValue::List(vec![
+                    MacroValue::String("a".to_string()),
+                    MacroValue::String("b".to_string()),
+                ])
+            ),]),
+            "items:[a, b]"
+        );
+    }
+
+    #[test]
+    fn quote_ast_items_expands_list_unquote_into_multiple_form_items() {
+        // When a MacroValue::List is unquoted in AST children position,
+        // each element should become a separate FormItem::Text
+        let invocation = node("quote", vec![], vec![]);
+        let mut env = ExpandEnv::default();
+        let mut runtime = runtime_with_locals(BTreeMap::from([(
+            "items".to_string(),
+            MacroValue::List(vec![
+                MacroValue::String("foo".to_string()),
+                MacroValue::String("bar".to_string()),
+            ]),
+        )]));
+
+        let items = quote_items(
+            &invocation,
+            &mut env,
+            ExpandRuleScope::Statement,
+            &mut runtime,
+            &[
+                text_item("prefix "),
+                child(node("unquote", vec![], vec![text_item("items")])),
+                text_item(" suffix"),
+            ],
+        )
+        .expect("quote with list unquote");
+
+        assert_eq!(items.len(), 4);
+        let texts: Vec<&str> = items
+            .iter()
+            .filter_map(|i| match i {
+                FormItem::Text(t) => Some(t.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(texts, vec!["prefix ", "foo", "bar", " suffix"]);
+    }
+
+    #[test]
+    fn quote_ast_items_stringifies_keyword_unquote() {
+        // When a MacroValue::Keyword is unquoted in AST children position,
+        // it should stringify to "key:val,..." format
+        let invocation = node("quote", vec![], vec![]);
+        let mut env = ExpandEnv::default();
+        let mut runtime = runtime_with_locals(BTreeMap::from([(
+            "opts".to_string(),
+            MacroValue::Keyword(vec![
+                ("mode".to_string(), MacroValue::String("debug".to_string())),
+                ("verbose".to_string(), MacroValue::Bool(true)),
+            ]),
+        )]));
+
+        let items = quote_items(
+            &invocation,
+            &mut env,
+            ExpandRuleScope::Statement,
+            &mut runtime,
+            &[
+                text_item("cfg: "),
+                child(node("unquote", vec![], vec![text_item("opts")])),
+            ],
+        )
+        .expect("quote with keyword unquote");
+
+        assert_eq!(items.len(), 2);
+        match &items[1] {
+            FormItem::Text(t) => assert_eq!(t, "mode:debug,verbose:true"),
+            other => panic!("expected Text, got {:?}", other),
+        }
     }
 }

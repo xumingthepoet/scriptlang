@@ -1,2 +1,2 @@
-text placeholder quote roundtrip test
+text items: [foo, bar, baz]
 end

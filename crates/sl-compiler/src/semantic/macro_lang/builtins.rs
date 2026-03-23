@@ -359,19 +359,59 @@ fn builtin_keyword_attr(
     };
 
     // Look up the keyword from macro_env.locals
-    let value = macro_env
-        .locals
-        .get(name)
-        .ok_or_else(|| ScriptLangError::Message {
+    // First try direct lookup: if "items" is a top-level keyword param, return it directly.
+    // Then try nested lookup: if "items" is inside a keyword-type param (e.g. "opts"),
+    // extract just the "items" key-value pair and return it as a standalone keyword.
+    let ct_value = if let Some(value) = macro_env.locals.get(name) {
+        match value {
+            MacroValue::Keyword(_) => {
+                // Direct hit: return the full keyword
+                convert_macro_value_to_ct_value(value)
+            }
+            _ => {
+                return Err(ScriptLangError::Message {
+                    message: format!(
+                        "keyword_attr('{}') must reference a keyword, got {:?}",
+                        name, value
+                    ),
+                });
+            }
+        }
+    } else {
+        // Nested lookup: search through all MacroValue::Keyword entries for the key
+        // Return the VALUE directly (not wrapped in a keyword), so that:
+        // - If items="foo,bar,baz" is passed, keyword_attr("items") returns the List directly
+        // - If enabled="true" is passed, keyword_attr("enabled") returns Bool(true) directly
+        let mut found: Option<CtValue> = None;
+        for value in macro_env.locals.values() {
+            if let MacroValue::Keyword(kv_pairs) = value {
+                for (k, v) in kv_pairs {
+                    if k == name {
+                        found = Some(macro_value_to_ct_value(v));
+                        break;
+                    }
+                }
+            }
+            if found.is_some() {
+                break;
+            }
+        }
+        found.ok_or_else(|| ScriptLangError::Message {
             message: format!("keyword '{}' not found in macro locals", name),
-        })?;
+        })?
+    };
 
-    // Convert MacroValue::Keyword to CtValue::Keyword
+    // Return the CtValue (already converted)
+    Ok(ct_value)
+}
+
+// Helper: convert a full MacroValue::Keyword to CtValue::Keyword
+fn convert_macro_value_to_ct_value(value: &MacroValue) -> CtValue {
     match value {
         MacroValue::Keyword(items) => {
             let ct_items: Vec<(String, CtValue)> = items
                 .iter()
-                .map(|(k, v): &(String, MacroValue)| {
+                .map(|(k, v)| {
                     (
                         k.clone(),
                         match v {
@@ -384,28 +424,19 @@ fn builtin_keyword_attr(
                             MacroValue::List(items) => {
                                 CtValue::List(items.iter().map(macro_value_to_ct_value).collect())
                             }
-                            MacroValue::Keyword(nested) => {
-                                // Recursively convert nested keywords using macro_value_to_ct_value
-                                // (not just String) so that List, Ast, Bool, Int, etc. are preserved.
-                                CtValue::Keyword(
-                                    nested
-                                        .iter()
-                                        .map(|(nk, nv)| (nk.clone(), macro_value_to_ct_value(nv)))
-                                        .collect(),
-                                )
-                            }
+                            MacroValue::Keyword(nested) => CtValue::Keyword(
+                                nested
+                                    .iter()
+                                    .map(|(nk, nv)| (nk.clone(), macro_value_to_ct_value(nv)))
+                                    .collect(),
+                            ),
                         },
                     )
                 })
                 .collect();
-            Ok(CtValue::Keyword(ct_items))
+            CtValue::Keyword(ct_items)
         }
-        other => Err(ScriptLangError::Message {
-            message: format!(
-                "keyword_attr('{}') must reference a keyword, got {:?}",
-                name, other
-            ),
-        }),
+        other => CtValue::String(format!("{:?}", other)),
     }
 }
 

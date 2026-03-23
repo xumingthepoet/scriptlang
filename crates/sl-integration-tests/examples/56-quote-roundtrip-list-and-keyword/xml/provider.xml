@@ -1,10 +1,31 @@
 <module name="provider">
+  <!-- __using__ receives:
+       - items="foo,bar,baz"  (parses to List)
+       - enabled="true"       (parses to Bool)
+       Demonstrates Step 2.5: list values can be used inside quote via string splicing.
+       The list [foo, bar, baz] is bound as a variable and spliced into a text attribute. -->
   <macro name="__using__" params="keyword:opts">
-    <quote>
-      <script name="main">
-        <text>placeholder quote roundtrip test</text>
-        <end/>
-      </script>
-    </quote>
+    <let name="my_items" type="keyword">
+      <get-attribute name="items"/>
+    </let>
+    <if>
+      <get-attribute name="enabled"/>
+      <then>
+        <quote>
+          <script name="main">
+            <text>items: ${my_items}</text>
+            <end/>
+          </script>
+        </quote>
+      </then>
+      <else>
+        <quote>
+          <script name="main">
+            <text>disabled</text>
+            <end/>
+          </script>
+        </quote>
+      </else>
+    </if>
   </macro>
 </module>

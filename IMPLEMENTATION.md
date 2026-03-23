@@ -590,6 +590,45 @@ Step 2 已完成，后续工作：
 - Step 4: 支持远程 macro 调用和更完整的 caller env
 - Step 5: 实现 `__using__` 协议和 kernel `use` 宏
 
+## Step 2.5: 统一 quote/unquote 对 List / Keyword / Ast 的支持范围（2026-03-23）
+
+完成状态：已完成
+
+### 变更摘要
+
+Step 2.5 消除了 `CtValue`、`MacroValue`、`quote/unquote` 之间的临时桥接和语义丢失，让 `ast / keyword / list` 都能作为一等 compile-time 值跨宏边界流动。
+
+### 架构变更
+
+#### quote.rs 增强
+
+- `quote_ast_items()` 现在支持 `MacroValue::List` 和 `MacroValue::Keyword`：
+  - `MacroValue::List` 在 AST children 位置展开为多个 `FormItem`（每个元素一个）
+  - `MacroValue::Keyword` 在 AST children 位置 stringify 为 `"key1:val1,key2:val2"` 格式的 Text
+- `splice_string_slots()` 现在支持 `MacroValue::List` 和 `MacroValue::Keyword`（stringify 到字符串槽）
+- 新增辅助函数：
+  - `macro_keyword_to_string()`: 将 `Vec<(String, MacroValue)>` 转为 `"key:val,..."` 格式字符串
+  - `macro_value_to_string()`: 递归将 `MacroValue` 转为字符串表示
+
+#### builtins.rs 增强
+
+- `builtin_keyword_attr()` 现在支持嵌套查找：
+  - 如果 `keyword_attr("items")` 找不到 `macro_env.locals["items"]`，会搜索所有 `MacroValue::Keyword` 类型的 locals
+  - 允许 `keyword_attr("items")` 在 `opts` keyword 参数内部查找 "items" 键并返回其值
+  - 返回值是值本身（不是包装的 keyword），便于直接使用
+
+### 测试状态
+
+- 新增单元测试：
+  - `macro_keyword_to_string_coverts_kv_pairs_to_text`: keyword 字符串化
+  - `quote_ast_items_expands_list_unquote_into_multiple_form_items`: list unquote 展开
+  - `quote_ast_items_stringifies_keyword_unquote`: keyword unquote stringify
+- 集成测试 56-quote-roundtrip-list-and-keyword 通过
+- 所有 211 个 compiler 单元测试通过
+- 所有 56 个集成测试通过
+- Coverage: 90.87% lines
+- `make gate` 通过
+
 ## Step 3: Module Reducer（2026-03-23）
 
 完成状态：已完成
