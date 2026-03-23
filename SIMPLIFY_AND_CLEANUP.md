@@ -125,7 +125,7 @@
 
 -->
 
-### 2026-03-23 17:10: Goal 3 完成 - 删除旧代码
+### 2026-03-23 17:10: Goal 3 完成 - 删除旧代码（第一轮）
 
 **本轮工作：**
 
@@ -166,7 +166,29 @@
 
 Goal 3（删除旧代码）已完成。所有旧模板求值器路径、LegacyProtocol 兼容层和 deprecated 代码已删除。
 
-**下一步：**
-- 代码精简和清理工作全部完成
-- 可以关闭 SIMPLIFY_AND_CLEANUP 任务
+**[审计通过] Round 2 发现 Round 1 遗漏了 Item 4 的覆盖率检查：**
+- Round 1 删除了 `eval_unquote` 的测试但未删除对应的错误处理代码
+- `macro_eval.rs` 覆盖率跌至 68.66%（21 行未覆盖）
+- Round 2 用覆盖率报告确认缺口，补回 3 个单元测试覆盖 `eval_unquote` 错误分支
+- 覆盖率恢复到 91.11%，make gate 通过
+
+### 2026-03-23 17:15: 审计通过 - Goal 3 Item 4 覆盖率缺口已修复
+
+**Round 2 审计发现的问题：**
+- Round 1 删除 `eval_unquote` 测试时，只删除了测试代码，未删除对应的错误处理代码
+- 导致 `macro_eval.rs` 覆盖率从合理跌到 68.66%（21 行未覆盖）
+- `make gate` 仍通过但覆盖缺口不符合 Goal 3 Item 4 要求
+
+**修复内容：**
+- 检查覆盖率报告确认缺口来源
+- 补回 3 个单元测试：`empty body → error`、`unknown local → error`、`known local → success`
+- 测试总数：193 → 196
+- 覆盖率：91.02% → 91.11%
+
+**验证结果：**
+- make gate: 通过
+- 所有 196 个测试通过
+
+**结论：**
+Goal 3 全部完成，可以关闭 SIMPLIFY_AND_CLEANUP 任务。
 
