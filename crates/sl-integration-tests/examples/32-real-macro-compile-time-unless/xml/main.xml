@@ -1,0 +1,14 @@
+<module name="main">
+  <require name="helper"/>
+  <script name="main">
+    <!-- flag=true -> the "show this" text should be skipped, output "skipped" -->
+    <skip flag="true">
+      <text>show this</text>
+    </skip>
+    <!-- flag=false -> the unless-like behavior: body executes -->
+    <skip flag="false">
+      <text>not skipped</text>
+    </skip>
+    <end/>
+  </script>
+</module>

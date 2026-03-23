@@ -1450,8 +1450,1539 @@ mod ct_lang_tests {
     }
 
     // ========================================================================
+    // Additional convert.rs path coverage
+    // ========================================================================
+
+    #[test]
+    fn convert_macro_body_empty_body() {
+        use crate::semantic::macro_lang::convert::convert_macro_body;
+
+        // Empty body should produce empty block
+        let result = convert_macro_body(&[]).expect("empty body should succeed");
+        assert!(result.stmts.is_empty());
+    }
+
+    #[test]
+    fn convert_macro_body_non_empty_text_errors() {
+        use crate::semantic::macro_lang::convert::convert_macro_body;
+
+        let result = convert_macro_body(&[FormItem::Text("not empty".to_string())]);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("unexpected top-level text")
+        );
+    }
+
+    #[test]
+    fn convert_macro_body_quote_top_level() {
+        use crate::semantic::macro_lang::convert::convert_macro_body;
+
+        // <quote> at top level (handled directly in convert_macro_body, not via convert_form_to_stmt)
+        let meta = FormMeta {
+            source_name: Some("test.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 10 },
+            start_byte: 0,
+            end_byte: 10,
+        };
+
+        let quote_form = Form {
+            head: "quote".to_string(),
+            meta: meta.clone(),
+            fields: vec![FormField {
+                name: "children".to_string(),
+                value: FormValue::Sequence(vec![FormItem::Text("hello".to_string())]),
+            }],
+        };
+
+        let result = convert_macro_body(&[FormItem::Form(quote_form)])
+            .expect("quote top-level should succeed");
+        assert_eq!(result.stmts.len(), 1);
+        match &result.stmts[0] {
+            CtStmt::Return { value, .. } => {
+                assert!(matches!(value, CtExpr::QuoteForms { .. }));
+            }
+            other => panic!("expected Return, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn convert_stmt_require_module_standalone() {
+        use crate::semantic::macro_lang::convert::convert_macro_body;
+
+        // <require_module> as a standalone statement (not inside let)
+        let meta = FormMeta {
+            source_name: Some("test.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 10 },
+            start_byte: 0,
+            end_byte: 10,
+        };
+
+        let require_form = Form {
+            head: "require_module".to_string(),
+            meta: meta.clone(),
+            fields: vec![FormField {
+                name: "children".to_string(),
+                value: FormValue::Sequence(vec![FormItem::Form(Form {
+                    head: "var".to_string(),
+                    meta: meta.clone(),
+                    fields: vec![FormField {
+                        name: "name".to_string(),
+                        value: FormValue::String("mod".to_string()),
+                    }],
+                })]),
+            }],
+        };
+
+        let result = convert_macro_body(&[FormItem::Form(require_form)])
+            .expect("require_module should succeed");
+        assert_eq!(result.stmts.len(), 1);
+        match &result.stmts[0] {
+            CtStmt::Expr { expr } => {
+                assert!(
+                    matches!(expr, CtExpr::BuiltinCall { name, .. } if name == "require_module")
+                );
+            }
+            other => panic!("expected Expr, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn convert_stmt_expand_alias_standalone() {
+        use crate::semantic::macro_lang::convert::convert_macro_body;
+
+        let meta = FormMeta {
+            source_name: Some("test.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 10 },
+            start_byte: 0,
+            end_byte: 10,
+        };
+
+        let alias_form = Form {
+            head: "expand_alias".to_string(),
+            meta: meta.clone(),
+            fields: vec![FormField {
+                name: "children".to_string(),
+                value: FormValue::Sequence(vec![FormItem::Form(Form {
+                    head: "var".to_string(),
+                    meta: meta.clone(),
+                    fields: vec![FormField {
+                        name: "name".to_string(),
+                        value: FormValue::String("H".to_string()),
+                    }],
+                })]),
+            }],
+        };
+
+        let result =
+            convert_macro_body(&[FormItem::Form(alias_form)]).expect("expand_alias should succeed");
+        assert_eq!(result.stmts.len(), 1);
+        match &result.stmts[0] {
+            CtStmt::Expr { expr } => {
+                assert!(matches!(expr, CtExpr::BuiltinCall { name, .. } if name == "expand_alias"));
+            }
+            other => panic!("expected Expr, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn convert_stmt_keyword_attr_standalone() {
+        use crate::semantic::macro_lang::convert::convert_macro_body;
+
+        let meta = FormMeta {
+            source_name: Some("test.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 10 },
+            start_byte: 0,
+            end_byte: 10,
+        };
+
+        let keyword_form = Form {
+            head: "keyword_attr".to_string(),
+            meta: meta.clone(),
+            fields: vec![FormField {
+                name: "name".to_string(),
+                value: FormValue::String("opts".to_string()),
+            }],
+        };
+
+        let result = convert_macro_body(&[FormItem::Form(keyword_form)])
+            .expect("keyword_attr should succeed");
+        assert_eq!(result.stmts.len(), 1);
+        match &result.stmts[0] {
+            CtStmt::Expr { expr } => {
+                assert!(matches!(expr, CtExpr::BuiltinCall { name, .. } if name == "keyword_attr"));
+            }
+            other => panic!("expected Expr, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn convert_stmt_invoke_macro_standalone() {
+        use crate::semantic::macro_lang::convert::convert_macro_body;
+
+        let meta = FormMeta {
+            source_name: Some("test.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 10 },
+            start_byte: 0,
+            end_byte: 10,
+        };
+
+        let invoke_form = Form {
+            head: "invoke_macro".to_string(),
+            meta: meta.clone(),
+            fields: vec![
+                FormField {
+                    name: "module".to_string(),
+                    value: FormValue::String("helper".to_string()),
+                },
+                FormField {
+                    name: "macro_name".to_string(),
+                    value: FormValue::String("__using__".to_string()),
+                },
+                FormField {
+                    name: "opts".to_string(),
+                    value: FormValue::String("opts".to_string()),
+                },
+            ],
+        };
+
+        let result = convert_macro_body(&[FormItem::Form(invoke_form)])
+            .expect("invoke_macro should succeed");
+        assert_eq!(result.stmts.len(), 1);
+        match &result.stmts[0] {
+            CtStmt::Return { value } => {
+                assert!(
+                    matches!(value, CtExpr::BuiltinCall { name, .. } if name == "invoke_macro")
+                );
+            }
+            other => panic!("expected Return, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn convert_let_caller_module_provider() {
+        use crate::semantic::macro_lang::convert::convert_macro_body;
+
+        let meta = FormMeta {
+            source_name: Some("test.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 10 },
+            start_byte: 0,
+            end_byte: 10,
+        };
+
+        // <let name="mod" type="string"><caller_module/></let>
+        let let_form = Form {
+            head: "let".to_string(),
+            meta: meta.clone(),
+            fields: vec![
+                FormField {
+                    name: "name".to_string(),
+                    value: FormValue::String("mod".to_string()),
+                },
+                FormField {
+                    name: "type".to_string(),
+                    value: FormValue::String("string".to_string()),
+                },
+                FormField {
+                    name: "children".to_string(),
+                    value: FormValue::Sequence(vec![FormItem::Form(Form {
+                        head: "caller_module".to_string(),
+                        meta: meta.clone(),
+                        fields: vec![],
+                    })]),
+                },
+            ],
+        };
+
+        let result = convert_macro_body(&[FormItem::Form(let_form)])
+            .expect("caller_module provider should succeed");
+        assert_eq!(result.stmts.len(), 1);
+        match &result.stmts[0] {
+            CtStmt::Let { name, value } => {
+                assert_eq!(name, "mod");
+                assert!(
+                    matches!(value, CtExpr::BuiltinCall { name, .. } if name == "caller_module")
+                );
+            }
+            other => panic!("expected Let, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn convert_let_require_module_provider() {
+        use crate::semantic::macro_lang::convert::convert_macro_body;
+
+        let meta = FormMeta {
+            source_name: Some("test.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 10 },
+            start_byte: 0,
+            end_byte: 10,
+        };
+
+        // <let name="mod" type="string"><require_module><var name="helper"/></require_module></let>
+        let let_form = Form {
+            head: "let".to_string(),
+            meta: meta.clone(),
+            fields: vec![
+                FormField {
+                    name: "name".to_string(),
+                    value: FormValue::String("mod".to_string()),
+                },
+                FormField {
+                    name: "type".to_string(),
+                    value: FormValue::String("string".to_string()),
+                },
+                FormField {
+                    name: "children".to_string(),
+                    value: FormValue::Sequence(vec![FormItem::Form(Form {
+                        head: "require_module".to_string(),
+                        meta: meta.clone(),
+                        fields: vec![FormField {
+                            name: "children".to_string(),
+                            value: FormValue::Sequence(vec![FormItem::Form(Form {
+                                head: "var".to_string(),
+                                meta: meta.clone(),
+                                fields: vec![FormField {
+                                    name: "name".to_string(),
+                                    value: FormValue::String("helper".to_string()),
+                                }],
+                            })]),
+                        }],
+                    })]),
+                },
+            ],
+        };
+
+        let result = convert_macro_body(&[FormItem::Form(let_form)])
+            .expect("require_module provider should succeed");
+        assert_eq!(result.stmts.len(), 1);
+        match &result.stmts[0] {
+            CtStmt::Let { name, value } => {
+                assert_eq!(name, "mod");
+                assert!(
+                    matches!(value, CtExpr::BuiltinCall { name, .. } if name == "require_module")
+                );
+            }
+            other => panic!("expected Let, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn convert_if_empty_children_errors() {
+        use crate::semantic::macro_lang::convert::convert_macro_body;
+
+        let meta = FormMeta {
+            source_name: Some("test.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 10 },
+            start_byte: 0,
+            end_byte: 10,
+        };
+
+        // <if/> with empty children
+        let if_form = Form {
+            head: "if".to_string(),
+            meta: meta.clone(),
+            fields: vec![FormField {
+                name: "children".to_string(),
+                value: FormValue::Sequence(vec![]),
+            }],
+        };
+
+        let result = convert_macro_body(&[FormItem::Form(if_form)]);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("requires at least condition and then block"),
+            "got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn convert_if_second_child_not_then_errors() {
+        use crate::semantic::macro_lang::convert::convert_macro_body;
+
+        let meta = FormMeta {
+            source_name: Some("test.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 10 },
+            start_byte: 0,
+            end_byte: 10,
+        };
+
+        // <if><get-attr name="x"/><other/></if> - second child is <other>, not <then>
+        let if_form = Form {
+            head: "if".to_string(),
+            meta: meta.clone(),
+            fields: vec![FormField {
+                name: "children".to_string(),
+                value: FormValue::Sequence(vec![
+                    FormItem::Form(Form {
+                        head: "get-attribute".to_string(),
+                        meta: meta.clone(),
+                        fields: vec![FormField {
+                            name: "name".to_string(),
+                            value: FormValue::String("x".to_string()),
+                        }],
+                    }),
+                    FormItem::Form(Form {
+                        head: "other".to_string(),
+                        meta: meta.clone(),
+                        fields: vec![],
+                    }),
+                ]),
+            }],
+        };
+
+        let result = convert_macro_body(&[FormItem::Form(if_form)]);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("second child must be <then> block")
+        );
+    }
+
+    #[test]
+    fn convert_if_third_child_not_else_errors() {
+        use crate::semantic::macro_lang::convert::convert_macro_body;
+
+        let meta = FormMeta {
+            source_name: Some("test.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 10 },
+            start_byte: 0,
+            end_byte: 10,
+        };
+
+        // <if><get-attr name="x"/><then/><other/></if> - third child is <other>, not <else>
+        let if_form = Form {
+            head: "if".to_string(),
+            meta: meta.clone(),
+            fields: vec![FormField {
+                name: "children".to_string(),
+                value: FormValue::Sequence(vec![
+                    FormItem::Form(Form {
+                        head: "get-attribute".to_string(),
+                        meta: meta.clone(),
+                        fields: vec![FormField {
+                            name: "name".to_string(),
+                            value: FormValue::String("x".to_string()),
+                        }],
+                    }),
+                    FormItem::Form(Form {
+                        head: "then".to_string(),
+                        meta: meta.clone(),
+                        fields: vec![FormField {
+                            name: "children".to_string(),
+                            value: FormValue::Sequence(vec![]),
+                        }],
+                    }),
+                    FormItem::Form(Form {
+                        head: "other".to_string(),
+                        meta: meta.clone(),
+                        fields: vec![],
+                    }),
+                ]),
+            }],
+        };
+
+        let result = convert_macro_body(&[FormItem::Form(if_form)]);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("third child must be <else> block")
+        );
+    }
+
+    #[test]
+    fn convert_return_empty_children_returns_nil() {
+        use crate::semantic::macro_lang::convert::convert_macro_body;
+
+        let meta = FormMeta {
+            source_name: Some("test.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 10 },
+            start_byte: 0,
+            end_byte: 10,
+        };
+
+        // <return/> with no children
+        let return_form = Form {
+            head: "return".to_string(),
+            meta: meta.clone(),
+            fields: vec![FormField {
+                name: "children".to_string(),
+                value: FormValue::Sequence(vec![]),
+            }],
+        };
+
+        let result = convert_macro_body(&[FormItem::Form(return_form)])
+            .expect("empty return should succeed");
+        assert_eq!(result.stmts.len(), 1);
+        match &result.stmts[0] {
+            CtStmt::Return { value } => {
+                assert!(matches!(value, CtExpr::Literal(CtValue::Nil)));
+            }
+            other => panic!("expected Return, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn convert_provider_quote_wrong_type_errors() {
+        use crate::semantic::macro_lang::convert::convert_macro_body;
+
+        let meta = FormMeta {
+            source_name: Some("test.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 10 },
+            start_byte: 0,
+            end_byte: 10,
+        };
+
+        // <let name="x" type="string"><quote><text>hi</text></quote></let>
+        let let_form = Form {
+            head: "let".to_string(),
+            meta: meta.clone(),
+            fields: vec![
+                FormField {
+                    name: "name".to_string(),
+                    value: FormValue::String("x".to_string()),
+                },
+                FormField {
+                    name: "type".to_string(),
+                    value: FormValue::String("string".to_string()),
+                },
+                FormField {
+                    name: "children".to_string(),
+                    value: FormValue::Sequence(vec![FormItem::Form(Form {
+                        head: "quote".to_string(),
+                        meta: meta.clone(),
+                        fields: vec![FormField {
+                            name: "children".to_string(),
+                            value: FormValue::Sequence(vec![FormItem::Text("hi".to_string())]),
+                        }],
+                    })]),
+                },
+            ],
+        };
+
+        let result = convert_macro_body(&[FormItem::Form(let_form)]);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("<quote> provider requires type")
+        );
+    }
+
+    #[test]
+    fn convert_expr_var() {
+        use crate::semantic::macro_lang::convert::convert_macro_body;
+
+        let meta = FormMeta {
+            source_name: Some("test.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 10 },
+            start_byte: 0,
+            end_byte: 10,
+        };
+
+        // <return><var name="my_param"/></return>
+        let return_form = Form {
+            head: "return".to_string(),
+            meta: meta.clone(),
+            fields: vec![FormField {
+                name: "children".to_string(),
+                value: FormValue::Sequence(vec![FormItem::Form(Form {
+                    head: "var".to_string(),
+                    meta: meta.clone(),
+                    fields: vec![FormField {
+                        name: "name".to_string(),
+                        value: FormValue::String("my_param".to_string()),
+                    }],
+                })]),
+            }],
+        };
+
+        let result = convert_macro_body(&[FormItem::Form(return_form)])
+            .expect("var expression should succeed");
+        assert_eq!(result.stmts.len(), 1);
+        match &result.stmts[0] {
+            CtStmt::Return { value } => {
+                assert!(matches!(value, CtExpr::Var { name } if name == "my_param"));
+            }
+            other => panic!("expected Return, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn convert_expr_require_module() {
+        use crate::semantic::macro_lang::convert::convert_macro_body;
+
+        let meta = FormMeta {
+            source_name: Some("test.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 10 },
+            start_byte: 0,
+            end_byte: 10,
+        };
+
+        // <return><require_module><var name="helper"/></require_module></return>
+        let return_form = Form {
+            head: "return".to_string(),
+            meta: meta.clone(),
+            fields: vec![FormField {
+                name: "children".to_string(),
+                value: FormValue::Sequence(vec![FormItem::Form(Form {
+                    head: "require_module".to_string(),
+                    meta: meta.clone(),
+                    fields: vec![FormField {
+                        name: "children".to_string(),
+                        value: FormValue::Sequence(vec![FormItem::Form(Form {
+                            head: "var".to_string(),
+                            meta: meta.clone(),
+                            fields: vec![FormField {
+                                name: "name".to_string(),
+                                value: FormValue::String("helper".to_string()),
+                            }],
+                        })]),
+                    }],
+                })]),
+            }],
+        };
+
+        let result = convert_macro_body(&[FormItem::Form(return_form)])
+            .expect("require_module expression should succeed");
+        assert_eq!(result.stmts.len(), 1);
+        match &result.stmts[0] {
+            CtStmt::Return { value } => {
+                assert!(
+                    matches!(value, CtExpr::BuiltinCall { name, .. } if name == "require_module")
+                );
+            }
+            other => panic!("expected Return, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn convert_expr_expand_alias() {
+        use crate::semantic::macro_lang::convert::convert_macro_body;
+
+        let meta = FormMeta {
+            source_name: Some("test.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 10 },
+            start_byte: 0,
+            end_byte: 10,
+        };
+
+        // <return><expand_alias><var name="H"/></expand_alias></return>
+        let return_form = Form {
+            head: "return".to_string(),
+            meta: meta.clone(),
+            fields: vec![FormField {
+                name: "children".to_string(),
+                value: FormValue::Sequence(vec![FormItem::Form(Form {
+                    head: "expand_alias".to_string(),
+                    meta: meta.clone(),
+                    fields: vec![FormField {
+                        name: "children".to_string(),
+                        value: FormValue::Sequence(vec![FormItem::Form(Form {
+                            head: "var".to_string(),
+                            meta: meta.clone(),
+                            fields: vec![FormField {
+                                name: "name".to_string(),
+                                value: FormValue::String("H".to_string()),
+                            }],
+                        })]),
+                    }],
+                })]),
+            }],
+        };
+
+        let result = convert_macro_body(&[FormItem::Form(return_form)])
+            .expect("expand_alias expression should succeed");
+        assert_eq!(result.stmts.len(), 1);
+        match &result.stmts[0] {
+            CtStmt::Return { value } => {
+                assert!(
+                    matches!(value, CtExpr::BuiltinCall { name, .. } if name == "expand_alias")
+                );
+            }
+            other => panic!("expected Return, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn convert_expr_keyword_attr() {
+        use crate::semantic::macro_lang::convert::convert_macro_body;
+
+        let meta = FormMeta {
+            source_name: Some("test.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 10 },
+            start_byte: 0,
+            end_byte: 10,
+        };
+
+        // <return><keyword_attr name="opts"/></return>
+        let return_form = Form {
+            head: "return".to_string(),
+            meta: meta.clone(),
+            fields: vec![FormField {
+                name: "children".to_string(),
+                value: FormValue::Sequence(vec![FormItem::Form(Form {
+                    head: "keyword_attr".to_string(),
+                    meta: meta.clone(),
+                    fields: vec![FormField {
+                        name: "name".to_string(),
+                        value: FormValue::String("opts".to_string()),
+                    }],
+                })]),
+            }],
+        };
+
+        let result = convert_macro_body(&[FormItem::Form(return_form)])
+            .expect("keyword_attr expression should succeed");
+        assert_eq!(result.stmts.len(), 1);
+        match &result.stmts[0] {
+            CtStmt::Return { value } => {
+                assert!(
+                    matches!(value, CtExpr::BuiltinCall { name, .. } if name == "keyword_attr")
+                );
+            }
+            other => panic!("expected Return, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn convert_expr_quote() {
+        use crate::semantic::macro_lang::convert::convert_macro_body;
+
+        let meta = FormMeta {
+            source_name: Some("test.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 10 },
+            start_byte: 0,
+            end_byte: 10,
+        };
+
+        // <return><quote><text>hello</text></quote></return>
+        let return_form = Form {
+            head: "return".to_string(),
+            meta: meta.clone(),
+            fields: vec![FormField {
+                name: "children".to_string(),
+                value: FormValue::Sequence(vec![FormItem::Form(Form {
+                    head: "quote".to_string(),
+                    meta: meta.clone(),
+                    fields: vec![FormField {
+                        name: "children".to_string(),
+                        value: FormValue::Sequence(vec![FormItem::Text("hello".to_string())]),
+                    }],
+                })]),
+            }],
+        };
+
+        let result = convert_macro_body(&[FormItem::Form(return_form)])
+            .expect("quote expression should succeed");
+        assert_eq!(result.stmts.len(), 1);
+        match &result.stmts[0] {
+            CtStmt::Return { value } => {
+                assert!(matches!(value, CtExpr::QuoteForms { .. }));
+            }
+            other => panic!("expected Return, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn convert_expr_invoke_macro_var_child() {
+        use crate::semantic::macro_lang::convert::convert_macro_body;
+
+        let meta = FormMeta {
+            source_name: Some("test.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 10 },
+            start_byte: 0,
+            end_byte: 10,
+        };
+
+        // <return><invoke_macro macro_name="__using__" opts="opts"><var name="helper"/></invoke_macro></return>
+        // No module attribute: falls back to child <var>
+        let return_form = Form {
+            head: "return".to_string(),
+            meta: meta.clone(),
+            fields: vec![FormField {
+                name: "children".to_string(),
+                value: FormValue::Sequence(vec![FormItem::Form(Form {
+                    head: "invoke_macro".to_string(),
+                    meta: meta.clone(),
+                    fields: vec![
+                        FormField {
+                            name: "macro_name".to_string(),
+                            value: FormValue::String("__using__".to_string()),
+                        },
+                        FormField {
+                            name: "opts".to_string(),
+                            value: FormValue::String("opts".to_string()),
+                        },
+                        FormField {
+                            name: "children".to_string(),
+                            value: FormValue::Sequence(vec![FormItem::Form(Form {
+                                head: "var".to_string(),
+                                meta: meta.clone(),
+                                fields: vec![FormField {
+                                    name: "name".to_string(),
+                                    value: FormValue::String("helper".to_string()),
+                                }],
+                            })]),
+                        },
+                    ],
+                })]),
+            }],
+        };
+
+        let result = convert_macro_body(&[FormItem::Form(return_form)])
+            .expect("invoke_macro with var child should succeed");
+        assert_eq!(result.stmts.len(), 1);
+        match &result.stmts[0] {
+            CtStmt::Return { value } => {
+                assert!(
+                    matches!(value, CtExpr::BuiltinCall { name, .. } if name == "invoke_macro")
+                );
+            }
+            other => panic!("expected Return, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn convert_expr_invoke_macro_get_attribute_child() {
+        use crate::semantic::macro_lang::convert::convert_macro_body;
+
+        let meta = FormMeta {
+            source_name: Some("test.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 10 },
+            start_byte: 0,
+            end_byte: 10,
+        };
+
+        // <return><invoke_macro macro_name="__using__" opts="opts"><get-attribute name="mod"/></invoke_macro></return>
+        let return_form = Form {
+            head: "return".to_string(),
+            meta: meta.clone(),
+            fields: vec![FormField {
+                name: "children".to_string(),
+                value: FormValue::Sequence(vec![FormItem::Form(Form {
+                    head: "invoke_macro".to_string(),
+                    meta: meta.clone(),
+                    fields: vec![
+                        FormField {
+                            name: "macro_name".to_string(),
+                            value: FormValue::String("__using__".to_string()),
+                        },
+                        FormField {
+                            name: "opts".to_string(),
+                            value: FormValue::String("opts".to_string()),
+                        },
+                        FormField {
+                            name: "children".to_string(),
+                            value: FormValue::Sequence(vec![FormItem::Form(Form {
+                                head: "get-attribute".to_string(),
+                                meta: meta.clone(),
+                                fields: vec![FormField {
+                                    name: "name".to_string(),
+                                    value: FormValue::String("mod".to_string()),
+                                }],
+                            })]),
+                        },
+                    ],
+                })]),
+            }],
+        };
+
+        let result = convert_macro_body(&[FormItem::Form(return_form)])
+            .expect("invoke_macro with get-attribute child should succeed");
+        assert_eq!(result.stmts.len(), 1);
+        match &result.stmts[0] {
+            CtStmt::Return { value } => {
+                assert!(
+                    matches!(value, CtExpr::BuiltinCall { name, .. } if name == "invoke_macro")
+                );
+            }
+            other => panic!("expected Return, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn convert_expr_invoke_macro_no_module_no_children_errors() {
+        use crate::semantic::macro_lang::convert::convert_macro_body;
+
+        let meta = FormMeta {
+            source_name: Some("test.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 10 },
+            start_byte: 0,
+            end_byte: 10,
+        };
+
+        // <invoke_macro macro_name="__using__" opts="opts"/> - no module attr, empty children
+        let invoke_form = Form {
+            head: "invoke_macro".to_string(),
+            meta: meta.clone(),
+            fields: vec![
+                FormField {
+                    name: "macro_name".to_string(),
+                    value: FormValue::String("__using__".to_string()),
+                },
+                FormField {
+                    name: "opts".to_string(),
+                    value: FormValue::String("opts".to_string()),
+                },
+                FormField {
+                    name: "children".to_string(),
+                    value: FormValue::Sequence(vec![]),
+                },
+            ],
+        };
+
+        let result = convert_macro_body(&[FormItem::Form(invoke_form)]);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("requires module attribute or <var>/<get-attribute> child"),
+            "got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn convert_expr_invoke_macro_opts_attr_not_opts_errors() {
+        use crate::semantic::macro_lang::convert::convert_macro_body;
+
+        let meta = FormMeta {
+            source_name: Some("test.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 10 },
+            start_byte: 0,
+            end_byte: 10,
+        };
+
+        // <invoke_macro module="helper" macro_name="__using__" opts="other"/> - opts is not 'opts'
+        let invoke_form = Form {
+            head: "invoke_macro".to_string(),
+            meta: meta.clone(),
+            fields: vec![
+                FormField {
+                    name: "module".to_string(),
+                    value: FormValue::String("helper".to_string()),
+                },
+                FormField {
+                    name: "macro_name".to_string(),
+                    value: FormValue::String("__using__".to_string()),
+                },
+                FormField {
+                    name: "opts".to_string(),
+                    value: FormValue::String("other".to_string()),
+                },
+            ],
+        };
+
+        let result = convert_macro_body(&[FormItem::Form(invoke_form)]);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains("opts attribute must be 'opts'"),
+            "got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn convert_expr_invoke_macro_invalid_child_errors() {
+        use crate::semantic::macro_lang::convert::convert_macro_body;
+
+        let meta = FormMeta {
+            source_name: Some("test.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 10 },
+            start_byte: 0,
+            end_byte: 10,
+        };
+
+        // <invoke_macro macro_name="__using__" opts="opts"><other/></invoke_macro> - invalid child type
+        let invoke_form = Form {
+            head: "invoke_macro".to_string(),
+            meta: meta.clone(),
+            fields: vec![
+                FormField {
+                    name: "macro_name".to_string(),
+                    value: FormValue::String("__using__".to_string()),
+                },
+                FormField {
+                    name: "opts".to_string(),
+                    value: FormValue::String("opts".to_string()),
+                },
+                FormField {
+                    name: "children".to_string(),
+                    value: FormValue::Sequence(vec![FormItem::Form(Form {
+                        head: "other".to_string(),
+                        meta: meta.clone(),
+                        fields: vec![],
+                    })]),
+                },
+            ],
+        };
+
+        let result = convert_macro_body(&[FormItem::Form(invoke_form)]);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("child must be <var> or <get-attribute>"),
+            "got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn single_child_form_zero_children_errors() {
+        use crate::semantic::macro_lang::convert::convert_macro_body;
+
+        let meta = FormMeta {
+            source_name: Some("test.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 10 },
+            start_byte: 0,
+            end_byte: 10,
+        };
+
+        // <set name="x"><children/></set> with empty children
+        let set_form = Form {
+            head: "set".to_string(),
+            meta: meta.clone(),
+            fields: vec![
+                FormField {
+                    name: "name".to_string(),
+                    value: FormValue::String("x".to_string()),
+                },
+                FormField {
+                    name: "children".to_string(),
+                    value: FormValue::Sequence(vec![]),
+                },
+            ],
+        };
+
+        let result = convert_macro_body(&[FormItem::Form(set_form)]);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("requires exactly one meaningful child"),
+            "got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn single_child_form_multiple_children_errors() {
+        use crate::semantic::macro_lang::convert::convert_macro_body;
+
+        let meta = FormMeta {
+            source_name: Some("test.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 10 },
+            start_byte: 0,
+            end_byte: 10,
+        };
+
+        // <set name="x"><var name="a"/><var name="b"/></set> - two children
+        let set_form = Form {
+            head: "set".to_string(),
+            meta: meta.clone(),
+            fields: vec![
+                FormField {
+                    name: "name".to_string(),
+                    value: FormValue::String("x".to_string()),
+                },
+                FormField {
+                    name: "children".to_string(),
+                    value: FormValue::Sequence(vec![
+                        FormItem::Form(Form {
+                            head: "var".to_string(),
+                            meta: meta.clone(),
+                            fields: vec![FormField {
+                                name: "name".to_string(),
+                                value: FormValue::String("a".to_string()),
+                            }],
+                        }),
+                        FormItem::Form(Form {
+                            head: "var".to_string(),
+                            meta: meta.clone(),
+                            fields: vec![FormField {
+                                name: "name".to_string(),
+                                value: FormValue::String("b".to_string()),
+                            }],
+                        }),
+                    ]),
+                },
+            ],
+        };
+
+        let result = convert_macro_body(&[FormItem::Form(set_form)]);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("requires exactly one meaningful child"),
+            "got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn convert_expr_invoke_macro_opts_keyword_attr_fallback() {
+        use crate::semantic::macro_lang::convert::convert_macro_body;
+
+        let meta = FormMeta {
+            source_name: Some("test.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 10 },
+            start_byte: 0,
+            end_byte: 10,
+        };
+
+        // <return><invoke_macro module="helper" macro_name="__using__"><keyword_attr name="opts"/></invoke_macro></return>
+        // No opts attr: falls back to <keyword_attr name="opts"/> child
+        let return_form = Form {
+            head: "return".to_string(),
+            meta: meta.clone(),
+            fields: vec![FormField {
+                name: "children".to_string(),
+                value: FormValue::Sequence(vec![FormItem::Form(Form {
+                    head: "invoke_macro".to_string(),
+                    meta: meta.clone(),
+                    fields: vec![
+                        FormField {
+                            name: "module".to_string(),
+                            value: FormValue::String("helper".to_string()),
+                        },
+                        FormField {
+                            name: "macro_name".to_string(),
+                            value: FormValue::String("__using__".to_string()),
+                        },
+                        FormField {
+                            name: "children".to_string(),
+                            value: FormValue::Sequence(vec![FormItem::Form(Form {
+                                head: "keyword_attr".to_string(),
+                                meta: meta.clone(),
+                                fields: vec![FormField {
+                                    name: "name".to_string(),
+                                    value: FormValue::String("opts".to_string()),
+                                }],
+                            })]),
+                        },
+                    ],
+                })]),
+            }],
+        };
+
+        let result = convert_macro_body(&[FormItem::Form(return_form)])
+            .expect("invoke_macro with keyword_attr opts fallback should succeed");
+        assert_eq!(result.stmts.len(), 1);
+        match &result.stmts[0] {
+            CtStmt::Return { value } => {
+                assert!(
+                    matches!(value, CtExpr::BuiltinCall { name, .. } if name == "invoke_macro")
+                );
+            }
+            other => panic!("expected Return, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn convert_expr_invoke_macro_no_opts_attr_no_kw_child_errors() {
+        use crate::semantic::macro_lang::convert::convert_macro_body;
+
+        let meta = FormMeta {
+            source_name: Some("test.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 10 },
+            start_byte: 0,
+            end_byte: 10,
+        };
+
+        // <return><invoke_macro module="helper" macro_name="__using__"><other/></invoke_macro></return>
+        // No opts attr, child is not keyword_attr -> error
+        let return_form = Form {
+            head: "return".to_string(),
+            meta: meta.clone(),
+            fields: vec![FormField {
+                name: "children".to_string(),
+                value: FormValue::Sequence(vec![FormItem::Form(Form {
+                    head: "invoke_macro".to_string(),
+                    meta: meta.clone(),
+                    fields: vec![
+                        FormField {
+                            name: "module".to_string(),
+                            value: FormValue::String("helper".to_string()),
+                        },
+                        FormField {
+                            name: "macro_name".to_string(),
+                            value: FormValue::String("__using__".to_string()),
+                        },
+                        FormField {
+                            name: "children".to_string(),
+                            value: FormValue::Sequence(vec![FormItem::Form(Form {
+                                head: "other".to_string(),
+                                meta: meta.clone(),
+                                fields: vec![],
+                            })]),
+                        },
+                    ],
+                })]),
+            }],
+        };
+
+        let result = convert_macro_body(&[FormItem::Form(return_form)]);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("requires opts=\"opts\" attribute or <keyword_attr"),
+            "got: {}",
+            err
+        );
+    }
+
+    // ========================================================================
     // Additional builtin error path tests
     // ========================================================================
+
+    #[test]
+    fn builtin_invoke_macro_wrong_third_arg_type() {
+        let mut macro_env = MacroEnv {
+            current_module: Some("main".to_string()),
+            ..Default::default()
+        };
+        macro_env.requires.push("helper".to_string());
+
+        let mut ct_env = CtEnv::new();
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = empty_expand_env();
+
+        // Third arg is an integer instead of keyword
+        let args = &[
+            CtValue::String("helper".to_string()),
+            CtValue::String("macro".to_string()),
+            CtValue::Int(42),
+        ];
+        let result =
+            builtins.get("invoke_macro").unwrap()(args, &macro_env, &mut ct_env, &mut expand_env);
+        // Should return an error (type check failure or module-not-found)
+        let err = result.expect_err("wrong third arg type should error");
+        // The error should mention args type issue OR the builtin invocation failure
+        let err_str = err.to_string();
+        // Verify the error is about type mismatch (args/keyword) OR invocation failure
+        assert!(
+            err_str.contains("keyword")
+                || err_str.contains("invoke_macro")
+                || err_str.contains("not found"),
+            "unexpected error: {}",
+            err_str
+        );
+    }
+
+    #[test]
+    fn builtin_invoke_macro_wrong_first_arg_type() {
+        let mut macro_env = MacroEnv {
+            current_module: Some("main".to_string()),
+            ..Default::default()
+        };
+        macro_env.requires.push("helper".to_string());
+
+        let mut ct_env = CtEnv::new();
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = empty_expand_env();
+
+        // First arg is an integer instead of string/module
+        let err = builtins.get("invoke_macro").unwrap()(
+            &[
+                CtValue::Int(42),
+                CtValue::String("macro".to_string()),
+                CtValue::Keyword(vec![]),
+            ],
+            &macro_env,
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect_err("wrong first arg type");
+        assert!(
+            err.to_string()
+                .contains("first argument (module) must be string or module")
+        );
+    }
+
+    #[test]
+    fn builtin_invoke_macro_module_not_in_scope_errors() {
+        let macro_env = MacroEnv {
+            current_module: Some("caller".to_string()),
+            ..Default::default()
+        };
+        // helper is NOT in requires or current_module
+
+        let mut ct_env = CtEnv::new();
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = empty_expand_env();
+
+        let err = builtins.get("invoke_macro").unwrap()(
+            &[
+                CtValue::String("helper".to_string()),
+                CtValue::String("__using__".to_string()),
+                CtValue::Keyword(vec![]),
+            ],
+            &macro_env,
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect_err("module not in scope");
+        assert!(err.to_string().contains("module not in scope"));
+    }
+
+    #[test]
+    fn builtin_invoke_macro_macro_not_found_errors() {
+        let mut macro_env = MacroEnv {
+            current_module: Some("main".to_string()),
+            ..Default::default()
+        };
+        macro_env.requires.push("helper".to_string());
+
+        let mut expand_env = empty_expand_env();
+        expand_env
+            .begin_module(Some("helper".to_string()), Some("helper.xml".to_string()))
+            .expect("helper module");
+        // Register helper module with no macros
+
+        let mut ct_env = CtEnv::new();
+        let builtins = BuiltinRegistry::new();
+
+        let err = builtins.get("invoke_macro").unwrap()(
+            &[
+                CtValue::String("helper".to_string()),
+                CtValue::String("nonexistent".to_string()),
+                CtValue::Keyword(vec![]),
+            ],
+            &macro_env,
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect_err("macro not found");
+        assert!(err.to_string().contains("not found"));
+    }
+
+    #[test]
+    fn builtin_invoke_macro_wrong_keyword_arg_value_type_errors() {
+        use crate::semantic::env::MacroDefinition;
+
+        let mut macro_env = MacroEnv {
+            current_module: Some("main".to_string()),
+            ..Default::default()
+        };
+        macro_env.requires.push("helper".to_string());
+
+        let mut expand_env = empty_expand_env();
+        expand_env
+            .begin_module(Some("helper".to_string()), Some("helper.xml".to_string()))
+            .expect("helper module");
+
+        let quote_meta = FormMeta {
+            source_name: Some("helper.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 10 },
+            start_byte: 0,
+            end_byte: 10,
+        };
+
+        fn make_field(name: &str, value: FormValue) -> FormField {
+            FormField {
+                name: name.to_string(),
+                value,
+            }
+        }
+        fn make_seq(items: Vec<FormItem>) -> FormValue {
+            FormValue::Sequence(items)
+        }
+        fn make_form_item(meta: &FormMeta, head: &str, fields: Vec<FormField>) -> FormItem {
+            FormItem::Form(sl_core::Form {
+                head: head.to_string(),
+                meta: meta.clone(),
+                fields,
+            })
+        }
+
+        let macro_body = vec![make_form_item(
+            &quote_meta,
+            "quote",
+            vec![make_field(
+                "children",
+                make_seq(vec![make_form_item(
+                    &quote_meta,
+                    "text",
+                    vec![make_field(
+                        "children",
+                        make_seq(vec![FormItem::Text("ok".to_string())]),
+                    )],
+                )]),
+            )],
+        )];
+
+        expand_env
+            .program
+            .register_macro(MacroDefinition {
+                module_name: "helper".to_string(),
+                name: "__using__".to_string(),
+                params: Some(vec![crate::semantic::env::MacroParam {
+                    param_type: crate::semantic::env::MacroParamType::Keyword,
+                    name: "opts".to_string(),
+                }]),
+                legacy_protocol: None,
+                body: macro_body,
+                is_private: false,
+            })
+            .expect("register macro");
+
+        let mut ct_env = CtEnv::new();
+        let builtins = BuiltinRegistry::new();
+
+        // Keyword arg value is Ast (not string/int/bool)
+        let err = builtins.get("invoke_macro").unwrap()(
+            &[
+                CtValue::String("helper".to_string()),
+                CtValue::String("__using__".to_string()),
+                CtValue::Keyword(vec![("opt1".to_string(), CtValue::Ast(vec![]))]),
+            ],
+            &macro_env,
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect_err("wrong keyword arg value type");
+        assert!(
+            err.to_string()
+                .contains("keyword arg value must be string, int, or bool")
+        );
+    }
+
+    #[test]
+    fn builtin_invoke_macro_resolve_alias() {
+        use crate::semantic::env::MacroDefinition;
+
+        let mut macro_env = MacroEnv {
+            current_module: Some("main".to_string()),
+            ..Default::default()
+        };
+        // Alias H -> helper
+        macro_env
+            .aliases
+            .insert("H".to_string(), "helper".to_string());
+        macro_env.requires.push("helper".to_string());
+
+        let mut expand_env = empty_expand_env();
+        expand_env
+            .begin_module(Some("helper".to_string()), Some("helper.xml".to_string()))
+            .expect("helper module");
+
+        let quote_meta = FormMeta {
+            source_name: Some("helper.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 10 },
+            start_byte: 0,
+            end_byte: 10,
+        };
+
+        fn make_field(name: &str, value: FormValue) -> FormField {
+            FormField {
+                name: name.to_string(),
+                value,
+            }
+        }
+        fn make_seq(items: Vec<FormItem>) -> FormValue {
+            FormValue::Sequence(items)
+        }
+        fn make_form_item(meta: &FormMeta, head: &str, fields: Vec<FormField>) -> FormItem {
+            FormItem::Form(sl_core::Form {
+                head: head.to_string(),
+                meta: meta.clone(),
+                fields,
+            })
+        }
+
+        let macro_body = vec![make_form_item(
+            &quote_meta,
+            "quote",
+            vec![make_field(
+                "children",
+                make_seq(vec![make_form_item(
+                    &quote_meta,
+                    "text",
+                    vec![make_field(
+                        "children",
+                        make_seq(vec![FormItem::Text("aliased".to_string())]),
+                    )],
+                )]),
+            )],
+        )];
+
+        expand_env
+            .program
+            .register_macro(MacroDefinition {
+                module_name: "helper".to_string(),
+                name: "__using__".to_string(),
+                params: None,
+                legacy_protocol: None,
+                body: macro_body,
+                is_private: false,
+            })
+            .expect("register macro");
+
+        let mut ct_env = CtEnv::new();
+        let builtins = BuiltinRegistry::new();
+
+        // Invoke using alias "H" (resolves to "helper")
+        let result = builtins.get("invoke_macro").unwrap()(
+            &[
+                CtValue::String("H".to_string()),
+                CtValue::String("__using__".to_string()),
+                CtValue::Keyword(vec![]),
+            ],
+            &macro_env,
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("invoke_macro with alias should succeed");
+        match result {
+            CtValue::Ast(items) => {
+                assert!(!items.is_empty());
+            }
+            other => panic!("expected Ast, got {:?}", other),
+        }
+    }
 
     #[test]
     fn builtin_expand_alias_wrong_type() {

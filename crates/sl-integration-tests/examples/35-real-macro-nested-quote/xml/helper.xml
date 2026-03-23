@@ -1,0 +1,13 @@
+<module name="helper">
+  <!-- This macro uses <quote> directly at the top level of the body.
+       The quote should be processed by convert_form_to_stmt as a Return statement.
+       No conditional logic - proves top-level <quote> works correctly. -->
+  <macro name="fixed_greeting" params="">
+    <quote>
+      <script name="main">
+        <text>greeting from nested-quote test</text>
+        <end/>
+      </script>
+    </quote>
+  </macro>
+</module>

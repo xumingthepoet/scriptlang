@@ -1,0 +1,19 @@
+<module name="helper">
+  <macro name="branch" params="bool:flag">
+    <!-- Use <let type="bool"> to parse the attribute, then <var> in if condition.
+         Note: <get-attribute> returns a string, which is truthy even when "false".
+         Using <let type="bool"> ensures the condition is a proper boolean. -->
+    <let name="flag_val" type="bool">
+      <get-attribute name="flag"/>
+    </let>
+    <if>
+      <var name="flag_val"/>
+      <then>
+        <quote><text>branch-a</text></quote>
+      </then>
+      <else>
+        <quote><text>branch-b</text></quote>
+      </else>
+    </if>
+  </macro>
+</module>

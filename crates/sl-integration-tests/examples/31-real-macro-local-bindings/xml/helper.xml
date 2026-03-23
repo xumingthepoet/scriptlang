@@ -1,0 +1,15 @@
+<module name="helper">
+  <macro name="twice" params="string:msg">
+    <!-- Store the message in a compile-time let binding -->
+    <let name="stored" type="string">
+      <get-attribute name="msg"/>
+    </let>
+    <!-- Use it twice in the same quote via ${} splice to prove binding works -->
+    <quote>
+      <script name="main">
+        <text>first: ${stored}, second: ${stored}</text>
+        <end/>
+      </script>
+    </quote>
+  </macro>
+</module>

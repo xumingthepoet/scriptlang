@@ -1,0 +1,8 @@
+<module name="main">
+  <require name="helper"/>
+  <script name="main">
+    <branch flag="true"/>
+    <branch flag="false"/>
+    <end/>
+  </script>
+</module>

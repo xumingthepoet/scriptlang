@@ -1,0 +1,21 @@
+<module name="helper">
+  <!-- skip macro: if the flag is false, return the body; otherwise return "skipped".
+       Uses compile-time <let type="bool"> + <var> in the if condition.
+       When the else branch is taken, the body AST is directly spliced (no <do> wrapper). -->
+  <macro name="skip" params="bool:flag, ast:body">
+    <let name="skip_val" type="bool">
+      <get-attribute name="flag"/>
+    </let>
+    <if>
+      <var name="skip_val"/>
+      <then>
+        <quote><text>skipped</text></quote>
+      </then>
+      <else>
+        <quote>
+          <unquote>body</unquote>
+        </quote>
+      </else>
+    </if>
+  </macro>
+</module>

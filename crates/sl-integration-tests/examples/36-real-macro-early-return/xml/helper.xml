@@ -1,0 +1,21 @@
+<module name="helper">
+  <!-- return_early macro: uses <return> to exit early.
+       The text "unreachable" should NOT appear because <return> exits before it. -->
+  <macro name="return_early" params="string:msg">
+    <return>
+      <quote>
+        <script name="main">
+          <text>early: ${msg}</text>
+          <end/>
+        </script>
+      </quote>
+    </return>
+    <!-- These statements come after return and should be unreachable -->
+    <quote>
+      <script name="main">
+        <text>unreachable</text>
+        <end/>
+      </script>
+    </quote>
+  </macro>
+</module>

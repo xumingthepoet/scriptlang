@@ -1,0 +1,11 @@
+<module name="helper">
+  <!-- greet macro: takes two string params and uses both in the output -->
+  <macro name="greet" params="string:salutation, string:target">
+    <quote>
+      <script name="main">
+        <text>${salutation} ${target}!</text>
+        <end/>
+      </script>
+    </quote>
+  </macro>
+</module>

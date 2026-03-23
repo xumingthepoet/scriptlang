@@ -1,0 +1,23 @@
+<module name="helper">
+  <macro name="counter" params="int:initial">
+    <!-- Bind the initial value -->
+    <let name="initial_val" type="int">
+      <get-attribute name="initial"/>
+    </let>
+    <!-- Read initial value before mutation -->
+    <let name="before" type="int">
+      <get-attribute name="initial"/>
+    </let>
+    <!-- Mutate: set binding to a new value (same as attr for now) -->
+    <set name="initial_val">
+      <get-attribute name="initial"/>
+    </set>
+    <!-- Output both values to prove set executed and let bindings persist -->
+    <quote>
+      <script name="main">
+        <text>before: ${before}, after: ${initial_val}</text>
+        <end/>
+      </script>
+    </quote>
+  </macro>
+</module>

@@ -1,0 +1,5 @@
+<module name="main">
+  <require name="helper"/>
+  <!-- Invoke at module level so the macro output (<script>) becomes a module child -->
+  <twice msg="hello"/>
+</module>
