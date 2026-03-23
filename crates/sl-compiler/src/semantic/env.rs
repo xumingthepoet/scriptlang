@@ -105,23 +105,12 @@ pub(crate) struct MacroParam {
     pub(crate) name: String,
 }
 
-/// Legacy macro attribute/content protocol for backward compatibility.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct LegacyProtocol {
-    /// Attribute bindings: (attribute_name, local_var_name, is_expr)
-    pub(crate) attributes: Vec<(String, String, bool)>,
-    /// Content binding: (local_var_name, optional_head_filter)
-    pub(crate) content: Option<(String, Option<String>)>,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct MacroDefinition {
     pub(crate) module_name: String,
     pub(crate) name: String,
     /// New explicit parameter protocol (Step 2)
     pub(crate) params: Option<Vec<MacroParam>>,
-    /// Legacy attribute/content protocol for backward compatibility
-    pub(crate) legacy_protocol: Option<LegacyProtocol>,
     pub(crate) body: Vec<FormItem>,
     /// Whether the macro is private to its defining module
     pub(crate) is_private: bool,

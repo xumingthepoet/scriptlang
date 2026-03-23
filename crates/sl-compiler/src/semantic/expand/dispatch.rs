@@ -279,7 +279,6 @@ mod tests {
                 module_name: "main".to_string(),
                 name: "hello".to_string(),
                 params: None,
-                legacy_protocol: None,
                 body: vec![child(node("quote", vec![], vec![text("hi")]))],
                 is_private: false,
             })
@@ -322,7 +321,6 @@ mod tests {
                 module_name: "main".to_string(),
                 name: "double".to_string(),
                 params: None,
-                legacy_protocol: None,
                 body: vec![child(node(
                     "quote",
                     vec![],
@@ -339,7 +337,6 @@ mod tests {
                 module_name: "main".to_string(),
                 name: "stringy".to_string(),
                 params: None,
-                legacy_protocol: None,
                 body: vec![
                     child(node(
                         "let",

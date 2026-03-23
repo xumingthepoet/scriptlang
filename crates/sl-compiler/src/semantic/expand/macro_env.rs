@@ -41,18 +41,6 @@ impl MacroEnv {
         }
     }
 
-    pub(crate) fn context_label(&self) -> String {
-        let module_name = self.current_module.as_deref().unwrap_or("<unknown>");
-        format!(
-            "macro `{}` in module `{}` ({} imports, {} requires, {} aliases)",
-            self.macro_name,
-            module_name,
-            self.imports.len(),
-            self.requires.len(),
-            self.aliases.len()
-        )
-    }
-
     /// Get a macro invocation attribute value.
     pub(crate) fn get_attribute(&self, name: &str) -> Option<&String> {
         self.attributes.get(name)
@@ -141,6 +129,20 @@ mod tests {
 
     #[test]
     fn macro_env_context_label_reports_current_context() {
+        #[allow(non_local_definitions)]
+        impl MacroEnv {
+            fn context_label(&self) -> String {
+                let module_name = self.current_module.as_deref().unwrap_or("<unknown>");
+                format!(
+                    "macro `{}` in module `{}` ({} imports, {} requires, {} aliases)",
+                    self.macro_name,
+                    module_name,
+                    self.imports.len(),
+                    self.requires.len(),
+                    self.aliases.len()
+                )
+            }
+        }
         let env = MacroEnv {
             current_module: Some("main".to_string()),
             imports: vec!["kernel".to_string()],

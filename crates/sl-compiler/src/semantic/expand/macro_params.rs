@@ -4,9 +4,7 @@ use sl_core::{Form, FormItem, ScriptLangError};
 
 use super::macro_env::MacroEnv;
 use super::macro_values::MacroValue;
-use crate::semantic::env::{
-    ExpandEnv, LegacyProtocol, MacroDefinition, MacroParam, MacroParamType,
-};
+use crate::semantic::env::{ExpandEnv, MacroDefinition, MacroParam, MacroParamType};
 use crate::semantic::error_at;
 
 /// Bind macro invocation arguments to parameters and populate MacroEnv.
@@ -19,9 +17,8 @@ pub(crate) fn bind_macro_params(
     let invocation_attrs = extract_invocation_attributes(invocation)?;
     let invocation_content = extract_invocation_content(invocation);
 
-    // Handle params vs legacy protocol
+    // All macros now use the explicit params protocol
     if let Some(ref params) = definition.params {
-        // New explicit params protocol
         bind_explicit_params(
             params,
             &invocation_attrs,
@@ -29,11 +26,8 @@ pub(crate) fn bind_macro_params(
             invocation,
             expand_env,
         )
-    } else if let Some(ref legacy) = definition.legacy_protocol {
-        // Legacy attributes/content protocol
-        bind_legacy_protocol(legacy, &invocation_attrs, &invocation_content, expand_env)
     } else {
-        // No params, just create basic MacroEnv
+        // No params defined, create basic MacroEnv
         Ok(MacroEnv::from_invocation(
             expand_env,
             &definition.name,
@@ -230,57 +224,6 @@ fn convert_param_value(
             Ok(MacroValue::String(value_str.clone()))
         }
     }
-}
-
-/// Bind parameters using legacy protocol.
-fn bind_legacy_protocol(
-    legacy: &LegacyProtocol,
-    invocation_attrs: &BTreeMap<String, String>,
-    invocation_content: &[FormItem],
-    expand_env: &mut ExpandEnv,
-) -> Result<MacroEnv, ScriptLangError> {
-    let mut macro_env = MacroEnv::from_invocation(
-        expand_env,
-        "", // Will be set by caller
-        invocation_attrs.clone(),
-        invocation_content.to_vec(),
-    );
-
-    // Bind attributes to locals
-    for (attr_name, var_name, is_expr) in &legacy.attributes {
-        let attr_value = invocation_attrs.get(attr_name);
-        let value = if *is_expr {
-            // Expression attribute - keep as string
-            match attr_value {
-                Some(s) => MacroValue::String(s.clone()),
-                None => MacroValue::Nil,
-            }
-        } else {
-            // Plain attribute
-            match attr_value {
-                Some(s) => MacroValue::String(s.clone()),
-                None => MacroValue::Nil,
-            }
-        };
-        macro_env.locals.insert(var_name.clone(), value);
-    }
-
-    // Bind content to locals
-    if let Some((var_name, head_filter)) = &legacy.content {
-        let content = match head_filter {
-            Some(head) => invocation_content
-                .iter()
-                .filter(|item| matches!(item, FormItem::Form(form) if form.head == head.as_str()))
-                .cloned()
-                .collect(),
-            None => invocation_content.to_vec(),
-        };
-        macro_env
-            .locals
-            .insert(var_name.clone(), MacroValue::AstItems(content));
-    }
-
-    Ok(macro_env)
 }
 
 #[cfg(test)]

@@ -858,7 +858,6 @@ mod ct_lang_tests {
                     param_type: crate::semantic::env::MacroParamType::Expr,
                     name: "label".to_string(),
                 }]),
-                legacy_protocol: None,
                 body: macro_body,
                 is_private: false,
             })
@@ -2862,7 +2861,6 @@ mod ct_lang_tests {
                     param_type: crate::semantic::env::MacroParamType::Keyword,
                     name: "opts".to_string(),
                 }]),
-                legacy_protocol: None,
                 body: macro_body,
                 is_private: false,
             })
@@ -2955,7 +2953,6 @@ mod ct_lang_tests {
                 module_name: "helper".to_string(),
                 name: "__using__".to_string(),
                 params: None,
-                legacy_protocol: None,
                 body: macro_body,
                 is_private: false,
             })
@@ -3539,7 +3536,6 @@ mod ct_lang_tests {
                     param_type: crate::semantic::env::MacroParamType::Keyword,
                     name: "opts".to_string(),
                 }]),
-                legacy_protocol: None,
                 body: macro_body,
                 is_private: true, // This is a private macro
             })
