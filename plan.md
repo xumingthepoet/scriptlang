@@ -716,3 +716,24 @@ Status: pending
 **下一步方向：**
 - Step 3.2: 新增最小 AST builtins（基础读写：`ast_head`, `ast_children`, `ast_attr_get`, `ast_attr_keys`）
 - 注：`Form.meta` 的 P0 问题（位置信息丢失）目前不需要在 Step 3 中修复，但 Step 4（caller env / 错误定位）可能会涉及
+
+### Step 3.2: 新增最小 AST builtins（基础读写）（2026-03-24）
+
+**本次做了什么：**
+- 在 `builtins.rs` 新增 4 个 AST builtin：`ast_head`、`ast_children`、`ast_attr_get`、`ast_attr_keys`
+- 在 `convert.rs` 新增通用 `<builtin>` 和 `<literal>` XML 语法，支持在 compile-time language 中调用任意 builtin
+- 修复 `builtin_invoke_macro`：synthetic invocation 的 children 从硬编码 `Vec::new()` 改为 `macro_env.content.clone()`，使远程宏调用能正确传递 content
+- 扩展 `kernel.xml` 的 `use` 宏：`params` 从 `string:module,keyword:opts` 扩展为 `string:module,keyword:opts,ast:children`，使 `<use>` 能接收并传递 content children 给 `__using__`
+- 新增单元测试：4 个（`builtin_ast_head_works`、`builtin_ast_children_works`、`builtin_ast_attr_get_works`、`builtin_ast_attr_keys_works`）
+- 新增集成测试：57-ast-rewrite-by-head（helper 模块的 `__using__` 演示 AST builtins 检查 content children）
+- 所有 215 个 compiler 单元测试通过，所有 57 个集成测试通过
+
+**本次发现的问题、踩的坑：**
+- `${var}` 在 text template 中读取 `macro_env.locals`（MacroValue），而 `<let>` 绑定存储到 `ct_env`（CtValue）。两者不互通。需要通过 `<builtin>` 调用 builtin（builtin 接收 `ct_env` 参数）或者将 builtin 结果存入 `macro_env.locals` 才能用于模板插值
+- `MacroParamType::Keyword` 不自动绑定 invocation content。需要在 params 中显式声明 `ast:children` 才能让 `use` 宏接收 content
+- `builtin_invoke_macro` 的 synthetic invocation children 始终为空，导致 `use` 传递 content 到 `__using__` 时 content 丢失。修复为从 `macro_env.content` 读取解决了问题
+- `<builtin name="fn"><child_form/></builtin>` 的 child 解析需要处理 `FormItem`（可能有 `FormItem::Text`），需要用 `find_map` 跳过 text items
+
+**下一步方向：**
+- Step 3.3: 新增 AST 写操作 builtin（`ast_attr_set`、`ast_wrap`、`ast_concat`、`ast_filter_head`）
+- 同步更新 IMPLEMENTATION.md 到当前真实状态
