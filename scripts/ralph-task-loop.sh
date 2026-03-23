@@ -9,7 +9,7 @@ cd "${REPO_ROOT}"
 child_pid=""
 interrupted=0
 CLAUDE_LOOP_TEST_CMD="${CLAUDE_LOOP_TEST_CMD:-}"
-BACKOFF_SLEEP_SECONDS="${BACKOFF_SLEEP_SECONDS:-300}"
+BACKOFF_SLEEP_SECONDS="${BACKOFF_SLEEP_SECONDS:-10}"
 
 TASK_DOC_PATH="${1:-}"
 MAX_ROUNDS="${2:-10}"
@@ -327,7 +327,7 @@ for ((round = 1; round <= MAX_ROUNDS; round++)); do
   fi
 
   if [[ "${claude_failed}" -ne 0 ]]; then
-    echo "claude failed in round ${round}; sleeping 5 minutes (${BACKOFF_SLEEP_SECONDS}s) before retry."
+    echo "claude failed in round ${round}; sleeping 10 seconds (${BACKOFF_SLEEP_SECONDS}s) before retry."
     if ! sleep_with_interrupt "${BACKOFF_SLEEP_SECONDS}"; then
       if [[ "${interrupted}" -ne 0 ]]; then
         echo "Interrupted during backoff sleep, exiting."
