@@ -12,7 +12,6 @@ use sl_core::{Form, FormItem, ScriptLangError};
 /// All forms (including <quote>) are converted to CtStmt:
 /// - <quote> children become CtStmt::Return { value: CtExpr::QuoteForms { items } }
 /// - <let>, <set>, <if>, <return> are converted to their CtStmt equivalents
-#[allow(dead_code)]
 pub fn convert_macro_body(body: &[FormItem]) -> Result<CtBlock, ScriptLangError> {
     let mut stmts = Vec::new();
 
@@ -43,7 +42,6 @@ pub fn convert_macro_body(body: &[FormItem]) -> Result<CtBlock, ScriptLangError>
 }
 
 /// Convert a form to a compile-time statement.
-#[allow(dead_code)]
 fn convert_form_to_stmt(form: &Form) -> Result<CtStmt, ScriptLangError> {
     match form.head.as_str() {
         "let" => convert_let_form(form),
@@ -100,7 +98,6 @@ fn convert_form_to_stmt(form: &Form) -> Result<CtStmt, ScriptLangError> {
 }
 
 /// Convert `<let name="..." type="...">provider</let>` to CtStmt::Let.
-#[allow(dead_code)]
 fn convert_let_form(form: &Form) -> Result<CtStmt, ScriptLangError> {
     let name = required_attr(form, "name")?.to_string();
     let type_name = required_attr(form, "type")?;
@@ -135,7 +132,6 @@ fn convert_let_form(form: &Form) -> Result<CtStmt, ScriptLangError> {
 }
 
 /// Convert `<set name="...">expr</set>` to CtStmt::Set.
-#[allow(dead_code)]
 fn convert_set_form(form: &Form) -> Result<CtStmt, ScriptLangError> {
     let name = required_attr(form, "name")?.to_string();
     let expr_form = single_child_form(form)?;
@@ -145,7 +141,6 @@ fn convert_set_form(form: &Form) -> Result<CtStmt, ScriptLangError> {
 }
 
 /// Convert `<if>cond then else?</if>` to CtStmt::If.
-#[allow(dead_code)]
 fn convert_if_form(form: &Form) -> Result<CtStmt, ScriptLangError> {
     let children = extract_form_children(form)?;
 
@@ -188,7 +183,6 @@ fn convert_if_form(form: &Form) -> Result<CtStmt, ScriptLangError> {
 }
 
 /// Convert `<return>expr</return>` to CtStmt::Return.
-#[allow(dead_code)]
 fn convert_return_form(form: &Form) -> Result<CtStmt, ScriptLangError> {
     let children = extract_form_children(form)?;
     if children.is_empty() {
@@ -204,7 +198,6 @@ fn convert_return_form(form: &Form) -> Result<CtStmt, ScriptLangError> {
 }
 
 /// Extract the children field from a form.
-#[allow(dead_code)]
 fn extract_form_children(form: &Form) -> Result<Vec<FormItem>, ScriptLangError> {
     form.fields
         .iter()
@@ -216,7 +209,6 @@ fn extract_form_children(form: &Form) -> Result<Vec<FormItem>, ScriptLangError> 
 }
 
 /// Get a child form at the given index, filtering out empty text.
-#[allow(dead_code)]
 fn child_form_at<'a>(
     children: &'a [FormItem],
     index: usize,
@@ -244,8 +236,63 @@ fn child_form_at<'a>(
     }
 }
 
+/// Parse the module expression from child form elements (<var> or <get-attribute>).
+/// Used as fallback when `module` attribute is absent.
+fn parse_module_from_child(form: &Form) -> Result<CtExpr, ScriptLangError> {
+    let children = extract_form_children(form)?;
+    let child = children.first().ok_or_else(|| {
+        error_at(
+            form,
+            "<invoke_macro> requires module attribute or <var>/<get-attribute> child",
+        )
+    })?;
+    let child_form = match child {
+        FormItem::Form(f) => f,
+        FormItem::Text(_) => {
+            return Err(error_at(
+                form,
+                "<invoke_macro> child must be a form element",
+            ));
+        }
+    };
+    match child_form.head.as_str() {
+        "var" => {
+            let var_name = attr(child_form, "name").unwrap_or("module");
+            Ok(CtExpr::Var {
+                name: var_name.to_string(),
+            })
+        }
+        "get-attribute" => convert_expr_form(child_form),
+        _ => Err(error_at(
+            form,
+            "<invoke_macro> child must be <var> or <get-attribute>",
+        )),
+    }
+}
+
+/// Parse the opts expression from a child <keyword_attr name="opts"/> form.
+/// Used as fallback when `opts` attribute is absent.
+fn parse_opts_from_child(form: &Form) -> Result<CtExpr, ScriptLangError> {
+    let children = extract_form_children(form)?;
+    let child = children
+        .iter()
+        .find(|c| matches!(c, FormItem::Form(f) if f.head == "keyword_attr"))
+        .ok_or_else(|| {
+            error_at(
+                form,
+                "<invoke_macro> requires opts=\"opts\" attribute or <keyword_attr name=\"opts\"/> child",
+            )
+        })?;
+    match child {
+        FormItem::Form(child_form) => convert_expr_form(child_form),
+        FormItem::Text(_) => Err(error_at(
+            form,
+            "<invoke_macro> child must be a form element",
+        )),
+    }
+}
+
 /// Convert a provider form to a CtExpr based on its type.
-#[allow(dead_code)]
 fn convert_provider_to_expr(form: &Form, type_name: &str) -> Result<CtExpr, ScriptLangError> {
     match form.head.as_str() {
         "get-attribute" => {
@@ -323,7 +370,6 @@ fn convert_provider_to_expr(form: &Form, type_name: &str) -> Result<CtExpr, Scri
 }
 
 /// Convert an expression form to CtExpr.
-#[allow(dead_code)]
 fn convert_expr_form(form: &Form) -> Result<CtExpr, ScriptLangError> {
     match form.head.as_str() {
         "get-attribute" => {
@@ -390,56 +436,28 @@ fn convert_expr_form(form: &Form) -> Result<CtExpr, ScriptLangError> {
         }
         // Step 5: <invoke_macro module="..." macro_name="__using__" opts="opts"/> -> builtin_call
         "invoke_macro" => {
-            // module: if it's a bound variable name (module, resolved, etc.), use CtExpr::Var;
+            // module: if it's a bound variable name (alphanumeric + underscore), use CtExpr::Var;
             // otherwise treat as a literal string (attr() builtin)
-            let module_expr = if let Ok(module_attr) = required_attr(form, "module") {
-                // Check if it looks like a variable name (alphanumeric + underscore)
-                if module_attr.chars().all(|c| c.is_alphanumeric() || c == '_') {
-                    // Bound variable: use CtExpr::Var
+            let module_expr = match required_attr(form, "module") {
+                Ok(module_attr) if module_attr.chars().all(|c| c.is_alphanumeric() || c == '_') => {
                     CtExpr::Var {
                         name: module_attr.to_string(),
                     }
-                } else {
-                    // Literal string: use attr() builtin
-                    CtExpr::BuiltinCall {
-                        name: "attr".to_string(),
-                        args: vec![CtExpr::Literal(CtValue::String(module_attr.to_string()))],
-                    }
                 }
-            } else {
-                // Fallback: expect <var name="module"/> or <get-attribute name="module"/> as child
-                let children = extract_form_children(form)?;
-                if let Some(FormItem::Form(child)) = children.first() {
-                    if child.head == "var" {
-                        let var_name = attr(child, "name").unwrap_or("module");
-                        Ok(CtExpr::Var {
-                            name: var_name.to_string(),
-                        })
-                    } else if child.head == "get-attribute" {
-                        convert_expr_form(child)
-                    } else {
-                        Err(error_at(
-                            form,
-                            "<invoke_macro> child must be <var> or <get-attribute>",
-                        ))
-                    }?
-                } else {
-                    return Err(error_at(
-                        form,
-                        "<invoke_macro> requires module attribute or <var>/<get-attribute> child",
-                    ));
-                }
+                Ok(module_attr) => CtExpr::BuiltinCall {
+                    name: "attr".to_string(),
+                    args: vec![CtExpr::Literal(CtValue::String(module_attr.to_string()))],
+                },
+                Err(_) => parse_module_from_child(form)?,
             };
             // macro_name attribute: "__using__"
             let macro_name = required_attr(form, "macro_name")?;
-            // opts variable reference: look for opts="opts" attribute -> CtExpr::Var { name: "opts" }
-            let opts_attr = attr(form, "opts");
-            let opts_expr = if let Some(opts_name) = opts_attr {
-                if opts_name == "opts" {
-                    CtExpr::Var {
-                        name: "opts".to_string(),
-                    }
-                } else {
+            // opts: if opts="opts" attribute is present, use CtExpr::Var; else parse from child
+            let opts_expr = match attr(form, "opts") {
+                Some("opts") => CtExpr::Var {
+                    name: "opts".to_string(),
+                },
+                Some(opts_name) => {
                     return Err(error_at(
                         form,
                         format!(
@@ -448,20 +466,7 @@ fn convert_expr_form(form: &Form) -> Result<CtExpr, ScriptLangError> {
                         ),
                     ));
                 }
-            } else {
-                // Fallback: <keyword_attr name="opts"/>
-                let children = extract_form_children(form)?;
-                if let Some(FormItem::Form(child)) = children
-                    .iter()
-                    .find(|c| matches!(c, FormItem::Form(f) if f.head == "keyword_attr"))
-                {
-                    convert_expr_form(child)?
-                } else {
-                    return Err(error_at(
-                        form,
-                        "<invoke_macro> requires opts=\"opts\" attribute or <keyword_attr name=\"opts\"/> child",
-                    ));
-                }
+                None => parse_opts_from_child(form)?,
             };
             Ok(CtExpr::BuiltinCall {
                 name: "invoke_macro".to_string(),
@@ -485,7 +490,6 @@ fn convert_expr_form(form: &Form) -> Result<CtExpr, ScriptLangError> {
 }
 
 /// Get the single meaningful child form, cloning it.
-#[allow(dead_code)]
 fn single_child_form(form: &Form) -> Result<Form, ScriptLangError> {
     let children = extract_form_children(form)?;
     let meaningful: Vec<_> = children

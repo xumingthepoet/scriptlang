@@ -9,7 +9,6 @@ pub struct CtBlock {
 }
 
 /// A compile-time statement.
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum CtStmt {
     /// Variable binding: `let name = expr`
@@ -29,8 +28,8 @@ pub enum CtStmt {
 }
 
 /// A compile-time expression.
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum CtExpr {
     /// Literal value
     Literal(CtValue),

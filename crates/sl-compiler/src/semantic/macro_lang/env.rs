@@ -10,7 +10,6 @@ pub struct CtEnv {
 }
 
 impl CtEnv {
-    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             locals: HashMap::new(),

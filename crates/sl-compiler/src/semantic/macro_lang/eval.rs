@@ -9,7 +9,6 @@ use crate::semantic::expand::quote::quote_items;
 use sl_core::{Form, FormMeta, ScriptLangError, SourcePosition};
 
 /// Result of evaluation (may return early).
-#[allow(dead_code)]
 pub enum EvalResult {
     /// Normal completion with a value
     Value(CtValue),
@@ -18,7 +17,6 @@ pub enum EvalResult {
 }
 
 impl EvalResult {
-    #[allow(dead_code)]
     pub fn into_value(self) -> Result<CtValue, ScriptLangError> {
         match self {
             EvalResult::Value(v) => Ok(v),
@@ -28,7 +26,6 @@ impl EvalResult {
 }
 
 /// Evaluate a compile-time block.
-#[allow(dead_code)]
 pub fn eval_block(
     block: &CtBlock,
     macro_env: &MacroEnv,
@@ -51,7 +48,6 @@ pub fn eval_block(
 }
 
 /// Evaluate a compile-time statement.
-#[allow(dead_code)]
 pub fn eval_stmt(
     stmt: &CtStmt,
     macro_env: &MacroEnv,
@@ -104,7 +100,6 @@ pub fn eval_stmt(
 }
 
 /// Evaluate a compile-time expression.
-#[allow(dead_code)]
 pub fn eval_expr(
     expr: &CtExpr,
     macro_env: &MacroEnv,

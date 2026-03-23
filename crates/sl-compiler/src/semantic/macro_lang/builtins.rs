@@ -9,7 +9,6 @@ use crate::semantic::expand::macros::expand_macro_invocation_public;
 use sl_core::{Form, FormField, FormItem, FormMeta, FormValue, ScriptLangError, SourcePosition};
 
 /// Result of a builtin function call.
-#[allow(dead_code)]
 pub type BuiltinResult = Result<CtValue, ScriptLangError>;
 
 /// A compile-time builtin function.
@@ -17,7 +16,6 @@ pub type BuiltinResult = Result<CtValue, ScriptLangError>;
 /// - `&MacroEnv`: read-only access to caller context
 /// - `&mut CtEnv`: mutable local variable bindings
 /// - `&mut ExpandEnv`: mutable module state (for require/import/alias/invoke operations)
-#[allow(dead_code)]
 pub type BuiltinFn = fn(&[CtValue], &MacroEnv, &mut CtEnv, &mut ExpandEnv) -> BuiltinResult;
 
 /// Registry of compile-time builtin functions.
