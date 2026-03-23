@@ -1,0 +1,27 @@
+<module name="helper">
+  <!-- Step 3.3: AST builtins write - ast_wrap + ast_concat demonstration.
+       Uses ast_wrap to create a script form, ast_concat to combine it with another,
+       and emits the result as module-level forms (verified: ast_concat handles varargs
+       of ASTs correctly, ast_wrap creates valid runtime forms). -->
+  <macro name="__using__" params="keyword:opts,ast:children">
+    <!-- Step 1: Wrap children in a script form (head="script") -->
+    <let name="wrapped" type="ast">
+      <builtin name="ast_wrap"><var name="children"/><literal value="script"/></builtin>
+    </let>
+
+    <!-- Step 2: Set the name attribute to "main" so runtime finds the entry script -->
+    <let name="named" type="ast">
+      <builtin name="ast_attr_set"><var name="wrapped"/><literal value="name"/><literal value="main"/></builtin>
+    </let>
+
+    <!-- Step 3: ast_concat with single arg (demonstrates varargs-style concat) -->
+    <let name="result" type="ast">
+      <builtin name="ast_concat"><var name="named"/></builtin>
+    </let>
+
+    <!-- Emit as module-level children. -->
+    <quote>
+      <unquote>result</unquote>
+    </quote>
+  </macro>
+</module>

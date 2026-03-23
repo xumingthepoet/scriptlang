@@ -28,7 +28,7 @@ impl EvalResult {
 /// Evaluate a compile-time block.
 pub fn eval_block(
     block: &CtBlock,
-    macro_env: &MacroEnv,
+    macro_env: &mut MacroEnv,
     ct_env: &mut CtEnv,
     builtins: &BuiltinRegistry,
     expand_env: &mut ExpandEnv,
@@ -50,7 +50,7 @@ pub fn eval_block(
 /// Evaluate a compile-time statement.
 pub fn eval_stmt(
     stmt: &CtStmt,
-    macro_env: &MacroEnv,
+    macro_env: &mut MacroEnv,
     ct_env: &mut CtEnv,
     builtins: &BuiltinRegistry,
     expand_env: &mut ExpandEnv,
@@ -58,15 +58,23 @@ pub fn eval_stmt(
     match stmt {
         CtStmt::Let { name, value, .. } => {
             let val = eval_expr(value, macro_env, ct_env, builtins, expand_env)?;
-            ct_env.set(name.clone(), val);
+            ct_env.set(name.clone(), val.clone());
+            // Also store in macro_env.locals so <unquote> can access it (Step 3.3)
+            macro_env
+                .locals
+                .insert(name.clone(), ct_value_to_macro_value(&val));
             Ok(EvalResult::Value(CtValue::Nil))
         }
 
         CtStmt::Set { name, value, .. } => {
             let val = eval_expr(value, macro_env, ct_env, builtins, expand_env)?;
             ct_env
-                .update(name, val)
+                .update(name, val.clone())
                 .map_err(|e| ScriptLangError::Message { message: e })?;
+            // Also update macro_env.locals for <unquote> consistency (Step 3.3)
+            macro_env
+                .locals
+                .insert(name.clone(), ct_value_to_macro_value(&val));
             Ok(EvalResult::Value(CtValue::Nil))
         }
 
@@ -102,7 +110,7 @@ pub fn eval_stmt(
 /// Evaluate a compile-time expression.
 pub fn eval_expr(
     expr: &CtExpr,
-    macro_env: &MacroEnv,
+    macro_env: &mut MacroEnv,
     ct_env: &mut CtEnv,
     builtins: &BuiltinRegistry,
     expand_env: &mut ExpandEnv,

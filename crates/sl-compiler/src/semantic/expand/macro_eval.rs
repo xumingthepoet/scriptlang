@@ -19,7 +19,7 @@ pub(crate) fn evaluate_macro_items(
     _body: &[FormItem],
     _invocation: &Form,
     env: &mut ExpandEnv,
-    runtime: MacroEnv,
+    mut runtime: MacroEnv,
 ) -> Result<Vec<FormItem>, ScriptLangError> {
     // Use the new compile-time evaluator
     let block = convert_macro_body(_body)?;
@@ -33,7 +33,7 @@ pub(crate) fn evaluate_macro_items(
         ct_env.set(name.clone(), macro_value_to_ct_value(mv));
     }
 
-    let result = eval_block(&block, &runtime, &mut ct_env, &builtins, env).map_err(
+    let result = eval_block(&block, &mut runtime, &mut ct_env, &builtins, env).map_err(
         |e: ScriptLangError| ScriptLangError::Message {
             message: e.to_string(),
         },

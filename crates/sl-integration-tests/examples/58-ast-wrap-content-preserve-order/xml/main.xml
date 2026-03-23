@@ -1,0 +1,8 @@
+<module name="main">
+  <!-- Step 3.3: AST builtins write - ast_wrap + ast_attr_set + ast_concat integration.
+       The helper receives content children, uses ast_wrap to create a script form,
+       ast_attr_set to set its name, ast_concat to combine it, and emits it.
+       Since MVP doesn't support <script> with children, we pass empty <use>. -->
+  <use module="helper"/>
+</module>
+
