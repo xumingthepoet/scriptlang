@@ -72,8 +72,6 @@ PROMPT_ROUND_1="当前时间：${CURRENT_TIME}。
 
 ## 绝对禁止
 - **永远不要 git push**。本循环只做 local commit，不推送到任何远程仓库。
-- 有实质进展时 git commit；如果本轮决定跳过（没有任何需要修改的内容），也要在 \`${REPO_ROOT}/current_task_actions.md\` 里记录"跳过原因"，然后视为本轮完成。
-- 如果本轮改动涉及 crates/ 或会影响 crate 行为/接口/测试结果/编译流程，必须同步更新 IMPLEMENTATION.md，并在本轮结束前跑通 make gate。
 
 ## 进度记录
 本轮任务执行完成后，把本次工作进度追加到 \`${TASK_DOC_ABS}\` 末尾。包括：
