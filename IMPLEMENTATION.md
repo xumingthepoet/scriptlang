@@ -132,7 +132,7 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 - 以显式 pipeline 执行编译：
   - `Form -> semantic expand`
   - `expand` 直接消费 raw `Form`，顺序推进定义期状态，并把 module children / exports / imports / requires / aliases / const declarations / macro definitions 沉淀到 `ProgramState`
-  - `expand` 是当前唯一的前端语义入口；其内部通过 `ExpandEnv`、`ExpandRegistry` 和 `semantic/expand/*` 子模块完成定义期状态推进、macro 分派、名称解析和结构降解
+  - `expand` 是当前唯一的前端语义入口；其内部通过 `ExpandEnv` 和 `semantic/expand/*` 子模块中的 free functions 完成定义期状态推进、macro 分派、名称解析和结构降解
   - `semantic program -> runtime IR`
   - 对外还公开了分段 inspect 入口：
     - `expand_to_semantic`
@@ -158,7 +158,6 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
     - `builtins.rs`: builtin 函数注册表（attr / content / has_attr / parse_bool / parse_int 等）
     - `env.rs`: compile-time 环境（CtEnv）
     - `convert.rs`: 旧 XML macro body 到新 compile-time AST 转换器（已集成，用于 macro_eval）
-    - `values.rs`: 类型重导出
   - [`macros.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/macros.rs)：macro 定义收集、可见性查找和模板式宏展开
   - [`quote.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/quote.rs)：`quote / unquote`、AST splice 和最小 hygiene
   - [`modules.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/modules.rs)：module catalog 与 script / function 字面量查找
@@ -186,7 +185,7 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
   - 这层统一覆盖 `EvalGlobalInit / EvalTemp / EvalCond / ExecCode / JumpScriptExpr / CompiledFunction.body / CompiledTextPart::Expr`
   - 文本模板里的纯变量 `${name}` 现在由 AST 的简单变量节点识别，并进一步 lower 成确定性的 `CompiledTextPart::VarRef(name)`，不再走 Rhai eval
 - builtin form 的 expand 处理当前已收敛到 [`semantic/expand/dispatch.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/dispatch.rs) 的统一调度；macro 定义和宏展开细节则收敛到 [`semantic/expand/macros.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/macros.rs)
-- `ExpandRegistry` 当前已经提供 builtin / macro 共用的统一分发入口；macro 当前支持：
+- `dispatch.rs` 中的 free functions（`dispatch_rule`、`has_builtin_rule`、`expand_form_items`）提供 builtin / macro 共用的统一分发入口；macro 当前支持：
   - 当前宏展开要求产出恰好一个根 form
 - 当前宏系统以 `quote / unquote + MacroEnv` 为主路径：
   - 现在已经支持最小的 `quote / unquote`
@@ -201,7 +200,7 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 - **宏参数协议（Step 2）**：
   - 支持显式 `params="type:name,..."` 格式的参数声明
   - 支持参数类型：`expr`, `ast`, `string`, `bool`, `int`, `keyword`, `module`
-  - 保留旧 `attributes="..."` + `content="..."` 协议的向后兼容适配层
+  - 调用时传递的原始 invocation attributes 仍可通过 `attr()` builtin 读取（用于 `<mymacro name="foo">` 形式的属性）
   - 完整的参数验证和错误处理
 - **Module Reducer（Step 3）**：
   - `reduce_module_children()` 实现 definition-time reducer 模式
@@ -926,9 +925,6 @@ error expanding `{macro}` from `{provider}` (called from `{caller}`): {error}
 - [`convert.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/macro_lang/convert.rs)
   - `convert_macro_body()`: 旧 XML macro body → 新 compile-time AST
   - 支持 `<let>`, `<set>`, `<if>`, `<return>`, `<get-attribute>`, `<get-content>`, `<quote>`, `<var>`, `<require_module>`, `<expand_alias>`, `<keyword_attr>`, `<invoke_macro>`
-
-- [`values.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/macro_lang/values.rs)
-  - 类型重导出
 
 #### CtValue 类型覆盖
 
