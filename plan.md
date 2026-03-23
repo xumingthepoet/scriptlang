@@ -694,3 +694,25 @@ Status: pending
 - Step 2.1-2.5 全部完成
 - `CtValue -> MacroValue` 不再出现"list 变 keyword / caller_env 变字符串占位"这种临时退化
 - 远程宏参数模型和本地宏参数模型一致
+
+### Step 3.1: 梳理现有 AST 表示（input 层到 compile-time 层的映射）(2026-03-23)
+
+**本次做了什么：**
+- 完整审计了 `Form`（parser 层源码 AST）和 `CtValue::Ast`（compile-time AST）之间的映射关系
+- 确认了 `CtValue::Ast(Vec<FormItem>)` 的结构：`Vec<FormItem>` 直接存储 `FormItem::Text` 和 `FormItem::Form`
+- 找到了三条转换路径：
+  1. `get-content` builtin → `CtValue::Ast(children)`（`builtins.rs:builtin_content`）
+  2. `<quote>` 宏体 → `CtExpr::QuoteForms { items }` → `CtValue::Ast`（`convert.rs + eval.rs`）
+  3. `invoke_macro` → `CtValue::Ast(expanded_items)`（`builtins.rs:builtin_invoke_macro`）
+- 确认保留的信息：FormItem 顺序、Text 内容、Form 存在性、head、fields（属性名+字符串值）、children 顺序
+- 确认丢弃的信息（P0）：`Form.meta` 完全丢失（`quote.rs:132-136` 用 `invocation.meta` 替换了原始 meta，`eval.rs:158-168` 的 synthetic invocation 使用 dummy zero meta）
+
+**本次发现的问题、踩的坑：**
+- **P0 `Form.meta` 在 quote 后完全丢失**：宏展开后的 `CtValue::Ast` 不携带任何位置信息（source_name, row, column, byte offsets）。这是 `CtValue::Ast` 只存 `Vec<FormItem>` 而不存 meta 的必然结果。
+- **P1 synthetic invocation 使用 dummy meta**：`invoke_macro` 内部构造的 synthetic form 使用 `source_name=None, row=0, column=0`。
+- **P1 空白文本节点过滤**：`convert.rs:20-21` 对 `text.trim().is_empty()` 的文本节点跳过，可能在某些情况下丢失 whitespace。
+- `CtValue::Ast(Vec<FormItem>)` 中每个 `FormItem::Form` 仍然保留完整的 `Form.meta`（包含位置），但这个 meta 在 quote 展开后被替换成 invocation meta。
+
+**下一步方向：**
+- Step 3.2: 新增最小 AST builtins（基础读写：`ast_head`, `ast_children`, `ast_attr_get`, `ast_attr_keys`）
+- 注：`Form.meta` 的 P0 问题（位置信息丢失）目前不需要在 Step 3 中修复，但 Step 4（caller env / 错误定位）可能会涉及
