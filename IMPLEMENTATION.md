@@ -765,6 +765,65 @@ Provider module 通过 `<macro name="__using__" params="keyword:opts">` 暴露 h
 - Coverage: 89.61% lines, 90.43% functions
 - `make gate` 通过
 
+## Step 3.2: AST 一等数据 - 基础读写 Builtins（2026-03-24）
+
+完成状态：已完成
+
+### 架构变更
+
+#### 新增 AST 基础 Builtins
+
+在 `builtins.rs` 中新增 4 个 AST 基础 builtin：
+
+- `ast_head(ast)` → 返回第一个 form 的 head 字符串
+- `ast_children(ast)` → 返回第一个 form 的 children（`CtValue::Ast`）
+- `ast_attr_get(ast, key)` → 返回第一个 form 指定属性的值（`CtValue::String` 或 `CtValue::Ast`）
+- `ast_attr_keys(ast)` → 返回第一个 form 的所有属性 key（不含 `children`）作为 `CtValue::List`
+
+#### 通用 Builtin 调用语法
+
+在 `convert.rs` 中新增两个 XML 语法扩展，支持在 compile-time language 中调用任意 builtin：
+
+- `<builtin name="fn"><arg1/><arg2/>...</builtin>` → `CtExpr::BuiltinCall { name: "fn", args: [...] }`
+  - 在 expression 位置（如 `<let>` 的 value）中使用
+  - 也支持作为 `<let>` 的 provider：`<let name="x"><builtin name="fn"><var name="y"/></builtin></let>`
+- `<literal value="..."/>` → `CtExpr::Literal(CtValue::String(...))`
+  - 用于在 builtin 调用中传递字符串常量
+
+#### `invoke_macro` 传递 content children
+
+`builtin_invoke_macro` 现在从 `macro_env.content` 读取 invocation 的 children，而不是硬编码为空：
+- 修复前：synthetic invocation 的 children 始终为空
+- 修复后：synthetic invocation 的 children 来自调用者的 `macro_env.content`
+- 这使得 `use` 宏可以正确传递 content children 给 `__using__`
+
+#### kernel.xml `use` 宏支持 content
+
+`kernel.xml` 中的 `use` 宏参数扩展为 `params="string:module,keyword:opts,ast:children"`：
+- 新增 `ast:children` 参数：接收 `<use>` 的 content children
+- `invoke_macro` 现在会从 `macro_env.content` 读取 children，无需在宏体内显式传递
+
+### 代码落点
+
+- `crates/sl-compiler/src/semantic/macro_lang/builtins.rs`：
+  - 新增 `extract_first_form()`、`form_value_to_ct_value()` 辅助函数
+  - 新增 4 个 builtin 实现
+- `crates/sl-compiler/src/semantic/macro_lang/convert.rs`：
+  - `convert_expr_form` 新增 `builtin` 和 `literal` 分支
+  - `convert_let_form` 新增 `builtin` 作为 let provider
+- `crates/sl-compiler/src/semantic/macro_lang/builtins.rs`：
+  - `builtin_invoke_macro`：children 来源改为 `macro_env.content.clone()`
+- `crates/sl-api/lib/kernel.xml`：`use` 宏新增 `ast:children` 参数
+
+### 测试状态
+
+- 新增 4 个单元测试：`builtin_ast_head_works`、`builtin_ast_children_works`、`builtin_ast_attr_get_works`、`builtin_ast_attr_keys_works`
+- 新增集成测试 57-ast-rewrite-by-head
+- 所有 215 个 compiler 单元测试通过
+- 所有 57 个集成测试通过
+- Coverage: 90.56% lines
+- `make gate` 通过
+
 ## Step 6: Hygiene、冲突检测和错误定位（2026-03-23）
 
 完成状态：已完成

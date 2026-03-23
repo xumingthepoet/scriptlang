@@ -1,0 +1,8 @@
+<module name="main">
+  <!-- Step 3.2: AST builtins basic read.
+       Calls helper's __using__ with a <script> child.
+       The helper uses ast_head, ast_attr_keys, ast_attr_get to inspect the child. -->
+  <use module="helper">
+    <script name="test_script">inner text content</script>
+  </use>
+</module>

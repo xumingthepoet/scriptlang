@@ -113,6 +113,27 @@ fn convert_let_form(form: &Form) -> Result<CtStmt, ScriptLangError> {
         return Ok(CtStmt::Let { name, value });
     }
 
+    // Handle <builtin name="..."> as a let provider (Step 3.2)
+    if provider.head.as_str() == "builtin" {
+        let builtin_name = required_attr(&provider, "name")?;
+        let children = extract_form_children(&provider)?;
+        let args: Vec<CtExpr> = children
+            .iter()
+            .filter_map(|item| {
+                if let FormItem::Form(f) = item {
+                    convert_expr_form(f).ok()
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let value = CtExpr::BuiltinCall {
+            name: builtin_name.to_string(),
+            args,
+        };
+        return Ok(CtStmt::Let { name, value });
+    }
+
     // Handle <require_module> as a let provider (returns expanded module name as string)
     if provider.head.as_str() == "require_module" {
         let inner = single_child_form(&provider)?;
@@ -433,6 +454,30 @@ fn convert_expr_form(form: &Form) -> Result<CtExpr, ScriptLangError> {
                 name: "keyword_attr".to_string(),
                 args: vec![CtExpr::Literal(CtValue::String(name.to_string()))],
             })
+        }
+        // Step 3.2: <builtin name="fn"><arg1/><arg2/>...</builtin> -> builtin_call
+        "builtin" => {
+            let name = required_attr(form, "name")?;
+            let children = extract_form_children(form)?;
+            let args: Vec<CtExpr> = children
+                .iter()
+                .filter_map(|item| {
+                    if let FormItem::Form(f) = item {
+                        convert_expr_form(f).ok()
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            Ok(CtExpr::BuiltinCall {
+                name: name.to_string(),
+                args,
+            })
+        }
+        // Step 3.2: <literal value="..."/> -> CtExpr::Literal(CtValue::String(...))
+        "literal" => {
+            let value = required_attr(form, "value")?;
+            Ok(CtExpr::Literal(CtValue::String(value.to_string())))
         }
         // Step 5: <invoke_macro module="..." macro_name="__using__" opts="opts"/> -> builtin_call
         "invoke_macro" => {

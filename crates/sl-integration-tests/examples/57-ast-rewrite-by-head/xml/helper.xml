@@ -1,0 +1,39 @@
+<module name="helper">
+  <!-- Step 3.2: AST builtins basic read tests.
+       Demonstrates ast_head, ast_children, ast_attr_get, ast_attr_keys.
+       __using__ receives content children as an AST and applies AST builtins to inspect it. -->
+  <macro name="__using__" params="keyword:opts,ast:children">
+    <!-- children param binds the invocation content (MacroParamType::Ast) to macro_env.locals.
+         get-content reads macro_env.content (same data, different access path). -->
+    <!-- Get the content children as CtValue::Ast -->
+    <let name="children" type="ast">
+      <get-content/>
+    </let>
+
+    <!-- Call ast_head to get the head string of the first form -->
+    <let name="head" type="string">
+      <builtin name="ast_head"><var name="children"/></builtin>
+    </let>
+
+    <!-- Call ast_attr_keys to get all attribute keys (excluding children) -->
+    <let name="keys" type="keyword">
+      <builtin name="ast_attr_keys"><var name="children"/></builtin>
+    </let>
+
+    <!-- Call ast_attr_get to get a specific attribute value -->
+    <let name="name_val" type="string">
+      <builtin name="ast_attr_get"><var name="children"/><literal value="name"/></builtin>
+    </let>
+
+    <!-- Emit a diagnostic script showing the inspection results.
+         head: the tag name of the first form in children
+         keys: list of attribute keys (excluding children field)
+         name_val: value of the "name" attribute -->
+    <quote>
+      <script name="main">
+        <text>AST: head=${head} keys=[${keys}] name=${name_val}</text>
+        <end/>
+      </script>
+    </quote>
+  </macro>
+</module>

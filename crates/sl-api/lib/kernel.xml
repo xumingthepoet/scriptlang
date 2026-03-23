@@ -44,8 +44,8 @@
     </quote>
   </macro>
   <!-- Step 5: Elixir-style use macro -->
-  <!-- use: requires module + invokes target.__using__(opts) -->
-  <macro name="use" params="string:module,keyword:opts">
+  <!-- use: requires module + invokes target.__using__(opts) with content children -->
+  <macro name="use" params="string:module,keyword:opts,ast:children">
     <let name="resolved" type="string">
       <require_module>
         <var name="module"/>

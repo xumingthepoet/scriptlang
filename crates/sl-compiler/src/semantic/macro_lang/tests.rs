@@ -3867,4 +3867,268 @@ mod ct_lang_tests {
             err
         );
     }
+
+    // =========================================================================
+    // Step 3.2: AST builtin tests
+    // =========================================================================
+
+    fn dummy_form_meta() -> FormMeta {
+        FormMeta {
+            source_name: None,
+            start: SourcePosition { row: 0, column: 0 },
+            end: SourcePosition { row: 0, column: 0 },
+            start_byte: 0,
+            end_byte: 0,
+        }
+    }
+
+    #[test]
+    fn builtin_ast_head_works() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = empty_expand_env();
+        let mut ct_env = CtEnv::new();
+
+        // Normal case: ast with a form
+        let ast = CtValue::Ast(vec![FormItem::Form(Form {
+            head: "text".to_string(),
+            meta: dummy_form_meta(),
+            fields: vec![FormField {
+                name: "children".to_string(),
+                value: FormValue::Sequence(vec![FormItem::Text("hello".to_string())]),
+            }],
+        })]);
+
+        let result = builtins.get("ast_head").expect("ast_head exists")(
+            &[ast],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("ast_head should succeed");
+        assert_eq!(result, CtValue::String("text".to_string()));
+
+        // Error: wrong arg count
+        let err = builtins.get("ast_head").unwrap()(
+            &[],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect_err("wrong arg count");
+        assert!(err.to_string().contains("requires exactly 1"));
+
+        // Error: wrong type
+        let err = builtins.get("ast_head").unwrap()(
+            &[CtValue::String("not an ast".to_string())],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect_err("wrong type");
+        assert!(err.to_string().contains("must be ast"));
+
+        // Error: empty ast (text only)
+        let err = builtins.get("ast_head").unwrap()(
+            &[CtValue::Ast(vec![FormItem::Text("just text".to_string())])],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect_err("no form elements");
+        assert!(err.to_string().contains("no form elements"));
+    }
+
+    #[test]
+    fn builtin_ast_children_works() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = empty_expand_env();
+        let mut ct_env = CtEnv::new();
+
+        let child_text = FormItem::Text("inner content".to_string());
+        let ast = CtValue::Ast(vec![FormItem::Form(Form {
+            head: "script".to_string(),
+            meta: dummy_form_meta(),
+            fields: vec![
+                FormField {
+                    name: "name".to_string(),
+                    value: FormValue::String("test".to_string()),
+                },
+                FormField {
+                    name: "children".to_string(),
+                    value: FormValue::Sequence(vec![child_text.clone()]),
+                },
+            ],
+        })]);
+
+        let result = builtins.get("ast_children").expect("ast_children exists")(
+            &[ast],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("ast_children should succeed");
+
+        let expected = CtValue::Ast(vec![child_text]);
+        assert_eq!(result, expected, "ast_children should return children");
+
+        // ast with no children field returns empty list
+        let ast_no_children = CtValue::Ast(vec![FormItem::Form(Form {
+            head: "module".to_string(),
+            meta: dummy_form_meta(),
+            fields: vec![],
+        })]);
+
+        let result2 = builtins.get("ast_children").unwrap()(
+            &[ast_no_children],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("ast_children with no children field");
+        assert_eq!(result2, CtValue::Ast(vec![]));
+
+        // Error: empty ast
+        let err = builtins.get("ast_children").unwrap()(
+            &[CtValue::Ast(vec![])],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect_err("empty ast");
+        assert!(err.to_string().contains("no form elements"));
+    }
+
+    #[test]
+    fn builtin_ast_attr_get_works() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = empty_expand_env();
+        let mut ct_env = CtEnv::new();
+
+        let ast = CtValue::Ast(vec![FormItem::Form(Form {
+            head: "script".to_string(),
+            meta: dummy_form_meta(),
+            fields: vec![
+                FormField {
+                    name: "name".to_string(),
+                    value: FormValue::String("my_script".to_string()),
+                },
+                FormField {
+                    name: "children".to_string(),
+                    value: FormValue::Sequence(vec![FormItem::Text("content".to_string())]),
+                },
+            ],
+        })]);
+
+        // Get string attribute
+        let result = builtins.get("ast_attr_get").expect("ast_attr_get exists")(
+            &[ast.clone(), CtValue::String("name".to_string())],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("ast_attr_get should succeed");
+        assert_eq!(result, CtValue::String("my_script".to_string()));
+
+        // Error: missing attribute
+        let err = builtins.get("ast_attr_get").unwrap()(
+            &[ast.clone(), CtValue::String("missing".to_string())],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect_err("missing attr");
+        assert!(err.to_string().contains("not found"));
+
+        // Error: wrong arg count
+        let err = builtins.get("ast_attr_get").unwrap()(
+            &[ast],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect_err("wrong arg count");
+        assert!(err.to_string().contains("requires exactly 2"));
+
+        // Error: second arg not string
+        let err = builtins.get("ast_attr_get").unwrap()(
+            &[CtValue::Ast(vec![]), CtValue::Int(42)],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect_err("second arg not string");
+        assert!(err.to_string().contains("must be string"));
+    }
+
+    #[test]
+    fn builtin_ast_attr_keys_works() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = empty_expand_env();
+        let mut ct_env = CtEnv::new();
+
+        let ast = CtValue::Ast(vec![FormItem::Form(Form {
+            head: "script".to_string(),
+            meta: dummy_form_meta(),
+            fields: vec![
+                FormField {
+                    name: "name".to_string(),
+                    value: FormValue::String("test".to_string()),
+                },
+                FormField {
+                    name: "mode".to_string(),
+                    value: FormValue::String("debug".to_string()),
+                },
+                FormField {
+                    name: "children".to_string(),
+                    value: FormValue::Sequence(vec![]),
+                },
+            ],
+        })]);
+
+        let result = builtins.get("ast_attr_keys").expect("ast_attr_keys exists")(
+            &[ast],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("ast_attr_keys should succeed");
+
+        // Should contain "name" and "mode" but NOT "children"
+        let keys = match result {
+            CtValue::List(items) => items,
+            other => panic!("expected list, got {:?}", other),
+        };
+        let key_strings: Vec<String> = keys
+            .iter()
+            .map(|k| match k {
+                CtValue::String(s) => s.clone(),
+                other => panic!("expected string key, got {:?}", other),
+            })
+            .collect();
+        assert!(
+            key_strings.contains(&"name".to_string()),
+            "should contain name: {:?}",
+            key_strings
+        );
+        assert!(
+            key_strings.contains(&"mode".to_string()),
+            "should contain mode: {:?}",
+            key_strings
+        );
+        assert!(
+            !key_strings.contains(&"children".to_string()),
+            "should NOT contain children: {:?}",
+            key_strings
+        );
+
+        // Error: wrong type
+        let err = builtins.get("ast_attr_keys").unwrap()(
+            &[CtValue::String("not ast".to_string())],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect_err("wrong type");
+        assert!(err.to_string().contains("must be ast"));
+    }
 }
