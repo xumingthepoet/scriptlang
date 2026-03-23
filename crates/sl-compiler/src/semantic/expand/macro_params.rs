@@ -129,8 +129,10 @@ fn bind_explicit_params(
 
         for (attr_name, attr_value) in invocation_attrs {
             if !used_attrs.contains(attr_name) {
-                // Parse as expression for keyword values
-                let value = MacroValue::String(format!("{}:{}", attr_name, attr_value));
+                // Parse the attr_value to extract the actual value type, not just
+                // store it as a plain string. This preserves bool/int/list structure
+                // from the keyword opts, enabling nested types to flow through.
+                let value = parse_macro_value_from_string(attr_value);
                 keyword_args.push((attr_name.clone(), value));
             }
         }
@@ -226,6 +228,60 @@ fn convert_param_value(
     }
 }
 
+/// Parse a string value from an XML attribute into a MacroValue with proper type.
+///
+/// This enables `use module="..." opts=[...]` to preserve list/keyword structure
+/// through the keyword opts protocol, rather than storing everything as strings.
+///
+/// Supported formats:
+/// - `"true"` / `"false"` → Bool
+/// - Integer string → Int
+/// - `"a,b,c"` (comma-separated, no `:`) → List
+/// - `"key:value"` → Keyword([("key", String("value"))])
+/// - Otherwise → String
+fn parse_macro_value_from_string(s: &str) -> MacroValue {
+    // Boolean
+    match s {
+        "true" => return MacroValue::Bool(true),
+        "false" => return MacroValue::Bool(false),
+        _ => {}
+    }
+
+    // Integer
+    if let Ok(i) = s.parse::<i64>() {
+        return MacroValue::Int(i);
+    }
+
+    // Keyword: "key:value" — only when there is NO comma.
+    // When comma exists (regardless of colon position), prefer comma-separated list
+    // interpretation. This supports the invoke_macro round-trip where a list of
+    // keywords like [("a","b"), ("c","d")] serializes to "a:b,c:d".
+    if let Some(colon_pos) = s.find(':') {
+        let key = &s[..colon_pos];
+        let value = &s[colon_pos + 1..];
+        if !key.is_empty() && !s.contains(',') {
+            return MacroValue::Keyword(vec![(
+                key.to_string(),
+                MacroValue::String(value.to_string()),
+            )]);
+        }
+    }
+
+    // Comma-separated list (only if it contains commas and no colon prefix)
+    if s.contains(',') {
+        let items: Vec<MacroValue> = s
+            .split(',')
+            .map(|part| MacroValue::String(part.trim().to_string()))
+            .collect();
+        if items.len() > 1 {
+            return MacroValue::List(items);
+        }
+    }
+
+    // Fallback: plain string
+    MacroValue::String(s.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use sl_core::{FormField, FormMeta, FormValue, SourcePosition};
@@ -304,5 +360,119 @@ mod tests {
         let invocation = make_form("test", vec![]);
         let result = convert_param_value(&MacroParamType::String, None, "name", &invocation);
         assert!(result.is_err());
+    }
+
+    // Tests for parse_macro_value_from_string (Step 2.4)
+
+    #[test]
+    fn test_parse_macro_value_bool_true() {
+        assert_eq!(
+            parse_macro_value_from_string("true"),
+            MacroValue::Bool(true)
+        );
+    }
+
+    #[test]
+    fn test_parse_macro_value_bool_false() {
+        assert_eq!(
+            parse_macro_value_from_string("false"),
+            MacroValue::Bool(false)
+        );
+    }
+
+    #[test]
+    fn test_parse_macro_value_int() {
+        assert_eq!(parse_macro_value_from_string("42"), MacroValue::Int(42));
+        assert_eq!(parse_macro_value_from_string("-10"), MacroValue::Int(-10));
+    }
+
+    #[test]
+    fn test_parse_macro_value_keyword() {
+        assert_eq!(
+            parse_macro_value_from_string("name:value"),
+            MacroValue::Keyword(vec![(
+                "name".to_string(),
+                MacroValue::String("value".to_string())
+            )])
+        );
+        assert_eq!(
+            parse_macro_value_from_string("key:complex:value"),
+            MacroValue::Keyword(vec![(
+                "key".to_string(),
+                MacroValue::String("complex:value".to_string())
+            )])
+        );
+    }
+
+    #[test]
+    fn test_parse_macro_value_list() {
+        assert_eq!(
+            parse_macro_value_from_string("a,b,c"),
+            MacroValue::List(vec![
+                MacroValue::String("a".to_string()),
+                MacroValue::String("b".to_string()),
+                MacroValue::String("c".to_string()),
+            ])
+        );
+        assert_eq!(
+            parse_macro_value_from_string(" a , b , c "),
+            MacroValue::List(vec![
+                MacroValue::String("a".to_string()),
+                MacroValue::String("b".to_string()),
+                MacroValue::String("c".to_string()),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_parse_macro_value_string_fallback() {
+        // Single value without commas/key/colon = string
+        assert_eq!(
+            parse_macro_value_from_string("hello"),
+            MacroValue::String("hello".to_string())
+        );
+        // "true" as part of a larger string should be string (not bool) since it has trailing chars
+        assert_eq!(
+            parse_macro_value_from_string("truex"),
+            MacroValue::String("truex".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_macro_value_priority() {
+        // "true" should parse as bool, not string
+        assert!(matches!(
+            parse_macro_value_from_string("true"),
+            MacroValue::Bool(true)
+        ));
+        // "1" is ambiguous: could be int. Let's ensure int takes priority
+        assert!(matches!(
+            parse_macro_value_from_string("1"),
+            MacroValue::Int(1)
+        ));
+        // "a,b" without colon = list, not keyword
+        assert!(matches!(
+            parse_macro_value_from_string("a,b"),
+            MacroValue::List(_)
+        ));
+    }
+
+    #[test]
+    fn test_parse_macro_value_comma_colon_priority() {
+        // "key:val" = keyword (no comma → pure keyword)
+        assert!(matches!(
+            parse_macro_value_from_string("key:val"),
+            MacroValue::Keyword(_)
+        ));
+        // "data:x,y" = list (has comma → comma takes priority)
+        assert!(matches!(
+            parse_macro_value_from_string("data:x,y"),
+            MacroValue::List(_)
+        ));
+        // "a:b,c:d" = list (comma-separated items)
+        assert!(matches!(
+            parse_macro_value_from_string("a:b,c:d"),
+            MacroValue::List(_)
+        ));
     }
 }

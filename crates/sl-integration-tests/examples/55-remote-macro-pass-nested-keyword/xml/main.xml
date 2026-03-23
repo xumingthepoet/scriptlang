@@ -1,3 +1,6 @@
 <module name="main">
-  <use module="provider"/>
+  <!-- Step 2.4: use with opts containing list/keyword values.
+       bind_explicit_params should parse "a,b,c" as list and "key:val" as keyword,
+       not leave them as plain strings. -->
+  <use module="provider" async="true" items="a,b,c" config="mode:debug"/>
 </module>

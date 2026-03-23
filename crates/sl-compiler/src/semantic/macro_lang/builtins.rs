@@ -9,6 +9,33 @@ use crate::semantic::expand::macro_values::MacroValue;
 use crate::semantic::expand::macros::expand_macro_invocation_public;
 use sl_core::{Form, FormField, FormItem, FormMeta, FormValue, ScriptLangError, SourcePosition};
 
+/// Convert a CtValue to a string for serialization in invoke_macro keyword args.
+/// The format must be parseable by parse_macro_value_from_string in macro_params.rs.
+fn ct_value_to_string(value: &CtValue) -> String {
+    match value {
+        CtValue::Nil => "nil".to_string(),
+        CtValue::Bool(b) => b.to_string(),
+        CtValue::Int(i) => i.to_string(),
+        CtValue::String(s) => s.clone(),
+        CtValue::ModuleRef(m) => format!("@{}", m),
+        CtValue::CallerEnv => "<caller_env>".to_string(),
+        // List: serialize as comma-separated items (parseable as comma-separated list)
+        CtValue::List(items) => items
+            .iter()
+            .map(ct_value_to_string)
+            .collect::<Vec<_>>()
+            .join(","),
+        // Keyword: serialize as "key:val,key2:val2" (parseable as colon-separated keyword)
+        CtValue::Keyword(kv) => kv
+            .iter()
+            .map(|(k, v)| format!("{}:{}", k, ct_value_to_string(v)))
+            .collect::<Vec<_>>()
+            .join(","),
+        // Ast: represent as opaque string (cannot be losslessly serialized as attribute string)
+        CtValue::Ast(_) => "[ast]".to_string(),
+    }
+}
+
 /// Result of a builtin function call.
 pub type BuiltinResult = Result<CtValue, ScriptLangError>;
 
@@ -973,10 +1000,30 @@ fn builtin_invoke_macro(
             CtValue::String(s) => FormValue::String(s.clone()),
             CtValue::Int(i) => FormValue::String(i.to_string()),
             CtValue::Bool(b) => FormValue::String(b.to_string()),
+            // Step 2.4: Support nested List/Keyword/Ast in invoke_macro args.
+            // These are serialized as delimited strings so they can be passed
+            // as XML form attributes and then parsed back in bind_explicit_params.
+            CtValue::List(items) => {
+                let serialized: String = items
+                    .iter()
+                    .map(ct_value_to_string)
+                    .collect::<Vec<_>>()
+                    .join(",");
+                FormValue::String(serialized)
+            }
+            CtValue::Keyword(kv) => {
+                let serialized: String = kv
+                    .iter()
+                    .map(|(k, v)| format!("{}:{}", k, ct_value_to_string(v)))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                FormValue::String(serialized)
+            }
+            CtValue::Ast(items) => FormValue::Sequence(items.clone()),
             other => {
                 return Err(ScriptLangError::Message {
                     message: format!(
-                        "invoke_macro() keyword arg value must be string, int, or bool, got {}",
+                        "invoke_macro() keyword arg value must be string, int, bool, list, keyword, or ast, got {}",
                         other.type_name()
                     ),
                 });

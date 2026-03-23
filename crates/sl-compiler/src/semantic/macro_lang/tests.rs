@@ -3052,21 +3052,21 @@ mod ct_lang_tests {
         let mut ct_env = CtEnv::new();
         let builtins = BuiltinRegistry::new();
 
-        // Keyword arg value is Ast (not string/int/bool)
+        // Keyword arg value is Nil (truly unsupported — ModuleRef/CallerEnv also unsupported)
         let err = builtins.get("invoke_macro").unwrap()(
             &[
                 CtValue::String("helper".to_string()),
                 CtValue::String("__using__".to_string()),
-                CtValue::Keyword(vec![("opt1".to_string(), CtValue::Ast(vec![]))]),
+                CtValue::Keyword(vec![("opt1".to_string(), CtValue::Nil)]),
             ],
             &macro_env,
             &mut ct_env,
             &mut expand_env,
         )
-        .expect_err("wrong keyword arg value type");
+        .expect_err("nil keyword arg value type");
         assert!(
             err.to_string()
-                .contains("keyword arg value must be string, int, or bool")
+                .contains("keyword arg value must be string, int, bool, list, keyword, or ast")
         );
     }
 
@@ -3159,6 +3159,116 @@ mod ct_lang_tests {
         match result {
             CtValue::Ast(items) => {
                 assert!(!items.is_empty());
+            }
+            other => panic!("expected Ast, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn builtin_invoke_macro_accepts_list_and_keyword_args() {
+        use crate::semantic::env::MacroDefinition;
+
+        let mut macro_env = MacroEnv {
+            current_module: Some("main".to_string()),
+            ..Default::default()
+        };
+        macro_env.requires.push("helper".to_string());
+
+        let mut expand_env = empty_expand_env();
+        expand_env
+            .begin_module(Some("helper".to_string()), Some("helper.xml".to_string()))
+            .expect("helper module");
+
+        let quote_meta = FormMeta {
+            source_name: Some("helper.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 10 },
+            start_byte: 0,
+            end_byte: 10,
+        };
+
+        fn make_field(name: &str, value: FormValue) -> FormField {
+            FormField {
+                name: name.to_string(),
+                value,
+            }
+        }
+        fn make_seq(items: Vec<FormItem>) -> FormValue {
+            FormValue::Sequence(items)
+        }
+        fn make_form_item(meta: &FormMeta, head: &str, fields: Vec<FormField>) -> FormItem {
+            FormItem::Form(sl_core::Form {
+                head: head.to_string(),
+                meta: meta.clone(),
+                fields,
+            })
+        }
+
+        let macro_body = vec![make_form_item(
+            &quote_meta,
+            "quote",
+            vec![make_field(
+                "children",
+                make_seq(vec![make_form_item(
+                    &quote_meta,
+                    "text",
+                    vec![make_field(
+                        "children",
+                        make_seq(vec![FormItem::Text("ok".to_string())]),
+                    )],
+                )]),
+            )],
+        )];
+
+        expand_env
+            .program
+            .register_macro(MacroDefinition {
+                module_name: "helper".to_string(),
+                name: "__using__".to_string(),
+                params: Some(vec![crate::semantic::env::MacroParam {
+                    param_type: crate::semantic::env::MacroParamType::Keyword,
+                    name: "opts".to_string(),
+                }]),
+                body: macro_body,
+                is_private: false,
+            })
+            .expect("register macro");
+
+        let mut ct_env = CtEnv::new();
+        let builtins = BuiltinRegistry::new();
+
+        // Step 2.4: List/Keyword/Ast keyword args should not error
+        let result = builtins.get("invoke_macro").unwrap()(
+            &[
+                CtValue::String("helper".to_string()),
+                CtValue::String("__using__".to_string()),
+                CtValue::Keyword(vec![
+                    ("flag".to_string(), CtValue::Bool(true)),
+                    ("count".to_string(), CtValue::Int(42)),
+                    (
+                        "items".to_string(),
+                        CtValue::List(vec![
+                            CtValue::String("a".to_string()),
+                            CtValue::String("b".to_string()),
+                        ]),
+                    ),
+                    (
+                        "meta".to_string(),
+                        CtValue::Keyword(vec![(
+                            "key".to_string(),
+                            CtValue::String("val".to_string()),
+                        )]),
+                    ),
+                ]),
+            ],
+            &macro_env,
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("List/Keyword/Ast keyword args should not error");
+        match result {
+            CtValue::Ast(items) => {
+                assert!(!items.is_empty(), "should produce AST items");
             }
             other => panic!("expected Ast, got {:?}", other),
         }

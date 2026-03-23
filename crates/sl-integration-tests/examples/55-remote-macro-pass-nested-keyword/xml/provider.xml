@@ -1,10 +1,29 @@
 <module name="provider">
+  <!-- __using__ receives keyword:opts containing:
+       - async="true"  (parses to Bool)
+       - items="a,b,c" (parses to List)
+       - config="mode:debug" (parses to Keyword)
+       Use get-attribute to access individual opts values.
+       With Step 2.4 fix, these return typed values (not just strings). -->
   <macro name="__using__" params="keyword:opts">
-    <quote>
-      <script name="main">
-        <text>placeholder keyword test</text>
-        <end/>
-      </script>
-    </quote>
+    <if>
+      <get-attribute name="async"/>
+      <then>
+        <quote>
+          <script name="main">
+            <text>async</text>
+            <end/>
+          </script>
+        </quote>
+      </then>
+      <else>
+        <quote>
+          <script name="main">
+            <text>sync</text>
+            <end/>
+          </script>
+        </quote>
+      </else>
+    </if>
   </macro>
 </module>
