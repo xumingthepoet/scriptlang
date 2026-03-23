@@ -14,6 +14,12 @@ BACKOFF_SLEEP_SECONDS="${BACKOFF_SLEEP_SECONDS:-10}"
 TASK_DOC_PATH="${1:-}"
 MAX_ROUNDS="${2:-10}"
 
+# Track consecutive no-progress rounds (decompose trigger: >= 2)
+NO_PROGRESS_ROUNDS=0
+
+# Duration threshold in seconds (5 minutes)
+STUCK_MIN_DURATION_SECONDS=300
+
 usage() {
   cat <<'EOF'
 Usage:
@@ -22,6 +28,9 @@ Usage:
 Behavior:
   - Run a Ralph-style loop toward the given task document.
   - Each round sends exactly two independent prompts to Claude (two separate `claude -p` calls, no conversation continuity).
+  - After 2 consecutive failed rounds that each took >= 5 minutes, a single "task decomposition" prompt runs instead:
+    it identifies the stuck task and breaks it into smaller, actionable sub-steps.
+  - Quick failures (< 5 minutes) are not counted as stuck (likely token/parse errors, not thinking failures).
 
 Examples:
   scripts/ralph-task-loop.sh docs/tasks/repl-plan.md
@@ -168,6 +177,59 @@ PROMPT_ROUND_2="当前时间：${CURRENT_TIME}。
 - 断点状态不要救场，直接结束让下一轮继续。
 - 全部通过时不要做任何操作，直接结束即可。"
 
+PROMPT_DECOMPOSE="当前时间：${CURRENT_TIME}。
+
+## 角色
+你是任务分解专家。大循环已经连续 2 轮在同一个任务上没有任何实质性进展。
+
+## 任务
+识别卡点，将当前任务分解为更小、更可操作的步骤，然后提交你对任务文档的修改。
+
+## 当前任务文档
+读取 \`${TASK_DOC_ABS}\`，找到当前正在进行的步骤（Status: pending 或刚标记为进行中的步骤）。
+
+## 分析工作区状态
+用 \`git status\` 和 \`git diff\` 查看工作区的未提交变更。
+
+**工作区必须完全干净**：先用 \`git reset --hard\` 丢弃所有未提交的变更（不需要 stash，Ralph loop 不会丢失有用的中间状态）。然后只改动任务文档 \`${TASK_DOC_ABS}\`，改完后 commit。
+
+## 分解要求
+
+**分析卡点原因**：
+- 为什么连续 2 轮没有进展？列出可能的原因：
+  1. 步骤本身定义不够具体？
+  2. 依赖未满足（需要先完成其他前置工作）？
+  3. 实现路径不清晰，agent 不知道从哪里下手？
+  4. 步骤粒度太大，一轮做不完？
+
+**将当前步骤拆解为 2-4 个更小的子步骤**：
+- 每个子步骤必须能在 1-2 轮内完成
+- 每个子步骤有明确的验收标准（什么算"完成"）
+- 子步骤之间如果有依赖关系，明确标出
+
+**更新任务文档（重要格式要求）**：
+在当前卡住的步骤位置原地替换，用编号表示子步骤关系：
+- 原来 3.2 卡住 → 原地拆成 3.2.1、3.2.2、3.2.3……，删除原来的 3.2 内容
+- 原来 3.2.2 卡住 → 原地拆成 3.2.2.1、3.2.2.2、3.2.2.3……，删除原来的 3.2.2
+- 以此类推，子步骤编号末尾数字递增（3.2.1.3 卡住 → 3.2.1.3.1、3.2.1.3.2……）
+
+每个子步骤必须：
+- 有标题和验收标准
+- 能在 1-2 轮内完成
+- 子步骤之间如有依赖关系，明确标出
+
+在进度记录区（文档末尾）追加本轮分解记录：
+- 原来卡在哪个步骤
+- 分析的卡点原因
+
+## 提交
+只提交对任务文档 \`${TASK_DOC_ABS}\` 的修改。**此文件永远不会进入 git 提交**：\`${REPO_ROOT}/current_task_actions.md\`。
+
+## 绝对禁止
+- 不要修改与当前步骤无关的其他步骤
+- 不要做代码实现，只做任务分解
+- 不要 git push
+
 PROMPTS=(
   "${PROMPT_ROUND_1}"
   "${PROMPT_ROUND_2}"
@@ -257,7 +319,52 @@ for ((round = 1; round <= MAX_ROUNDS; round++)); do
     exit 130
   fi
 
-  echo "===== Round ${round}/${MAX_ROUNDS}: task ${TASK_DOC_ABS} (${#PROMPTS[@]} prompts) ====="
+  echo "===== Round ${round}/${MAX_ROUNDS}: task ${TASK_DOC_ABS} ====="
+  ROUND_START_SECONDS="${SECONDS}"
+
+  # If stuck for 2+ rounds, run decompose first before normal P1+P2
+  if [[ "${NO_PROGRESS_ROUNDS}" -ge 2 ]]; then
+    echo "----- Running decompose (${NO_PROGRESS_ROUNDS} no-progress rounds) -----"
+
+    while true; do
+      if [[ "${interrupted}" -ne 0 ]]; then
+        echo "Interrupted during decompose, exiting."
+        exit 130
+      fi
+
+      if [[ -n "${CLAUDE_LOOP_TEST_CMD}" ]]; then
+        claude_cmd=(bash -lc "${CLAUDE_LOOP_TEST_CMD}")
+        if run_foreground_command "${claude_cmd[@]}"; then
+          echo "Decompose (test mode) succeeded."
+          NO_PROGRESS_ROUNDS=0
+          break
+        else
+          echo "Decompose (test mode) failed; sleeping ${BACKOFF_SLEEP_SECONDS}s before retry."
+          if ! sleep_with_interrupt "${BACKOFF_SLEEP_SECONDS}"; then
+            [[ "${interrupted}" -ne 0 ]] && { echo "Interrupted during backoff sleep, exiting."; exit 130; }
+          fi
+        fi
+      else
+        prompt="${PROMPT_DECOMPOSE}"
+        claude_cmd=(claude -p --dangerously-skip-permissions "${prompt}")
+        run_and_capture "${claude_cmd[@]}"
+        claude_status="${LAST_STATUS}"
+        echo "claude exit code: ${claude_status}"
+        if [[ "${claude_status}" -eq 0 ]]; then
+          echo "Decompose succeeded."
+          NO_PROGRESS_ROUNDS=0
+          break
+        fi
+        echo "Decompose failed (exit ${claude_status}); sleeping ${BACKOFF_SLEEP_SECONDS}s before retry."
+        if ! sleep_with_interrupt "${BACKOFF_SLEEP_SECONDS}"; then
+          [[ "${interrupted}" -ne 0 ]] && { echo "Interrupted during backoff sleep, exiting."; exit 130; }
+        fi
+      fi
+    done
+    # After decompose succeeds, fall through to normal P1+P2 with counter reset
+  fi
+
+  # Normal P1+P2 loop
   claude_failed=0
   p2_said_exit=0
 
@@ -269,7 +376,6 @@ for ((round = 1; round <= MAX_ROUNDS; round++)); do
 
     prompt_idx=$((i + 1))
     prompt="${PROMPTS[$i]}"
-    # Prompt 2 needs to know which round it is auditing
     if [[ "${i}" -eq 1 ]]; then
       prompt="${prompt//__ROUND_NUM__/${round}}"
     fi
@@ -289,20 +395,15 @@ for ((round = 1; round <= MAX_ROUNDS; round++)); do
       run_and_capture "${claude_cmd[@]}"
       claude_status="${LAST_STATUS}"
       echo "claude exit code: ${claude_status}"
-      # Show last few lines of output
       echo "--- output (last 5 lines) ---"
       tail -5 "${LAST_OUTPUT_FILE}" || true
       echo "--------------------------------"
-
-      # Detect "退出" in last line of output
       last_line="$(tail -1 "${LAST_OUTPUT_FILE}" 2>/dev/null || echo "")"
       if [[ "${last_line}" == "退出" ]]; then
         echo "Detected '退出' from prompt ${prompt_idx}"
         if [[ "${i}" -eq 0 ]]; then
-          # P1 said exit: still run P2 to verify
           echo "P1 requested exit; running P2 to verify..."
         elif [[ "${i}" -eq 1 ]]; then
-          # P2 said exit: both confirmed, exit the loop
           echo "P2 confirmed exit; both prompts agree. Exiting loop."
           p2_said_exit=1
         fi
@@ -320,25 +421,34 @@ for ((round = 1; round <= MAX_ROUNDS; round++)); do
     fi
   done
 
-  # If P2 confirmed exit, break out of the outer round loop
+  # Exit if P2 confirmed
   if [[ "${p2_said_exit}" -ne 0 ]]; then
     echo "Loop ended by mutual exit agreement."
     exit 0
   fi
 
+  # Retry on failure: only count as stuck if it took long enough
   if [[ "${claude_failed}" -ne 0 ]]; then
-    echo "claude failed in round ${round}; sleeping 10 seconds (${BACKOFF_SLEEP_SECONDS}s) before retry."
+    local duration=$((SECONDS - ROUND_START_SECONDS))
+    local minutes=$((duration / 60))
+    local seconds=$((duration % 60))
+    if [[ "${duration}" -ge "${STUCK_MIN_DURATION_SECONDS}" ]]; then
+      NO_PROGRESS_ROUNDS=$((NO_PROGRESS_ROUNDS + 1))
+      echo "claude failed in round ${round} (stuck: ${NO_PROGRESS_ROUNDS}/2, duration: ${minutes}m${seconds}s); sleeping ${BACKOFF_SLEEP_SECONDS}s before retry."
+    else
+      echo "claude failed in round ${round} but only took ${minutes}m${seconds}s (< 5m), not counting as stuck; sleeping ${BACKOFF_SLEEP_SECONDS}s before retry."
+    fi
     if ! sleep_with_interrupt "${BACKOFF_SLEEP_SECONDS}"; then
-      if [[ "${interrupted}" -ne 0 ]]; then
-        echo "Interrupted during backoff sleep, exiting."
-        exit 130
-      fi
+      [[ "${interrupted}" -ne 0 ]] && { echo "Interrupted during backoff sleep, exiting."; exit 130; }
     fi
     continue
   fi
 
+  # Success: reset counter
+  NO_PROGRESS_ROUNDS=0
   echo "Round ${round} finished; continuing."
 done
 
 echo "Reached max rounds (${MAX_ROUNDS})."
 exit 0
+
