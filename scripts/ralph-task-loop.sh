@@ -73,6 +73,9 @@ PROMPT_ROUND_1="当前时间：${CURRENT_TIME}。
 ## 绝对禁止
 - **永远不要 git push**。本循环只做 local commit，不推送到任何远程仓库。
 
+## 退出
+阅读 \`${TASK_DOC_ABS}\`，如果发现所有步骤都已完成，最后一行输出 **退出**，表示本轮为最后一轮工作。
+
 ## 进度记录
 本轮任务执行完成后，把本次工作进度追加到 \`${TASK_DOC_ABS}\` 末尾。包括：
 - 当前步骤标题
@@ -152,6 +155,13 @@ PROMPT_ROUND_2="当前时间：${CURRENT_TIME}。
 - **无漂移 + 有格式问题**（漏删文件、commit message 格式不规范等）：直接修正，然后结束。
 - **断点状态**（文件存在、无 commit）：不做任何操作，直接结束，下一轮继续。
 
+## 退出
+
+如果 prompt1 最后一行输出了"退出"：
+1. 读取 \`${TASK_DOC_ABS}\` 确认是否所有步骤真的已完成。
+2. 确认无剩余工作后，最后一行也输出 **退出**，表示审查通过，大循环可以结束。
+3. 如果还有未完成的步骤，不输出退出，让大循环继续。
+
 ## 不要做的事
 - 不要分析代码逻辑的对错或实现质量。
 - 无漂移时不要 reset；漂移了不要救场。
@@ -214,6 +224,28 @@ run_foreground_command() {
   return "${status}"
 }
 
+# Run command, capture output to file, return exit code.
+# Sets global LAST_OUTPUT_FILE with the temp file path.
+run_and_capture() {
+  local output_file
+  output_file="$(mktemp)"
+  LAST_OUTPUT_FILE="${output_file}"
+  if command_exists setsid; then
+    setsid "$@" > "${output_file}" 2>&1 &
+  else
+    "$@" > "${output_file}" 2>&1 &
+  fi
+  child_pid=$!
+
+  set +e
+  wait "${child_pid}"
+  local status=$?
+  set -e
+
+  child_pid=""
+  LAST_STATUS="${status}"
+}
+
 sleep_with_interrupt() {
   local seconds="$1"
   run_foreground_command sleep "${seconds}"
@@ -227,6 +259,7 @@ for ((round = 1; round <= MAX_ROUNDS; round++)); do
 
   echo "===== Round ${round}/${MAX_ROUNDS}: task ${TASK_DOC_ABS} (${#PROMPTS[@]} prompts) ====="
   claude_failed=0
+  p2_said_exit=0
 
   for ((i = 0; i < ${#PROMPTS[@]}; i++)); do
     if [[ "${interrupted}" -ne 0 ]]; then
@@ -243,17 +276,38 @@ for ((round = 1; round <= MAX_ROUNDS; round++)); do
 
     if [[ -n "${CLAUDE_LOOP_TEST_CMD}" ]]; then
       claude_cmd=(bash -lc "${CLAUDE_LOOP_TEST_CMD}")
+      echo "----- Round ${round}: prompt ${prompt_idx}/${#PROMPTS[@]} -----"
+      if run_foreground_command "${claude_cmd[@]}"; then
+        claude_status=0
+      else
+        claude_status=$?
+      fi
+      echo "claude exit code: ${claude_status}"
     else
       claude_cmd=(claude -p --dangerously-skip-permissions "${prompt}")
-    fi
+      echo "----- Round ${round}: prompt ${prompt_idx}/${#PROMPTS[@]} -----"
+      run_and_capture "${claude_cmd[@]}"
+      claude_status="${LAST_STATUS}"
+      echo "claude exit code: ${claude_status}"
+      # Show last few lines of output
+      echo "--- output (last 5 lines) ---"
+      tail -5 "${LAST_OUTPUT_FILE}" || true
+      echo "--------------------------------"
 
-    echo "----- Round ${round}: prompt ${prompt_idx}/${#PROMPTS[@]} -----"
-    if run_foreground_command "${claude_cmd[@]}"; then
-      claude_status=0
-    else
-      claude_status=$?
+      # Detect "退出" in last line of output
+      last_line="$(tail -1 "${LAST_OUTPUT_FILE}" 2>/dev/null || echo "")"
+      if [[ "${last_line}" == "退出" ]]; then
+        echo "Detected '退出' from prompt ${prompt_idx}"
+        if [[ "${i}" -eq 0 ]]; then
+          # P1 said exit: still run P2 to verify
+          echo "P1 requested exit; running P2 to verify..."
+        elif [[ "${i}" -eq 1 ]]; then
+          # P2 said exit: both confirmed, exit the loop
+          echo "P2 confirmed exit; both prompts agree. Exiting loop."
+          p2_said_exit=1
+        fi
+      fi
     fi
-    echo "claude exit code: ${claude_status}"
 
     if [[ "${interrupted}" -ne 0 ]]; then
       echo "Interrupted while claude was running, exiting."
@@ -265,6 +319,12 @@ for ((round = 1; round <= MAX_ROUNDS; round++)); do
       break
     fi
   done
+
+  # If P2 confirmed exit, break out of the outer round loop
+  if [[ "${p2_said_exit}" -ne 0 ]]; then
+    echo "Loop ended by mutual exit agreement."
+    exit 0
+  fi
 
   if [[ "${claude_failed}" -ne 0 ]]; then
     echo "claude failed in round ${round}; sleeping 5 minutes (${BACKOFF_SLEEP_SECONDS}s) before retry."
