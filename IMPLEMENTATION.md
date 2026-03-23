@@ -819,9 +819,55 @@ Provider module 通过 `<macro name="__using__" params="keyword:opts">` 暴露 h
 
 - 新增 4 个单元测试：`builtin_ast_head_works`、`builtin_ast_children_works`、`builtin_ast_attr_get_works`、`builtin_ast_attr_keys_works`
 - 新增集成测试 57-ast-rewrite-by-head
-- 所有 215 个 compiler 单元测试通过
-- 所有 57 个集成测试通过
-- Coverage: 90.56% lines
+- 所有 215 个 compiler 单元测试通过（Step 3.3 完成后为 219 个）
+- 所有 57 个集成测试通过（Step 3.3 完成后为 58 个）
+- Coverage: 90.56% lines（Step 3.3 完成后为 90.22%）
+- `make gate` 通过
+
+## Step 3.3: AST 写操作 Builtins（2026-03-24）
+
+完成状态：已完成
+
+### 架构变更
+
+#### 新增 AST 写操作 Builtins
+
+在 `builtins.rs` 中新增 4 个 AST 写操作 builtin（全部遵循 immutability，原 AST 不变）：
+
+- `ast_attr_set(ast, key, value)`：返回修改了属性的新 AST（原 AST 不变）
+  - 替换第一个 matching 属性的值；如果属性不存在则追加
+- `ast_wrap(inner_ast, head, extra_attrs?)`：用指定 head 包装 inner AST items
+  - 返回 `CtValue::Ast` 包含一个 `FormItem::Form`（wrapper form）
+  - 可选 `extra_attrs`：keyword list 或 `[key:val,...]` list 格式，用于设置 name 等属性
+- `ast_concat(...asts)`：拼接多个 AST
+  - 支持 3 种调用风格：varargs（`ast_concat(ast1, ast2)`）、单 AST 参数、`CtValue::List` 参数（向后兼容）
+- `ast_filter_head(ast, predicate_head)`：按 head 过滤 children
+  - 返回只包含 matching form 的新 AST；Text 节点被忽略
+
+#### CtEnv ↔ MacroEnv 双向同步
+
+`eval.rs` 的 `CtStmt::Let` 和 `CtStmt::Set` 现在同步将 CtEnv 值写入 `macro_env.locals`：
+- `<let name="x">` 设置的值同时存入 `ct_env` 和 `macro_env.locals`
+- 这使得 `<unquote>x</unquote>` 可以访问 `<let>` 绑定的 CtValue
+- `eval_block/eval_stmt/eval_expr` 的 `macro_env` 参数改为 `&mut` 以支持写操作
+
+### 代码落点
+
+- `crates/sl-compiler/src/semantic/macro_lang/builtins.rs`：
+  - 新增 `ct_value_to_form_field_value()` 辅助函数
+  - 新增 4 个 builtin 实现：`builtin_ast_attr_set`、`builtin_ast_wrap`、`builtin_ast_concat`、`builtin_ast_filter_head`
+- `crates/sl-compiler/src/semantic/macro_lang/eval.rs`：
+  - `eval_block/eval_stmt/eval_expr`：`macro_env` 参数改为 `&mut`
+  - `CtStmt::Let/Set`：增加 `macro_env.locals.insert()`
+  - 新增 `sync_ct_env_to_macro_env()` 函数
+
+### 测试状态
+
+- 新增 4 个单元测试：`builtin_ast_attr_set_works`、`builtin_ast_wrap_works`、`builtin_ast_concat_works`、`builtin_ast_filter_head_works`
+- 新增集成测试 58-ast-wrap-content-preserve-order（演示 `ast_wrap` + `ast_attr_set` + `ast_concat` 组合工作）
+- 所有 219 个 compiler 单元测试通过
+- 所有 58 个集成测试通过
+- Coverage: 90.22% lines
 - `make gate` 通过
 
 ## Step 6: Hygiene、冲突检测和错误定位（2026-03-23）
