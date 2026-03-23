@@ -578,5 +578,21 @@ Status: pending
 - `<const type="string">from a</const>` 的值被 `const_eval` 解析为 reference path（不识别空格）；正确写法是 `<const type="string">"from a"</const>`
 - `module="a"` 在 `convert.rs` 中因 `"a"` 是 alphanumeric 被当作变量引用（`CtExpr::Var`）；实际值在 `opts` keyword 中，需要通过 `string:module_name` 参数传递
 
+### Step 2.1: 审计 CtValue / MacroValue 差异和丢失点 (2026-03-23)
+
+**本次做了什么：**
+- 阅读了 `ast.rs`、`macro_values.rs`、`eval.rs`、`builtins.rs`、`macro_params.rs`、`macro_eval.rs`、`quote.rs` 全部源代码
+- 整理了两个类型的完整变体对照表和三个桥接函数的逐变体分析
+- 识别出 6 个关键信息丢失点
+
+**本次发现的问题、踩的坑：**
+
+1. **P0 `CtValue::List` → `MacroValue::Keyword` 严重退化**：`ct_value_to_macro_value` 把 List 转成 `Keyword([("list", String("[N items]"))])`，所有列表元素完全丢失。这是 Step 2 最核心的阻断问题，因为后续的 Step 2.2/2.3/2.4 都依赖 List 可以正确跨宏边界。
+2. **P0 `MacroValue` 缺少 List 变体**：当前 MacroValue 没有 `List` 枚举分支，`ct_value_to_macro_value` 走的是退化路径。需要新增 `MacroValue::List(Vec<MacroValue>)` 变体。
+3. **P0 `MacroValue` 缺少 ModuleRef/CallerEnv 变体**：两者都只有不透明字符串（`String(m)` / `"<caller_env>"`），无法在 quote/unquote 中正确区分。
+4. **P1 `builtin_keyword_attr` 嵌套值退化**：`builtins.rs:365` 对非 String 类型的嵌套值用了 `format!("{:?}", nv)` 字符串化，导致 `use opts=[list]` 在 `__using__` 中得到的是 Debug 字符串而非原始类型。
+5. **P1 `invoke_macro` keyword args 只接受 string/int/bool**：第974-985行对 List/Keyword/Ast 直接报错，Step 2.4 必须扩展此路径。
+6. **P1 `bind_explicit_params` keyword args 格式退化**：`macro_params.rs:133` 把 keyword args 拼成 `"a:val"` 字符串而非结构化 `Keyword([("a", val)])`。
+
 **下一步方向：**
-- Step 2.1: 审计 CtValue / MacroValue 差异和丢失点
+- Step 2.2: 新增 `MacroValue::List` 变体，修复 `ct_value_to_macro_value` 中 List 的退化路径，让 `CtValue::List` 正确映射为 `MacroValue::List`
