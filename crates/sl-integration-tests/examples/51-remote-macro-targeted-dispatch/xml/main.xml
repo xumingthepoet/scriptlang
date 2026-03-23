@@ -1,0 +1,11 @@
+<module name="main">
+  <!-- use a produces script "a_main" -->
+  <use module="a"/>
+  <!-- use b produces script "b_main" -->
+  <use module="b"/>
+  <!-- main script outputs something, injected scripts are available but not called -->
+  <script name="main">
+    <text>main script ran</text>
+    <end/>
+  </script>
+</module>

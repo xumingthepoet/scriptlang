@@ -1,0 +1,22 @@
+<module name="main">
+  <macro name="my_use" params="string:module_name,keyword:opts">
+    <!-- Call require_module to add module to scope.
+         But we DON'T require it first (require_module is called with the name
+         but the module "missing" is not in module_macros → "not known" error). -->
+    <require_module>
+      <var name="module_name"/>
+    </require_module>
+    <invoke_macro module="module_name" macro_name="mk" opts="opts"/>
+  </macro>
+  <!-- Define our own mk to prove invoke_macro targets the required module, not main -->
+  <macro name="mk" params="keyword:opts">
+    <quote>
+      <script name="main">
+        <text>main's mk</text>
+        <end/>
+      </script>
+    </quote>
+  </macro>
+  <!-- Call my_use with module="missing" (not defined as a module) -->
+  <my_use module_name="missing"/>
+</module>

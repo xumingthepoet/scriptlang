@@ -883,8 +883,27 @@ fn builtin_invoke_macro(
         .clone()
         .unwrap_or_else(|| "<unknown>".to_string());
 
-    // Check that the module is required (or is the current module)
-    // Also check expand_env.module.requires since require_module() adds to expand_env
+    // Check that the module is registered in the program.
+    // Note: module registration happens when a module form is processed by the compiler.
+    let module_exists = expand_env
+        .program
+        .module_macros
+        .contains_key(&resolved_module);
+    if !module_exists {
+        return Err(ScriptLangError::Message {
+            message: format!(
+                "cannot invoke macro `{}.{}`: module `{}` is not known \
+                (called from `{}`). Available modules: {:?}",
+                resolved_module,
+                macro_name,
+                resolved_module,
+                caller_module,
+                expand_env.program.module_macros.keys().collect::<Vec<_>>()
+            ),
+        });
+    }
+
+    // Module exists but must be in scope (required) before we can invoke its macros.
     let is_current_module = macro_env
         .current_module
         .as_ref()
@@ -892,27 +911,38 @@ fn builtin_invoke_macro(
         .unwrap_or(false);
     let is_required_in_macro = macro_env.requires.contains(&resolved_module);
     let is_required_in_expand = expand_env.module.requires.contains(&resolved_module);
-    let is_required = is_required_in_macro || is_required_in_expand;
+    let is_required = is_current_module || is_required_in_macro || is_required_in_expand;
 
-    if !is_current_module && !is_required {
+    if !is_required {
         return Err(ScriptLangError::Message {
             message: format!(
-                "cannot invoke macro `{}.{}`: module not in scope (called from `{}`). \
-                Module `{}` requires: {:?}",
-                resolved_module, macro_name, caller_module, resolved_module, macro_env.requires
+                "cannot invoke macro `{}.{}`: module `{}` is not in scope \
+                (called from `{}`). Add `<require name=\"{}\"/>` or use `require_module(\"{}\")` first.",
+                resolved_module,
+                macro_name,
+                resolved_module,
+                caller_module,
+                resolved_module,
+                resolved_module
             ),
         });
     }
 
-    // Resolve the macro
+    // Resolve the macro STRICTLY from the target module (Step 1: module-qualified dispatch).
+    // Uses resolve_macro_in instead of resolve_macro to avoid fallback to
+    // current module / imports / kernel lookup order.
     let definition = expand_env
-        .resolve_macro(&macro_name)
+        .program
+        .resolve_macro_in(&resolved_module, &macro_name)
         .cloned()
-        .ok_or_else(|| ScriptLangError::Message {
-            message: format!(
-                "macro `{}` not found in module `{}` (called from `{}`)",
-                macro_name, resolved_module, caller_module
-            ),
+        .ok_or_else(|| {
+            // Module exists but doesn't export this macro name
+            ScriptLangError::Message {
+                message: format!(
+                    "macro `{}.{}` is not defined in module `{}` (called from `{}`)",
+                    resolved_module, macro_name, resolved_module, caller_module
+                ),
+            }
         })?;
 
     // Step 7: Check macro visibility (private macros only visible in defining module)

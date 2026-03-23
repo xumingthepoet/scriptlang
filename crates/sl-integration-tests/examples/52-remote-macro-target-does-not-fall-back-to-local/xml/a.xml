@@ -1,0 +1,9 @@
+<module name="a">
+  <!-- __using__ injects a const with the same name as main.__using__'s const.
+       If invoke_macro wrongly fell back to main's __using__, this would conflict. -->
+  <macro name="__using__" params="keyword:opts">
+    <quote>
+      <const name="my_flag" type="int">2</const>
+    </quote>
+  </macro>
+</module>

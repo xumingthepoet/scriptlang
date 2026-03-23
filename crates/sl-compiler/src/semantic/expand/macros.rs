@@ -74,11 +74,26 @@ pub(super) fn expand_macro_hook(
     // Step 6: Track use caller context for conflict detection.
     // When expanding the `use` macro from kernel, push the caller module
     // so that injected public members can be checked for conflicts.
+    // Also track the provider module so conflict errors can name the correct provider.
     // Note: we do NOT pop here - the reducer handles the pop after processing
     // all requeued items, so that check_use_conflict sees the correct context.
     let is_use_macro = definition.module_name == "kernel" && form.head == "use";
     if is_use_macro {
         env.push_use_caller();
+        // Extract the target module from the invocation's `module` attribute
+        // and store it as the provider for conflict error reporting.
+        if let Some(module_attr) = form.fields.iter().find_map(|field| {
+            if field.name == "module" {
+                match &field.value {
+                    sl_core::FormValue::String(s) => Some(s.clone()),
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        }) {
+            env.use_provider_module = Some(module_attr);
+        }
     }
     expand_macro_invocation(definition, form, env, scope)
 }

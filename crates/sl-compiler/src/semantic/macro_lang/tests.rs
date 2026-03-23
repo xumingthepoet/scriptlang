@@ -730,11 +730,12 @@ mod ct_lang_tests {
             current_module: Some("main".to_string()),
             ..Default::default()
         };
-        // Note: "helper" is NOT in requires
-
+        // Register helper module so it exists (but is not required)
         let mut ct_env = CtEnv::new();
         let builtins = BuiltinRegistry::new();
         let mut expand_env = empty_expand_env();
+        expand_env.program.register_module_for_test("helper");
+        // Note: "helper" is registered but NOT in requires
 
         let err = builtins.get("invoke_macro").expect("invoke_macro exists")(
             &[
@@ -747,8 +748,9 @@ mod ct_lang_tests {
             &mut expand_env,
         )
         .expect_err("should fail");
+        // Module exists but is not in scope (not required)
         assert!(err.to_string().contains("not in scope"));
-        assert!(err.to_string().contains("requires"));
+        assert!(err.to_string().contains("require"));
     }
 
     #[test]
@@ -759,11 +761,9 @@ mod ct_lang_tests {
         };
         macro_env.requires.push("helper".to_string());
 
-        // Register the helper module in expand_env
+        // Register the helper module in expand_env (empty - no macros)
         let mut expand_env = empty_expand_env();
-        expand_env
-            .begin_module(Some("helper".to_string()), Some("helper.xml".to_string()))
-            .expect("helper module");
+        expand_env.program.register_module_for_test("helper");
         // Note: no macros registered in helper
 
         let mut ct_env = CtEnv::new();
@@ -780,7 +780,8 @@ mod ct_lang_tests {
             &mut expand_env,
         )
         .expect_err("should fail");
-        assert!(err.to_string().contains("not found"));
+        // Module exists but macro is not defined in it
+        assert!(err.to_string().contains("is not defined"));
     }
 
     #[test]
@@ -2699,11 +2700,12 @@ mod ct_lang_tests {
         let err = result.expect_err("wrong third arg type should error");
         // The error should mention args type issue OR the builtin invocation failure
         let err_str = err.to_string();
-        // Verify the error is about type mismatch (args/keyword) OR invocation failure
+        // Verify the error is about type mismatch (args/keyword), module unknown, or invocation failure
         assert!(
             err_str.contains("keyword")
                 || err_str.contains("invoke_macro")
-                || err_str.contains("not found"),
+                || err_str.contains("not found")
+                || err_str.contains("is not known"),
             "unexpected error: {}",
             err_str
         );
@@ -2745,11 +2747,11 @@ mod ct_lang_tests {
             current_module: Some("caller".to_string()),
             ..Default::default()
         };
-        // helper is NOT in requires or current_module
-
+        // Register helper module (so it exists) but do NOT add to requires
         let mut ct_env = CtEnv::new();
         let builtins = BuiltinRegistry::new();
         let mut expand_env = empty_expand_env();
+        expand_env.program.register_module_for_test("helper");
 
         let err = builtins.get("invoke_macro").unwrap()(
             &[
@@ -2762,7 +2764,8 @@ mod ct_lang_tests {
             &mut expand_env,
         )
         .expect_err("module not in scope");
-        assert!(err.to_string().contains("module not in scope"));
+        // Module exists but is not required → "not in scope"
+        assert!(err.to_string().contains("not in scope"));
     }
 
     #[test]
@@ -2774,10 +2777,8 @@ mod ct_lang_tests {
         macro_env.requires.push("helper".to_string());
 
         let mut expand_env = empty_expand_env();
-        expand_env
-            .begin_module(Some("helper".to_string()), Some("helper.xml".to_string()))
-            .expect("helper module");
-        // Register helper module with no macros
+        // Register helper module (empty - no macros)
+        expand_env.program.register_module_for_test("helper");
 
         let mut ct_env = CtEnv::new();
         let builtins = BuiltinRegistry::new();
@@ -2793,7 +2794,8 @@ mod ct_lang_tests {
             &mut expand_env,
         )
         .expect_err("macro not found");
-        assert!(err.to_string().contains("not found"));
+        // Module exists but macro is not defined in it
+        assert!(err.to_string().contains("is not defined"));
     }
 
     #[test]

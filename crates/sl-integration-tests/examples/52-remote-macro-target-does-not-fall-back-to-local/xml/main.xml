@@ -1,0 +1,17 @@
+<module name="main">
+  <!-- main also defines __using__, but use module="a" should still hit a.__using__.
+       Both __using__ declare a const named "my_flag". If invoke_macro wrongly
+       fell back to main's __using__ first, we'd get a const conflict. -->
+  <macro name="__using__" params="keyword:opts">
+    <quote>
+      <const name="my_flag" type="int">1</const>
+    </quote>
+  </macro>
+  <!-- use module="a" invokes a.__using__ (not main.__using__) via module-qualified dispatch.
+       If invoke_macro fell back to main.__using__, this would conflict. -->
+  <use module="a"/>
+  <script name="main">
+    <text>main ran</text>
+    <end/>
+  </script>
+</module>

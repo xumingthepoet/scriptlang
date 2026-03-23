@@ -1,0 +1,10 @@
+<module name="b">
+  <macro name="__using__" params="keyword:opts">
+    <quote>
+      <script name="b_script">
+        <text>from b</text>
+        <end/>
+      </script>
+    </quote>
+  </macro>
+</module>

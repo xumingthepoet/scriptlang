@@ -61,6 +61,9 @@ pub(crate) struct ExpandEnv {
     /// Module name of the caller when inside a `use` macro expansion.
     /// Used to detect conflicts when `use` injects public members into the caller.
     pub(crate) use_caller_module: Option<String>,
+    /// Module name of the provider whose `__using__` is being invoked.
+    /// Set when `kernel.use` expands (after resolving the target module).
+    pub(crate) use_provider_module: Option<String>,
 }
 
 /// Macro parameter type in the new explicit parameter protocol.
@@ -260,6 +263,7 @@ impl ExpandEnv {
     /// Pop the use caller context after `use` macro expansion completes.
     pub(crate) fn pop_use_caller(&mut self) {
         self.use_caller_module = None;
+        self.use_provider_module = None;
     }
 
     /// Check if a public member name already exists in the caller's exports.
@@ -309,6 +313,15 @@ impl ProgramState {
         Ok(())
     }
 
+    /// Register a module in the macro registry (without any macros).
+    /// Used for testing that a module exists but has no macros.
+    #[cfg(test)]
+    pub(crate) fn register_module_for_test(&mut self, module_name: &str) {
+        self.module_macros
+            .entry(module_name.to_string())
+            .or_default();
+    }
+
     pub(crate) fn resolve_macro<'a>(
         &'a self,
         current_module: Option<&str>,
@@ -340,6 +353,21 @@ impl ProgramState {
         }
 
         None
+    }
+
+    /// Strictly resolve a macro by target module name and macro name.
+    /// This is used for module-qualified remote macro dispatch (Step 1 of plan.md).
+    ///
+    /// Does NOT fall back to imports or kernel - caller must explicitly
+    /// target the correct module.
+    pub(crate) fn resolve_macro_in<'a>(
+        &'a self,
+        target_module: &str,
+        name: &str,
+    ) -> Option<&'a MacroDefinition> {
+        self.module_macros
+            .get(target_module)
+            .and_then(|macros| macros.get(name))
     }
 }
 
