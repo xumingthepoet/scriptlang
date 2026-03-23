@@ -67,3 +67,68 @@ pub(super) fn eval_unquote(form: &Form, runtime: &MacroEnv) -> Result<MacroValue
         )
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use sl_core::{FormField, FormMeta, FormValue, SourcePosition};
+
+    use super::*;
+
+    fn meta() -> FormMeta {
+        FormMeta {
+            source_name: Some("test.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 10 },
+            start_byte: 0,
+            end_byte: 10,
+        }
+    }
+
+    fn form_with_children(items: Vec<FormItem>) -> Form {
+        Form {
+            head: "unquote".to_string(),
+            meta: meta(),
+            fields: vec![FormField {
+                name: "children".to_string(),
+                value: FormValue::Sequence(items),
+            }],
+        }
+    }
+
+    #[test]
+    fn eval_unquote_requires_non_empty_body() {
+        // Empty children: filter rejects it -> error
+        let result = eval_unquote(&form_with_children(vec![]), &MacroEnv::default());
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("requires local name body")
+        );
+    }
+
+    #[test]
+    fn eval_unquote_rejects_unknown_local() {
+        let form = form_with_children(vec![FormItem::Text("missing".to_string())]);
+        let result = eval_unquote(&form, &MacroEnv::default());
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("unknown macro local `missing`")
+        );
+    }
+
+    #[test]
+    fn eval_unquote_resolves_known_local() {
+        let mut runtime = MacroEnv::default();
+        runtime
+            .locals
+            .insert("x".to_string(), MacroValue::String("hello".to_string()));
+        let form = form_with_children(vec![FormItem::Text("x".to_string())]);
+        let result = eval_unquote(&form, &runtime).unwrap();
+        assert_eq!(result, MacroValue::String("hello".to_string()));
+    }
+}
