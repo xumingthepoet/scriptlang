@@ -8,7 +8,7 @@
 
 如果本轮没有修改 `crates/` 下的代码，且改动只限于文档、说明文字、仓库脚本、非 crate 配置或其他不会影响 crate 编译/测试结果的文件，则不强制运行 `make gate`，也不强制补跑与之对应的 `cargo check`、`cargo test`、`cargo clippy`、coverage 等相关检测；但回答里应明确说明这次未运行这些检查，以及跳过它们的原因。
 
-`scriptlang-new` 是对 `scriptlang-rust` 的全盘重写，目标不是复刻既有表层语法，而是建立一套可长期演进的语言架构。
+`scriptlang-new` 旨在建立一套可长期演进的语言架构。
 
 本项目的核心原则是：
 

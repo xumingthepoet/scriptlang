@@ -1,5 +1,4 @@
 /target
-/scriptlang-rust
 /elixir
 .*/
 /scripts/repl-target.xml
