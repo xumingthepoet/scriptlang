@@ -192,14 +192,80 @@ Status: pending
 
 前置：Step 3.3 已完成。
 
+**本次分析（卡点原因）：**
+- Step 3.4 上一轮尝试添加新语法（`keyword_attr`、`keyword_get`、`list_length` XML 元素），属于范围蔓延
+- Step 3.4 的真实目标只是验证已有转换路径，无需新语法
+- test 59 不应依赖未实现的语法，应该用已有 builtin（`ast_wrap`、`ast_attr_set`、`ast_concat`）构造
+
+---
+
+#### Step 3.4.1: 验证 CtValue::Ast → MacroValue → QuoteResult 转换路径
+
+**目标：** 确认 AST builtins 产出的 `CtValue::Ast` 能走通整个展开管道。
+
+前置：Step 3.3 已完成。
+
 具体工作：
-- 确认 `CtValue::Ast` → `MacroValue` → `QuoteResult` 的转换路径完整
-- 如果 AST builtins 产出的是中间表示而非 `CtValue::Ast`，补转换路径
-- 验证 `59-ast-build-module-fragments`（通过 AST API 组合多个 script/choice）
+- 在代码中追踪：`ast_attr_set` / `ast_wrap` / `ast_concat` 的返回值类型
+- 确认 `CtValue::Ast` → `macro_value_to_ct_value`（如果是 `MacroValue::Ast`）→ `eval.rs` 的 `evaluate_macro_items` 路径
+- 确认 `evaluate_macro_items` 产出 `Vec<FormItem>` → `expand_generated_items` → module reducer
+- 如果发现中间断裂，记录需要修复的具体位置（文件:行号）
 
 验收：
-- AST builtins 产物能正确回到宏展开管道
+- 输出一份转换路径分析（agent 心中有数即可）
+- 找到 0-1 个需要修复的断裂点
+
+---
+
+#### Step 3.4.2: 修复发现的转换路径断裂（如有）
+
+**目标：** 上一步发现的任何断裂点，在此步修复。
+
+前置：Step 3.4.1 已完成。
+
+具体工作：
+- 如果 `MacroValue::Ast` 没有对应的 `CtValue::Ast` 变体，新增桥接
+- 如果 `evaluate_macro_items` 无法处理 `CtValue::Ast` 返回值，补处理路径
+- 写或更新单元测试验证修复的路径
+
+验收：
+- 上一步发现的断裂已修复
+- 相关单元测试通过
+
+---
+
+#### Step 3.4.3: 搭建并通过 test 59（AST builtins 组合多个 script）
+
+**目标：** 用已有 builtin 组合多个 script，验证端到端流程。
+
+前置：Step 3.4.2 已完成（或确认无需修复）。
+
+具体工作：
+- 在 `examples/59-ast-build-module-fragments/` 下创建集成测试
+- **只使用已有 builtin**（`ast_wrap`、`ast_attr_set`、`ast_concat`、`ast_filter_head`）来组合多个 `<script>` 节点
+- **不依赖任何新语法**（`keyword_attr` 等本次暂不实现）
+- helper 模块的 `__using__` 返回拼接的多个 script AST
+- main 模块 `use` helper 并验证两个 script 都能执行
+
+验收：
 - `59-ast-build-module-fragments` 通过
+- `make gate` 通过（59 个集成测试）
+
+---
+
+#### Step 3.4.4: 运行 make gate 并更新 IMPLEMENTATION.md
+
+**目标：** 收尾，确认所有验收条件满足。
+
+前置：Step 3.4.3 已完成。
+
+具体工作：
+- `make gate` 确保所有测试通过
+- 同步更新 `IMPLEMENTATION.md` 到当前真实状态
+
+验收：
+- `make gate` 通过
+- `IMPLEMENTATION.md` 已更新
 
 **Step 3 完成定义：**
 - 宏作者不再只能依赖 `get_content(head="...")`
@@ -763,3 +829,20 @@ Status: pending
 **下一步方向：**
 - Step 3.4: 让 AST 改写结果能回到 reducer / quote 主路径（验证 `CtValue::Ast` → `MacroValue` → `QuoteResult` 的转换路径完整）
 - 同步更新 IMPLEMENTATION.md 到当前真实状态
+
+### Step 3.4 任务分解记录（2026-03-24）
+
+**原来卡在哪个步骤：**
+- Step 3.4: 让 AST 改写结果能回到 reducer / quote 主路径（连续 2 轮无实质性进展）
+
+**卡点原因分析：**
+1. **范围蔓延（Scope Creep）**：上一轮尝试在 Step 3.4 中添加新语法（`keyword_attr`、`keyword_get`、`list_length` XML 元素），这些是独立的语言特性，不属于"验证转换路径"的范围
+2. **步骤定义过于抽象**："确认 CtValue::Ast → MacroValue → QuoteResult 转换路径完整"没有给出具体操作项，agent 不知道从哪里下手
+3. **测试依赖了未实现的功能**：test 59 使用了 `keyword_attr`，导致必须先实现该语法才能通过测试，形成了隐式的前置依赖
+4. **没有先验证后实现**：agent 直接跳到实现，没有先确认哪些路径实际断裂
+
+**分解后的子步骤：**
+- **3.4.1** 验证转换路径（代码研究，找出断裂点，0 实现）
+- **3.4.2** 修复发现的断裂（如果 3.4.1 发现问题）
+- **3.4.3** 搭建并通过 test 59（**只用已有 builtin，不加新语法**）
+- **3.4.4** 运行 gate + 更新 IMPLEMENTATION.md
