@@ -198,7 +198,7 @@ fn sync_ct_env_to_macro_env(ct_env: &CtEnv, macro_env: &mut MacroEnv) {
 }
 
 /// Convert a CtValue to a MacroValue for interoperability with eval_unquote.
-fn ct_value_to_macro_value(ct: &CtValue) -> MacroValue {
+pub(crate) fn ct_value_to_macro_value(ct: &CtValue) -> MacroValue {
     match ct {
         CtValue::Nil => MacroValue::Nil,
         CtValue::Bool(b) => MacroValue::Bool(*b),
@@ -210,11 +210,7 @@ fn ct_value_to_macro_value(ct: &CtValue) -> MacroValue {
                 .collect(),
         ),
         CtValue::List(items) => {
-            // MacroValue doesn't have List, convert to Keyword of list items
-            MacroValue::Keyword(vec![(
-                "list".to_string(),
-                MacroValue::String(format!("[{} items]", items.len())),
-            )])
+            MacroValue::List(items.iter().map(ct_value_to_macro_value).collect())
         }
         CtValue::ModuleRef(m) => MacroValue::String(m.clone()),
         CtValue::Ast(items) => MacroValue::AstItems(items.clone()),
@@ -237,5 +233,8 @@ pub(crate) fn macro_value_to_ct_value(mv: &MacroValue) -> CtValue {
                 .map(|(k, v)| (k.clone(), macro_value_to_ct_value(v)))
                 .collect(),
         ),
+        MacroValue::List(items) => {
+            CtValue::List(items.iter().map(macro_value_to_ct_value).collect())
+        }
     }
 }

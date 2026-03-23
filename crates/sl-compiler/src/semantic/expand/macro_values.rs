@@ -10,4 +10,6 @@ pub(crate) enum MacroValue {
     Expr(String),
     AstItems(Vec<FormItem>),
     Keyword(Vec<(String, MacroValue)>),
+    /// List of values — preserves list structure across CtValue/MacroValue bridge.
+    List(Vec<MacroValue>),
 }

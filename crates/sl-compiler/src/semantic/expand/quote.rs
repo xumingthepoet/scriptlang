@@ -45,7 +45,8 @@ fn quote_ast_items(
                 MacroValue::Expr(_)
                 | MacroValue::Bool(_)
                 | MacroValue::Int(_)
-                | MacroValue::Keyword(_) => {
+                | MacroValue::Keyword(_)
+                | MacroValue::List(_) => {
                     return Err(error_at(
                         form,
                         "<unquote> in AST children position requires `ast` or `string` value",
@@ -151,7 +152,10 @@ fn quote_expr(
                 MacroValue::Expr(value) | MacroValue::String(value) => expr.push_str(&value),
                 MacroValue::Bool(value) => expr.push_str(if value { "true" } else { "false" }),
                 MacroValue::Int(value) => expr.push_str(&value.to_string()),
-                MacroValue::Nil | MacroValue::AstItems(_) | MacroValue::Keyword(_) => {
+                MacroValue::Nil
+                | MacroValue::AstItems(_)
+                | MacroValue::Keyword(_)
+                | MacroValue::List(_) => {
                     return Err(error_at(
                         form,
                         "<unquote> in expr position requires scalar compile-time value",
@@ -218,7 +222,10 @@ fn splice_expr_slots(source: &str, runtime: &MacroEnv) -> Result<String, ScriptL
             MacroValue::Expr(text) | MacroValue::String(text) => output.push_str(text),
             MacroValue::Bool(value) => output.push_str(if *value { "true" } else { "false" }),
             MacroValue::Int(value) => output.push_str(&value.to_string()),
-            MacroValue::AstItems(_) | MacroValue::Nil | MacroValue::Keyword(_) => {
+            MacroValue::AstItems(_)
+            | MacroValue::Nil
+            | MacroValue::Keyword(_)
+            | MacroValue::List(_) => {
                 return Err(ScriptLangError::message(format!(
                     "macro local `{key}` cannot be spliced into expr slot"
                 )));
@@ -255,7 +262,8 @@ fn splice_string_slots(source: &str, runtime: &MacroEnv) -> Result<String, Scrip
             MacroValue::Expr(_)
             | MacroValue::AstItems(_)
             | MacroValue::Nil
-            | MacroValue::Keyword(_) => {
+            | MacroValue::Keyword(_)
+            | MacroValue::List(_) => {
                 return Err(ScriptLangError::message(format!(
                     "macro local `{key}` cannot be spliced into string slot"
                 )));

@@ -1,5 +1,6 @@
 //! Compile-time builtin functions.
 
+use super::eval::macro_value_to_ct_value;
 use super::{CtEnv, CtValue};
 use crate::semantic::env::ExpandEnv;
 use crate::semantic::expand::dispatch::ExpandRuleScope;
@@ -353,6 +354,9 @@ fn builtin_keyword_attr(
                             MacroValue::String(s) => CtValue::String(s.clone()),
                             MacroValue::Expr(s) => CtValue::String(s.clone()),
                             MacroValue::AstItems(items) => CtValue::Ast(items.clone()),
+                            MacroValue::List(items) => CtValue::List(
+                                items.iter().map(|mv| macro_value_to_ct_value(mv)).collect(),
+                            ),
                             MacroValue::Keyword(nested) => {
                                 // Recursively convert nested keywords
                                 let converted: Vec<(String, CtValue)> = nested

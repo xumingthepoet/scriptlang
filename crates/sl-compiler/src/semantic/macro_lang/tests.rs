@@ -201,6 +201,39 @@ mod ct_lang_tests {
     }
 
     #[test]
+    fn ct_value_list_preserves_structure_across_macro_value_bridge() {
+        // Regression test: CtValue::List must NOT degrade to MacroValue::Keyword
+        // when crossing the ct_value_to_macro_value bridge.
+        use super::super::eval::{ct_value_to_macro_value, macro_value_to_ct_value};
+        use crate::semantic::expand::macro_values::MacroValue;
+
+        // Simple list
+        let list = CtValue::List(vec![CtValue::Int(1), CtValue::String("a".to_string())]);
+        let mv = ct_value_to_macro_value(&list);
+        assert!(
+            matches!(mv, MacroValue::List(_)),
+            "CtValue::List must convert to MacroValue::List, got {:?}",
+            mv
+        );
+
+        // Nested list
+        let nested = CtValue::List(vec![
+            CtValue::Int(1),
+            CtValue::List(vec![CtValue::String("inner".to_string())]),
+        ]);
+        let mv_nested = ct_value_to_macro_value(&nested);
+        assert!(matches!(mv_nested, MacroValue::List(_)));
+
+        // Round-trip: CtValue -> MacroValue -> CtValue preserves type and content
+        let original = CtValue::List(vec![
+            CtValue::Bool(true),
+            CtValue::Keyword(vec![("k".to_string(), CtValue::Int(42))]),
+        ]);
+        let round_tripped = macro_value_to_ct_value(&ct_value_to_macro_value(&original));
+        assert_eq!(original, round_tripped, "Round-trip must preserve value");
+    }
+
+    #[test]
     fn nested_if_conditions() {
         let block = CtBlock {
             stmts: vec![CtStmt::If {
