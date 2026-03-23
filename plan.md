@@ -132,7 +132,7 @@ Status: **已完成** (2026-03-23)
 
 ## Step 3: 把 AST 提升为一等 Compile-Time 数据
 
-Status: pending
+Status: **completed** (2026-03-24)
 
 目标：让宏真正能"编程地操作 AST"，而不是只会 `get_content(head="...") + quote`。
 
