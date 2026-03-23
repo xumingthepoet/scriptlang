@@ -737,3 +737,29 @@ Status: pending
 **下一步方向：**
 - Step 3.3: 新增 AST 写操作 builtin（`ast_attr_set`、`ast_wrap`、`ast_concat`、`ast_filter_head`）
 - 同步更新 IMPLEMENTATION.md 到当前真实状态
+
+### Step 3.3: 新增 AST 写操作 builtin（2026-03-24）
+
+**本次做了什么：**
+- 新增 4 个 AST 写操作 builtin：
+  - `ast_attr_set(ast, key, value)`：返回修改了属性的新 AST（不修改原 AST，遵循 immutability）
+  - `ast_wrap(inner_ast, head, extra_attrs?)`：用指定 head 包装 inner AST，支持可选 extra_attrs 参数设置 name 等属性
+  - `ast_concat(...asts)`：拼接多个 AST，支持 varargs 风格（`ast_concat(ast1, ast2)`）和 list 风格向后兼容
+  - `ast_filter_head(ast, predicate_head)`：按 head 过滤 children
+- `eval.rs`：CtStmt::Let/Set 现在同步将 CtEnv 值写入 `macro_env.locals`，使 `<unquote>` 能访问 `<let>` 绑定的 CtValue
+- `eval.rs`：`eval_block/eval_stmt/eval_expr` 的 `macro_env` 参数改为 `&mut`，以支持 locals 的写操作
+- `ast_wrap` 新增 `extra_attrs` 参数：支持 keyword list 或 `[key:val,...]` list 格式，用于设置 name 等属性
+- 新增单元测试覆盖所有 4 个 builtin 的正常路径和错误路径
+- 集成测试 58-ast-wrap-content-preserve-order：演示 `ast_wrap` + `ast_attr_set` + `ast_concat` 组合工作
+- `make gate` 通过（219 compiler 单元测试 + 58 集成测试全部通过）
+
+**本次发现的问题、踩的坑：**
+- MVP 限制：`<script>` 不能作为 statement 出现在另一个 `<script>` 的 children 位置（`analyze_stmt` 对 `<script>` 直接 fall through 到 "unsupported statement"）；`<text>` 也不能作为 children 出现在 `<script>` 内（`child_forms` 对 `<text>` 报错 "does not support nested statements"）。因此 `ast_wrap(head="script")` 创建的 form 在编译器看来是"空的"（wrapped children 被忽略），无法用它直接测试 runtime output
+- `ast_concat` 的原始设计只接受 `CtValue::List`（多个 AST 打包成 list）。在集成测试中作为 varargs 调用时传的是单个 AST。需要扩展为同时支持：1) varargs 风格（每个参数是 AST）；2) list 风格（单个 list 参数）
+- `builtin_invoke_macro` 的 synthetic invocation 使用 `macro_env.content.clone()` 作为 children field，解决了 Step 3.2 遗留的 content 丢失问题
+- Clippy `collapsible_if`：嵌套的 `if` 块（`if A { if B { ... } }`）需要合并为 `if A && B { ... }`
+- Clippy `doc_lazy_continuation`：doc comment 中的多行说明需要在 continuation 前加空行或统一格式
+
+**下一步方向：**
+- Step 3.4: 让 AST 改写结果能回到 reducer / quote 主路径（验证 `CtValue::Ast` → `MacroValue` → `QuoteResult` 的转换路径完整）
+- 同步更新 IMPLEMENTATION.md 到当前真实状态
