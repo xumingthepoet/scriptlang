@@ -41,15 +41,15 @@
 
 ### Step 1-9 检查清单
 
-- [ ] Step 1: compile-time language 基础设施（`semantic/macro_lang/`）
-- [ ] Step 2: 显式宏参数协议
-- [ ] Step 3: Module Reducer
-- [ ] Step 4: 远程宏调用和 Caller Env
-- [ ] Step 5: `__using__` 协议和 `use` 宏
-- [ ] Step 6: Hygiene、冲突检测和错误定位
-- [ ] Step 7: Nested Module 和 Private 宏可见性
-- [ ] Step 8: Kernel 宏迁移到新系统
-- [ ] Step 9: 文档同步
+- [x] Step 1: compile-time language 基础设施（`semantic/macro_lang/`）
+- [x] Step 2: 显式宏参数协议
+- [x] Step 3: Module Reducer
+- [x] Step 4: 远程宏调用和 Caller Env
+- [x] Step 5: `__using__` 协议和 `use` 宏
+- [x] Step 6: Hygiene、冲突检测和错误定位
+- [x] Step 7: Nested Module 和 Private 宏可见性
+- [x] Step 8: Kernel 宏迁移到新系统
+- [x] Step 9: 文档同步
 
 ### 验证方法
 
@@ -337,3 +337,28 @@ Goal 1 和 Goal 2 均已完成。本轮工作减少了 3 个多余类型/模块/
 **提交记录：**
 - `30fe5a8` refactor: deduplicate string_attr, flatten ExpandRegistry, remove dead values.rs
 - `7ebcf87` refactor: inline LocalScope into ModuleState.locals (BTreeSet)
+
+---
+
+## 任务完成总结
+
+**2026-03-23 17:55（最终轮）：文档整理 - SIMPLIFY_AND_CLEANUP 全部完成**
+
+**本轮工作：**
+
+1. **文档 Checklist 同步**
+   - 将 Goal 2 全部 9 个 Step 标记为 [x]（历史轮次已验证完成）
+   - 确认 Goal 3 Item 4 覆盖率检查已在 Round 2 完成（coverage 91.11%，196 tests）
+
+2. **全量审计确认**
+   - `crates/` 中无任何 `deprecated`/`backward_compatible`/`legacy_protocol` 标记
+   - `crates/` 中无任何 `TODO`/`FIXME`/`XXX` 注释
+   - 所有 `#[allow(dead_code)]` 均经审计为合理保留或已删除
+
+**最终验证：**
+- make gate: 通过（历史轮次验证）
+- 196 tests: 全部通过
+- Coverage: 91.19% lines, 94.04% functions, 92.27% branches
+
+**结论：**
+SIMPLIFY_AND_CLEANUP 全部完成，可以关闭。
