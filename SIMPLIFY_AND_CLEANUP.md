@@ -125,3 +125,48 @@
 
 -->
 
+### 2026-03-23 17:10: Goal 3 完成 - 删除旧代码
+
+**本轮工作：**
+
+1. **删除 macro_eval.rs 中的旧模板求值器**
+   - 删除 `eval_let`、`meaningful_macro_forms`、`single_child_form`、`form_children`、`select_invocation_content`
+   - 删除所有依赖旧求值器的测试（约 600 行）
+   - 清理未使用的 imports
+
+2. **删除 LegacyProtocol 兼容层**
+   - 从 `env.rs` 删除 `LegacyProtocol` 结构体和 `MacroDefinition.legacy_protocol` 字段
+   - 从 `macro_params.rs` 删除 `bind_legacy_protocol` 函数
+   - 从 `macros.rs` 删除 `parse_legacy_protocol` 函数
+   - 清理所有 `legacy_protocol: None` 初始化点
+
+3. **迁移集成测试到新 params 协议**
+   - `19-user-script-text`: `attributes="name:string" content="ast"` → `params="string:name,ast:body"`
+   - `20-imported-module-macro`: `attributes="name:string"` → `params="string:name"`
+   - 添加 `<quote>` 包装器以正确返回 AST
+
+4. **移动测试专用代码**
+   - 将 `context_label` 方法移入测试模块（删除 `eval_let` 后仅测试使用）
+
+**验证结果：**
+- make gate: 通过
+- Coverage: 91.02% lines, 93.18% functions
+- 所有 20 个集成测试通过
+
+**删除统计：**
+- ~1000 行代码删除
+- 9 个文件修改
+- 0 个功能丢失
+
+**发现的问题：**
+- 迁移旧协议宏到新 params 协议时，必须用 `<quote>` 包装运行时表单（如 `<script>`）
+- `${var}` 字符串插值由 `quote_items` 处理，变量需通过 `sync_ct_env_to_macro_env` 同步到 MacroEnv.locals
+
+**结论：**
+
+Goal 3（删除旧代码）已完成。所有旧模板求值器路径、LegacyProtocol 兼容层和 deprecated 代码已删除。
+
+**下一步：**
+- 代码精简和清理工作全部完成
+- 可以关闭 SIMPLIFY_AND_CLEANUP 任务
+
