@@ -37,16 +37,7 @@ impl CtEnv {
         }
     }
 
-    /// Create a child environment (for nested scopes).
-    #[allow(dead_code)]
-    pub fn child(&self) -> Self {
-        Self {
-            locals: self.locals.clone(),
-        }
-    }
-
     /// Iterate over all local variable bindings.
-    #[allow(dead_code)]
     pub fn all(&self) -> impl Iterator<Item = (&String, &CtValue)> {
         self.locals.iter()
     }

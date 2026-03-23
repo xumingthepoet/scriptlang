@@ -15,8 +15,6 @@ mod tests;
 
 pub use ast::*;
 pub use builtins::BuiltinRegistry;
-#[allow(unused_imports)]
-pub use convert::convert_macro_body;
 pub use env::CtEnv;
 #[allow(unused_imports)]
-pub use eval::{EvalResult, eval_block};
+pub use eval::eval_block;

@@ -50,22 +50,6 @@ impl MacroEnv {
     pub(crate) fn has_attribute(&self, name: &str) -> bool {
         self.attributes.contains_key(name)
     }
-
-    #[allow(dead_code)]
-    /// Get macro invocation content (all children).
-    pub(crate) fn get_content(&self) -> Vec<FormItem> {
-        self.content.clone()
-    }
-
-    #[allow(dead_code)]
-    /// Get macro invocation content filtered by head tag.
-    pub(crate) fn get_content_with_head(&self, head: &str) -> Vec<FormItem> {
-        self.content
-            .iter()
-            .filter(|item| matches!(item, FormItem::Form(form) if form.head == head))
-            .cloned()
-            .collect()
-    }
 }
 
 #[cfg(test)]
