@@ -192,3 +192,46 @@ Goal 3（删除旧代码）已完成。所有旧模板求值器路径、LegacyPr
 **结论：**
 Goal 3 全部完成，可以关闭 SIMPLIFY_AND_CLEANUP 任务。
 
+### 2026-03-23 17:30: Goal 1 完成 - 代码精简（第一轮）
+
+**本轮工作：**
+
+1. **清理 `macro_lang/mod.rs` 未使用的 re-exports**
+   - 删除 `pub use convert::convert_macro_body`（直接导入路径已够用）
+   - 删除 `eval::EvalResult` 从 `pub use`（改为 `pub(crate)`，之前已改为 pub(crate)，本次确认）
+   - 保留 `eval::eval_block` 配合 `#[allow(unused_imports)]`（测试代码通过 `macro_lang::*` 使用，但 lib 代码未直接使用）
+
+2. **删除从未调用的 `CtEnv::child()`**
+   - grep 确认整个仓库无任何调用点
+   - 删除该方法及其 `#[allow(dead_code)]` 标注
+
+3. **移除不合理的 `#[allow(dead_code)]` 标注**
+   - `CtEnv::all()`：在 `eval.rs` 的 `sync_ct_env_to_macro_env` 中被使用，移除标注
+
+4. **删除从未使用的 `MacroEnv` 测试辅助函数**
+   - `MacroEnv::get_content()`：从未被调用
+   - `MacroEnv::get_content_with_head()`：从未被调用
+   - 两个函数及各自的 `#[allow(dead_code)]` 均删除
+
+5. **确认 `MacroValue::Expr` 的 `#[allow(dead_code)]` 合理保留**
+   - `MacroValue::Expr` 在生产代码只做模式匹配（`eval.rs`、`builtins.rs`）
+   - 只在 `quote.rs` 的 `#[cfg(test)]` 块中被构造
+   - 因此 `#[allow(dead_code)]` 是正确的（生产编译不触发构造）
+
+**验证结果：**
+- make gate: 通过
+- 196 tests: 全部通过
+- Coverage: 91.20% lines, 94.03% functions (>= 89.9% / 80%)
+- 3 files changed, 28 lines deleted, 1 line added
+
+**发现的问题：**
+- Rust `pub use` re-export 后若通过 `macro_lang::*` glob 使用，clippy 对 lib 编译的"unused import"检测与 glob 导入是独立的——即使 glob 导入了 `pub use` 项，lib 编译仍会报 unused，只要 lib 代码本身不直接引用它
+- `CtEnv::new()` 虽然只在测试中使用，但作为测试基础设施保留 `#[allow(dead_code)]` 是合理的
+
+**下一步：**
+Goal 1 第一轮完成，仍有部分 `#[allow(dead_code)]` 需要继续审计：
+- `eval.rs` 中的 `EvalResult::into_value()`、`eval_stmt`、`eval_expr` 等（私有函数被同一 crate 内部调用时 Rust 仍报 dead code？）
+  - 需确认：这些函数是否确实被 `eval.rs` 外部调用，还是只在模块内使用
+- `convert.rs` 中的多个 `#[allow(dead_code)]` 转换函数（`convert_form_to_stmt`、`convert_let_form` 等）
+  - 这些在 `convert_macro_body` 内部被调用，应属于模块内使用，不是死代码
+- 继续 Goal 1 其他项目：复杂路径简化（检查嵌套深度、重复逻辑）
