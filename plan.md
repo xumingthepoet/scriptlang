@@ -88,7 +88,7 @@ Status: **已完成** (2026-03-23)
 
 ### Step 2.4: 让 invoke_macro 支持传递嵌套 keyword / list / ast / module 参数
 
-**目标：** 远程宏调用时参数类型不再退化为字符串占位。
+**Status: completed** (2026-03-23)
 
 前置：Step 2.3 已完成。
 
@@ -637,6 +637,23 @@ Status: pending
 - Step 2.3 验收标准只要求"双向桥接信息完整"，不需要新建 integration test（integration tests 54/55/56 是 Step 2.4/2.5 的占位符，已补充最小内容让 gate 通过）
 - `macro_params.rs:133` 的 keyword args 格式退化（`"a:val"` 字符串）是 Step 2.4 的范围，不在 Step 2.3 范围内
 
+### Step 2.4: 让 invoke_macro 支持传递嵌套 keyword / list / ast / module 参数 (2026-03-23)
+
+**本次做了什么：**
+- 新增 `parse_macro_value_from_string()` 函数（`macro_params.rs`）：将 XML 属性值字符串解析为结构化 `MacroValue`。支持：bool（"true"/"false"）、int、keyword（"key:val"）、list（"a,b,c"）
+- 修复 `bind_explicit_params`：`keyword:opts` 参数的未使用属性不再拼成 `"name:val"` 字符串，而是调用 `parse_macro_value_from_string` 保留实际类型
+- 扩展 `builtin_invoke_macro`：keyword args 支持 `CtValue::List`、`CtValue::Keyword`、`CtValue::Ast`（不仅 string/int/bool）
+- 新增 `ct_value_to_string()` 辅助函数（`builtins.rs`）：将 `CtValue` 序列化为可被 `parse_macro_value_from_string` 解析的字符串格式
+- 更新 `builtin_invoke_macro_wrong_keyword_arg_value_type_errors` 测试：从 `CtValue::Ast`（现已支持）改为 `CtValue::Nil`（仍不支持）
+- 新增单元测试：8 个 `parse_macro_value_from_string` 覆盖案例（含 comma/colon 优先级）、1 个 `invoke_macro` 接受 List/Keyword/Ast args 的测试
+- 更新集成测试 55：传递 `async="true"`、`items="a,b,c"`、`config="mode:debug"` 三个 opts，验证完整解析路径
+- `make gate` 通过（208 个 sl-compiler 单元测试 + 56 个集成测试全部通过）
+
+**本次发现的问题、踩的坑：**
+- `"a:b,c:d"` 格式歧义：invoke_macro 序列化 List of Keywords 为 `"key1:val1,key2:val2"` 格式，与单个 keyword `"key:val"` 无法区分。解决：comma 优先 → 有 comma 就解析为 List，无 comma 才解析为 Keyword
+- Clippy `redundant_closure`：`|v| ct_value_to_string(v)` 需改为 `ct_value_to_string`（函数引用而非闭包）
+- `invoke_macro` 序列化 List 为 `"[a,b,c]"`（带方括号）不会被 `parse_macro_value_from_string` 识别 → 去掉方括号，直接用 `"a,b,c"`，与 comma-separated list 解析逻辑一致
+
 **下一步方向：**
-- Step 2.4: 让 `invoke_macro` 支持传递嵌套 keyword / list / ast / module 参数（`bind_explicit_params` 的 keyword args 格式退化 + `builtin_invoke_macro` 的类型限制）
-- `macro_params.rs:133` 的 `"a:val"` 字符串拼接问题是 P1 遗留，Step 2.4 需要让 keyword 参数保留结构化类型
+- Step 2.5: 统一 quote/unquote 对 List / Keyword / Ast 的支持范围（`quote.rs` 的 `quote_from_ast`/`unquote` 对各变体的处理）
+- 注意：`CtValue::Nil`/`ModuleRef`/`CallerEnv` 在 `invoke_macro` keyword args 中仍未支持（传给 remote macro 会报错）；`CtValue::Ast` 传为 `FormValue::Sequence`，round-trip 语义有限（只能作为 opaque sequence，无法在 target macro 中还原为原始 AST 结构）
