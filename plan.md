@@ -54,7 +54,7 @@ Status: **已完成** (2026-03-23)
 
 ### Step 2.2: 修复 List 在 CtValue → MacroValue 桥接时的语义丢失
 
-**目标：** `CtValue::List` 不再被错误地映射为某个 keyword 或字符串。
+Status: **已完成** (2026-03-23)
 
 前置：Step 2.1 已完成。
 
@@ -579,6 +579,25 @@ Status: pending
 - `<goto script="a_script">` 中的 `script` 属性是 Rhai 表达式，会把 `a_script` 当变量查找；需用 `<const type="script">@a_script</const>` 声明 const 后再引用
 - `<const type="string">from a</const>` 的值被 `const_eval` 解析为 reference path（不识别空格）；正确写法是 `<const type="string">"from a"</const>`
 - `module="a"` 在 `convert.rs` 中因 `"a"` 是 alphanumeric 被当作变量引用（`CtExpr::Var`）；实际值在 `opts` keyword 中，需要通过 `string:module_name` 参数传递
+
+### Step 2.2: 修复 List 在 CtValue → MacroValue 桥接时的语义丢失 (2026-03-23)
+
+**本次做了什么：**
+- 新增 `MacroValue::List(Vec<MacroValue>)` 变体（`macro_values.rs`）
+- 修复 `ct_value_to_macro_value`：`CtValue::List` 正确映射为 `MacroValue::List`（递归，保留所有嵌套元素），不再退化为 `MacroValue::Keyword` 加 `"[N items]"` 字符串占位
+- 修复 `macro_value_to_ct_value`：增加 `MacroValue::List` → `CtValue::List` 处理路径，实现双向往返保持
+- 修复 `builtin_keyword_attr`：`MacroValue::List` 在 Keyword 嵌套值中正确转换为 `CtValue::List`，不再落入 `format!("{:?}", nv)` 字符串退化路径
+- 修复 `quote.rs`：四处 match arm 穷举检查加入 `MacroValue::List`，保持编译期穷举性
+- 新增单元测试 `ct_value_list_preserves_structure_across_macro_value_bridge`：覆盖简单 list、嵌套 list、双向往返相等性
+- 所有 197 个 sl-compiler 单元测试通过
+
+**本次发现的问题、踩的坑：**
+- Rust match 必须在枚举变体变化后同步更新所有穷举检查；`MacroValue` 新增 `List` 后，`quote.rs` 的四处 match（行 48/154/221/258）如果不加 `MacroValue::List` 会触发编译错误，比警告更安全
+- `builtins.rs` 的 `builtin_keyword_attr` 中嵌套 `MacroValue` 的 match（行 349）也是穷举的，加入 `MacroValue::List` 避免未来静默错误
+
+**下一步方向：**
+- Step 2.3: 修复 Keyword 在 CtValue → MacroValue 桥接时的语义丢失（caller_env 变字符串问题也需要在这里处理）
+- 同步检查 Step 2.1 审计报告中 P0/P1 的其他丢失点
 
 ### Step 2.1: 审计 CtValue / MacroValue 差异和丢失点 (2026-03-23)
 
