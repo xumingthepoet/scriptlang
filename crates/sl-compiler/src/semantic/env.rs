@@ -12,22 +12,6 @@ pub(crate) enum CompilePhase {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct LocalScope {
-    names: BTreeSet<String>,
-}
-
-impl LocalScope {
-    #[cfg(test)]
-    pub(crate) fn contains(&self, name: &str) -> bool {
-        self.names.contains(name)
-    }
-
-    pub(crate) fn insert(&mut self, name: impl Into<String>) {
-        self.names.insert(name.into());
-    }
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ModuleState {
     pub(crate) module_name: Option<String>,
     pub(crate) imports: Vec<String>,
@@ -37,7 +21,7 @@ pub(crate) struct ModuleState {
     pub(crate) const_decls: BTreeMap<String, PendingConstDecl>,
     pub(crate) exports: ModuleExports,
     pub(crate) children: Vec<Form>,
-    pub(crate) locals: LocalScope,
+    pub(crate) locals: BTreeSet<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -143,7 +127,7 @@ impl ExpandEnv {
             const_decls: BTreeMap::new(),
             exports: ModuleExports::default(),
             children: Vec::new(),
-            locals: LocalScope::default(),
+            locals: BTreeSet::default(),
         };
         Ok(())
     }
@@ -163,7 +147,7 @@ impl ExpandEnv {
 
     pub(crate) fn begin_script(&mut self) {
         self.phase = Some(CompilePhase::Script);
-        self.module.locals = LocalScope::default();
+        self.module.locals = BTreeSet::default();
     }
 
     pub(crate) fn enter_statement(&mut self) {
