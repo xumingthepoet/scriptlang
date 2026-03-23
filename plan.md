@@ -846,3 +846,21 @@ Status: pending
 - **3.4.2** 修复发现的断裂（如果 3.4.1 发现问题）
 - **3.4.3** 搭建并通过 test 59（**只用已有 builtin，不加新语法**）
 - **3.4.4** 运行 gate + 更新 IMPLEMENTATION.md
+
+### Step 3.4.3: 搭建并通过 test 59（2026-03-24）
+
+**本次做了什么：**
+- 撤销了上一轮对 `dispatch.rs` 和 `module_reducer.rs` 的错误修改
+- 发现并修复 test 59 的 XML 语法问题：
+  - `<goto script="fragment">` → `<goto script="@main.fragment">`：需要使用模块限定语法 `@main.fragment`
+  - `<text value="from helper"/>` → `<text>from helper</text>`：`<text>` 使用 body content 而非 `value` 属性
+  - `<text>` 必须在 `<goto>` 之前：否则跳转先执行，后续的 text 不会输出
+- 修复后 test 59 通过，输出 `["text from helper", "text from second", "end"]`
+
+**本次发现的问题、踩的坑：**
+- `<goto script="fragment">` 中的 `fragment` 会被解析为变量引用（因为没有 `@` 前缀），导致 "Variable not found: fragment" 错误。正确语法是 `@main.fragment`
+- `<text value="...">` 不是标准语法，应该使用 `<text>body content</text>` 形式
+- `<goto>` 在 script children 中先于 `<text>` 执行，调整顺序很重要
+
+**下一步方向：**
+- Step 3.4.4：运行 make gate 并更新 IMPLEMENTATION.md

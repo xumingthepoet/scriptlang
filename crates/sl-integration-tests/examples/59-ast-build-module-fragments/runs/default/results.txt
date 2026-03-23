@@ -1,0 +1,3 @@
+text from helper
+text from second
+end

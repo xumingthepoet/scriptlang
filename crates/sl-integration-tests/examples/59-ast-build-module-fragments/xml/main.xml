@@ -1,0 +1,9 @@
+<module name="main">
+  <!-- Step 3.4: AST builtins compose multiple script fragments.
+       Uses helper to build two <script> templates (via ast_attr_set + ast_concat).
+       Verifies CtValue::Ast from AST builtins flows back through macro → reducer → runtime. -->
+  <use module="helper">
+    <!-- Children are passed but not used (helper constructs scripts from scratch). -->
+    <text>unused child content</text>
+  </use>
+</module>

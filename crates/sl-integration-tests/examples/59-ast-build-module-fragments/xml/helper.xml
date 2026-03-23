@@ -1,0 +1,60 @@
+<module name="helper">
+  <!-- Step 3.4: AST builtins compose multiple script fragments.
+       Demonstrates ast_attr_set + ast_concat to build
+       multiple <script> forms, then returns the combined AST via quote/unquote.
+       This validates that CtValue::Ast from AST builtins flows through:
+       macro body → CtValue::Ast → evaluate_macro_items → Vec<FormItem>
+       → expand_generated_items → module reducer → runtime.
+
+       The combined AST contains two <script> forms (main + fragment).
+       The main script jumps to fragment after outputting "from helper".
+       The fragment script outputs "from second".
+
+       Only uses existing builtins: ast_attr_set, ast_concat. -->
+  <macro name="__using__" params="keyword:opts,ast:children">
+    <!-- Build main script using <quote> to construct the form with goto + text content.
+         The script jumps to "@main.fragment" so both scripts execute.
+         Note: must use "@main.fragment" (qualified) not just "fragment" (would be a variable ref). -->
+    <let name="main_script" type="ast">
+      <quote>
+        <script>
+          <text>from helper</text>
+          <goto script="@main.fragment"/>
+        </script>
+      </quote>
+    </let>
+
+    <!-- Use ast_attr_set to name the script "main" (the entry script).
+         ast_attr_set takes: AST, key, value → returns new AST with attr set.
+         The other children (goto, text) are preserved. -->
+    <let name="main_script_named" type="ast">
+      <builtin name="ast_attr_set"><var name="main_script"/><literal value="name"/><literal value="main"/></builtin>
+    </let>
+
+    <!-- Build fragment script using <quote> to construct a named script directly.
+         The fragment script outputs "from second". -->
+    <let name="frag_script" type="ast">
+      <quote>
+        <script name="fragment">
+          <text>from second</text>
+        </script>
+      </quote>
+    </let>
+
+    <!-- Combine both scripts using ast_concat.
+         ast_concat accepts varargs: each arg is an AST.
+         The result is CtValue::Ast containing two FormItem::Form (main_script_named + frag_script).
+         This validates: write-builtin → CtValue::Ast → concat → CtValue::Ast. -->
+    <let name="combined" type="ast">
+      <builtin name="ast_concat"><var name="main_script_named"/><var name="frag_script"/></builtin>
+    </let>
+
+    <!-- Return via quote/unquote: CtValue::Ast flows through:
+         macro return → evaluate_macro_items → Vec<FormItem>
+         → expand_generated_items → module reducer.
+         Each FormItem::Form(script) is processed as a module child. -->
+    <quote>
+      <unquote>combined</unquote>
+    </quote>
+  </macro>
+</module>
