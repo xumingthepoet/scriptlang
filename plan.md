@@ -16,9 +16,31 @@
 - 远程宏调用还不是严格的 module-qualified dispatch
 - compile-time value / quote / remote invoke 的值模型还没有统一
 - AST 还不是一等 compile-time 数据，宏对 AST 的操作能力偏弱
+- 缺少 module-level compile-time 累积状态，难以承载 Elixir 风格的“注册型 DSL”
 - caller env 和错误定位还太薄
 - hygiene 还主要覆盖 `<temp>`，尚未覆盖隐藏 helper 定义
-- compile-time language 还是固定 DSL，缺少足够的组合能力来支撑真实 narrative DSL 宏库
+- compile-time language 还是固定 DSL，缺少足够的控制/遍历/匹配能力来支撑真实 narrative DSL 宏库
+
+## 对独立分析方案的取舍
+
+下面两点要明确写给下级 agent，避免在错误前提上发散：
+
+- “宏递归展开”不是当前主缺口。
+  - 现有实现已经有两层递归展开主路径：
+    - `expand_generated_items()` 会对宏产出的 form 再次走 `expand_form_items()`
+    - `module_reducer` 会把宏产出的 module-level form 重新入队，再次进入定义期 reducer
+  - 因此“先补一个递归展开框架”不是当前优先事项。
+  - 如果后续发现组合宏回归缺陷，处理方式应是补回归测试并修具体 bug，而不是重开一个大阶段。
+- “同一语言原则”不作为当前目标。
+  - Elixir 的宏与 runtime 共享同一宿主语言；sl 明确不是这个路线。
+  - sl 的目标是保持 compiler/runtime 边界清晰，用 compile-time language 承载高层构造。
+  - 因此当前要追的是“宏协议、AST 操作能力、组合性、hygiene、编译期累积状态”，不是让宏去复用 Rhai 本身。
+
+独立分析里真正值得吸收的点有三项：
+
+- 把“module attribute / module-level compile-time accumulation”单独拉成主任务
+- 把 compile-time language 的后续增强写实成“遍历 / 匹配 / 组合”，而不是抽象表述
+- 在非目标里明确：表达式级 quote、宏作为一等值等更激进元编程能力，不是当前阶段主线
 
 ## 执行规则
 
@@ -198,7 +220,59 @@ Status: pending
 - 调试宏不再只能靠猜
 - `caller_env()` 对真实宏库实现已经足够有用
 
-## 5. 扩展 Hygiene 到隐藏 Helper 定义层
+## 5. Module-Level Compile-Time Accumulation（Elixir 式模块属性精神）
+
+Status: pending
+
+目标：
+
+- 给 macro system 增加 module-level compile-time 累积状态
+- 让 DSL 能实现“注册型”编译期协议，而不只是即时展开
+- 捕捉 Elixir `@attr` 机制背后的精神，而不是复制其表层语法
+
+主要代码落点：
+
+- `crates/sl-compiler/src/semantic/env.rs`
+- `crates/sl-compiler/src/semantic/macro_lang/builtins.rs`
+- 如有必要，新增：
+  - `crates/sl-compiler/src/semantic/expand/module_attrs.rs`
+  - 或把 module-level compile-time state 直接收敛进 `ExpandEnv`
+
+具体工作：
+
+- 在 `ExpandEnv` 引入 module-level compile-time state
+  - 不要求照抄 Elixir `@attr`
+  - 但必须支持“同一 module 内前面宏写、后面宏读”的累积模型
+- 提供最小 builtin：
+  - `module_get(name)`
+  - `module_put(name, value)`
+  - `module_update(name, ...)` 或等价写法
+- 值类型至少要支持：
+  - `string`
+  - `int`
+  - `bool`
+  - `list`
+  - `keyword`
+  - `ast`
+- 明确 module-level state 与局部 `CtEnv` 的边界
+- 如果 `use` 注入和 module-level registry 冲突，需要给出稳定错误
+
+验收 examples：
+
+- `63-module-state-accumulate-via-use`
+  - 多次 `use` 同一 provider 或多个 provider
+  - provider 通过 module-level state 累积注册信息
+- `64-module-state-read-after-write`
+  - 同一 module 中，后一个宏能读取前一个宏写入的 state
+- `65-invalid-module-state-conflict`
+  - 重复注册或类型不匹配时报稳定错误
+
+完成定义：
+
+- sl 获得“注册型 DSL”能力，而不只是立即展开型宏
+- 后续 narrative DSL 能基于 compiler 内部状态做分阶段组装
+
+## 6. 扩展 Hygiene 到隐藏 Helper 定义层
 
 Status: pending
 
@@ -223,12 +297,12 @@ Status: pending
 
 验收 examples：
 
-- `63-use-hidden-script-gensym`
+- `66-use-hidden-script-gensym`
   - provider 注入隐藏 script，caller 自己定义同名前缀 helper
   - 两者不冲突
-- `64-use-hidden-function-gensym`
+- `67-use-hidden-function-gensym`
   - provider 注入隐藏 function，不污染 caller
-- `65-invalid-public-inject-conflict-reports-provider`
+- `68-invalid-public-inject-conflict-reports-provider`
   - provider 注入公开成员与 caller 冲突
   - 错误文本必须明确 provider module / caller module / 成员名
 
@@ -237,7 +311,7 @@ Status: pending
 - “隐藏 helper 靠手写 `__internal__` 命名规约”不再是主方案
 - `use` 的注入边界可控、可预测
 
-## 6. 把 Compile-Time Language 提升成可承载 Narrative DSL 宏库的子语言
+## 7. 把 Compile-Time Language 提升成可承载 Narrative DSL 宏库的子语言
 
 Status: pending
 
@@ -255,20 +329,26 @@ Status: pending
 
 具体工作：
 
-- 增加围绕 `list / keyword / ast` 的组合能力
-- 优先补 narrative DSL 场景最需要的能力：
-  - 遍历 keyword opts
-  - 由 compile-time list 批量生成 script / choice / text 结构
+- 不再只写“增强组合能力”，而要明确补这些能力：
+  - 对 `list / keyword` 的遍历
+  - 对 `CtValue` 的匹配分派
+  - 对 `ast` 的批量构造与组合
+- 优先补 narrative DSL 场景最需要的 compile-time 能力：
+  - `for_each` / `map` / `fold` 或等价 builtin
+  - `match` / `case` 风格 builtin
+  - 基于 compile-time list 批量生成 script / choice / text 结构
   - 组合多个 provider 的宏，而不是每个 provider 单打独斗
 - 保持 runtime 不变，能力全部留在 compiler / 标准库宏层
 
 验收 examples：
 
-- `66-macro-iterate-over-keyword-opts`
+- `69-macro-iterate-over-keyword-opts`
   - 宏遍历 keyword opts 并生成多个 text/script 片段
-- `67-macro-generate-multiple-scripts-from-list`
+- `70-macro-generate-multiple-scripts-from-list`
   - compile-time list 驱动批量 script 生成
-- `68-macro-compose-use-provider`
+- `71-macro-match-on-compile-time-values`
+  - 宏对 bool/int/string/keyword 做 compile-time 匹配分支
+- `72-macro-compose-use-provider`
   - 一个 provider 的 `__using__` 内部安全地组合另一个 provider 的宏
 
 完成定义：
@@ -284,6 +364,8 @@ Status: pending
 - 复制 Elixir 的通用宿主语言 compile-time 执行模型
 - BEAM 相关机制，如 behaviours / protocols / module attributes 全量映射
 - 为了实现宏能力而给 runtime 增加新 primitive
+- 单独重开一条“递归展开框架重写”主线
+- 现在就追“宏作为一等值”或“表达式级 quote”这类更激进的元编程能力
 
 ## 完成定义
 
@@ -292,6 +374,7 @@ Status: pending
 - 远程宏调用是严格的 module-qualified dispatch
 - compile-time value / quote / remote invoke 模型统一
 - AST 是一等 compile-time 数据
+- module-level compile-time accumulation 已可用于 DSL 注册模式
 - caller env 和错误定位足够支撑真实宏库开发
 - hygiene 扩展到隐藏 helper 定义层
 - compile-time language 已能承载下一阶段 narrative DSL 宏库
