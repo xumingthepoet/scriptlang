@@ -1,0 +1,10 @@
+<module name="sub">
+  <!-- Step 7.6: Provider with a macro that returns a simple <text> node.
+       This macro will be invoked from within composer.__using__ via invoke_macro,
+       demonstrating that __using__ can safely compose another provider's macros. -->
+  <macro name="make_text" params="string:name">
+    <quote>
+      <text>sub: ${name}</text>
+    </quote>
+  </macro>
+</module>

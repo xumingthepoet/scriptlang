@@ -2691,7 +2691,7 @@ mod ct_lang_tests {
         let err = result.unwrap_err();
         assert!(
             err.to_string()
-                .contains("requires module attribute or <var>/<get-attribute> child"),
+                .contains("requires module attribute or <var>/<get-attribute>/<literal> child"),
             "got: {}",
             err
         );
@@ -2780,7 +2780,7 @@ mod ct_lang_tests {
         let err = result.unwrap_err();
         assert!(
             err.to_string()
-                .contains("child must be <var> or <get-attribute>"),
+                .contains("child must be <var>, <get-attribute>, or <literal>"),
             "got: {}",
             err
         );

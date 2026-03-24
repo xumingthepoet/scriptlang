@@ -284,14 +284,19 @@ fn child_form_at<'a>(
     }
 }
 
-/// Parse the module expression from child form elements (<var> or <get-attribute>).
+/// Parse the module expression from child form elements (<var>, <get-attribute>, or <literal>).
 /// Used as fallback when `module` attribute is absent.
 fn parse_module_from_child(form: &Form) -> Result<CtExpr, ScriptLangError> {
     let children = extract_form_children(form)?;
-    let child = children.first().ok_or_else(|| {
+    // Skip leading whitespace-only text nodes (indentation in the source XML)
+    let meaningful: Vec<_> = children
+        .iter()
+        .filter(|item| !matches!(item, FormItem::Text(text) if text.trim().is_empty()))
+        .collect();
+    let child = meaningful.first().ok_or_else(|| {
         error_at(
             form,
-            "<invoke_macro> requires module attribute or <var>/<get-attribute> child",
+            "<invoke_macro> requires module attribute or <var>/<get-attribute>/<literal> child",
         )
     })?;
     let child_form = match child {
@@ -310,10 +315,10 @@ fn parse_module_from_child(form: &Form) -> Result<CtExpr, ScriptLangError> {
                 name: var_name.to_string(),
             })
         }
-        "get-attribute" => convert_expr_form(child_form),
+        "get-attribute" | "literal" => convert_expr_form(child_form),
         _ => Err(error_at(
             form,
-            "<invoke_macro> child must be <var> or <get-attribute>",
+            "<invoke_macro> child must be <var>, <get-attribute>, or <literal>",
         )),
     }
 }

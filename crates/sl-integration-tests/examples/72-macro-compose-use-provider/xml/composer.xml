@@ -1,0 +1,30 @@
+<module name="composer">
+  <!-- Step 7.6: __using__ that composes sub's macro.
+       This demonstrates that a provider's __using__ can safely invoke another
+       provider's macros via invoke_macro builtin.
+
+       The require_module builtin call adds "sub" to the module's requires list
+       (Step 7.6 key capability: __using__ can dynamically require modules).
+
+       Call chain:
+       main use composer -> composer.__using__ -> require_module("sub") -> invoke_macro -> sub.make_text -->
+  <macro name="__using__" params="keyword:opts">
+    <!-- require_module builtin: adds "sub" to the requires list so invoke_macro can target it.
+         This is the key Step 7.6 capability: __using__ can dynamically require modules. -->
+    <builtin name="require_module">
+      <literal value="sub"/>
+    </builtin>
+
+    <!-- Invoke sub.make_text from within __using__.
+         invoke_macro at top level becomes Return { expr }.
+         module is passed as <literal> child to avoid variable lookup.
+         opts="opts" passes through the caller's keyword opts to sub.make_text. -->
+    <invoke_macro macro_name="make_text" opts="opts">
+      <literal value="sub"/>
+    </invoke_macro>
+  </macro>
+
+  <!-- Pre-require sub at module level so that invoke_macro can find it.
+       The <builtin name="require_module"> call above adds it dynamically as well. -->
+  <require name="sub"/>
+</module>

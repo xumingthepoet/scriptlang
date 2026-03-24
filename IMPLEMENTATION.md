@@ -1651,3 +1651,57 @@ main.xml:
   text Charlie
   end
 ```
+
+## Step 7.6: 支持组合多个 provider 的宏（2026-03-24）
+
+完成状态：已完成
+
+### 核心实现
+
+Provider 的 `__using__` 可以安全地组合另一个 provider 的宏。通过 `require_module` builtin 动态 require 模块，通过 `invoke_macro` 调用远程宏：
+
+1. `composer.__using__` 调用 `<builtin name="require_module"><literal value="sub"/></builtin>` 动态 require `sub`
+2. `composer.__using__` 通过 `<invoke_macro macro_name="make_text" opts="opts"><literal value="sub"/></invoke_macro>` 调用 `sub.make_text`
+3. `sub.make_text` 返回 `<text>sub: ${name}</text>`，由 composer 透传
+
+### 关键技术：`<literal>` 作为 `invoke_macro` 的 module 参数
+
+`<invoke_macro>` 的 `module` 属性如果是字母数字字符串，会被当作变量引用。需要通过 `<literal>` 子元素传递字面量模块名：
+
+```xml
+<!-- 错误：module="sub" 被当作变量引用，导致 "Undefined variable: sub" -->
+<invoke_macro module="sub" macro_name="make_text" opts="opts"/>
+
+<!-- 正确：使用 <literal> 子元素 -->
+<invoke_macro macro_name="make_text" opts="opts"><literal value="sub"/></invoke_macro>
+```
+
+### 代码落点
+
+- `crates/sl-compiler/src/semantic/macro_lang/convert.rs`
+  - `parse_module_from_child`：新增 `"literal"` 分支，将 `<literal>` 子元素转为 `CtExpr::Literal`
+  - `parse_module_from_child`：修复 leading whitespace text node 问题（跳过空文本节点）
+
+### 集成测试
+
+- `72-macro-compose-use-provider`
+```
+sub.xml:
+  <macro name="make_text" params="string:name">
+    <quote><text>sub: ${name}</text></quote>
+  </macro>
+
+composer.xml:
+  <macro name="__using__" params="keyword:opts">
+    <builtin name="require_module"><literal value="sub"/></builtin>
+    <invoke_macro macro_name="make_text" opts="opts"><literal value="sub"/></invoke_macro>
+  </macro>
+  <require name="sub"/>
+
+main.xml:
+  <use module="composer" name="Alice"/>
+
+期望输出：
+  text sub: Alice
+  end
+```

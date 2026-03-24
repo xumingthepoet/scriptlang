@@ -1,0 +1,10 @@
+<module name="main">
+  <!-- Step 7.6: Test that composer.__using__ can compose sub.make_text.
+       composer requires sub via require_module and invokes sub.make_text.
+       Expected output: "text sub: Alice" (from sub.make_text)
+       The composition works: __using__ safely uses another provider's macro. -->
+  <script name="main">
+    <use module="composer" name="Alice"/>
+    <end/>
+  </script>
+</module>
