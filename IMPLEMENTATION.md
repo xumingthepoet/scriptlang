@@ -1498,3 +1498,79 @@ if text == "true" {
   </builtin>
 </let>
 ```
+
+## Step 7.3: 新增 keyword opts 遍历 builtin（2026-03-24）
+
+完成状态：已完成
+
+### 新增 builtin
+
+- **`keyword_keys(keyword)`** → `List<String>`：返回所有 key 的列表
+- **`keyword_pairs(keyword)`** → `List`：返回所有 `[key, value]` pair 的列表
+
+### 代码落点
+
+- `crates/sl-compiler/src/semantic/macro_lang/builtins.rs`
+  - `builtin_keyword_keys` / `builtin_keyword_pairs`
+
+## Step 7.4: 新增 match/case 风格的 compile-time 模式匹配（2026-03-24）
+
+完成状态：已完成
+
+### 新增 builtin
+
+- **`match(value, pattern1, result1, pattern2, result2, ...)`** → `CtValue`：基于 compile-time 值的模式匹配
+
+### 支持的 pattern 类型
+
+- `CtValue::Bool` / `CtValue::Int` / `CtValue::String`：精确匹配
+- `CtValue::Keyword` / `CtValue::List`：结构化匹配（使用 `PartialEq`）
+- `CtValue::String("_")`：通配符，匹配任何值
+
+### API 设计
+
+```xml
+<builtin name="match">
+  <literal value="world"/>
+  <literal value="hello"/>
+  <quote>
+    <text>matched hello</text>
+  </quote>
+  <literal value="world"/>
+  <quote>
+    <text>matched world</text>
+  </quote>
+  <literal value="_"/>
+  <quote>
+    <text>matched other</text>
+  </quote>
+</builtin>
+```
+
+- 参数格式：`match(value, pattern, result, pattern, result, ...)`
+- 返回第一个匹配 pattern 的 result
+- 如果没有匹配，返回错误（建议添加通配符 `_` 作为 fallback）
+
+### 代码落点
+
+- `crates/sl-compiler/src/semantic/macro_lang/builtins.rs`
+  - `builtin_match`
+  - `WILDCARD_PATTERN` 常量
+
+### 单元测试
+
+- `builtin_match_int_pattern_works`
+- `builtin_match_string_pattern_works`
+- `builtin_match_bool_pattern_works`
+- `builtin_match_list_pattern_works`
+- `builtin_match_keyword_pattern_works`
+- `builtin_match_wildcard_matches_any_value`
+- `builtin_match_wildcard_as_fallback`
+- `builtin_match_no_match_errors`
+- `builtin_match_wrong_arg_count_errors`
+- `builtin_match_returns_first_match`
+
+### 集成测试
+
+- `71-macro-match-on-compile-time-values`
+```

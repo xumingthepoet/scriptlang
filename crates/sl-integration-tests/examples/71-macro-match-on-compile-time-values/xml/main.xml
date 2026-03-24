@@ -1,0 +1,29 @@
+<module name="main">
+  <!-- Test Step 7.4: match builtin for compile-time pattern matching -->
+
+  <macro name="greet">
+    <!-- Match on a fixed string value -->
+    <builtin name="match">
+      <literal value="world"/>
+      <literal value="hello"/>
+      <quote>
+        <text>matched hello</text>
+      </quote>
+      <literal value="world"/>
+      <quote>
+        <text>matched world</text>
+      </quote>
+      <literal value="_"/>
+      <quote>
+        <text>matched other</text>
+      </quote>
+    </builtin>
+  </macro>
+
+  <script name="main">
+    <!-- Test: should match "world" and return "matched world" -->
+    <greet/>
+
+    <end/>
+  </script>
+</module>

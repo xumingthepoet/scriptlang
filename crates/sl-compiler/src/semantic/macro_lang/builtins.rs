@@ -118,6 +118,9 @@ impl BuiltinRegistry {
         self.register("list_foreach", builtin_list_foreach);
         self.register("list_map", builtin_list_map);
         self.register("list_fold", builtin_list_fold);
+
+        // Step 7.4: match/case style pattern matching
+        self.register("match", builtin_match);
     }
 
     /// Register a builtin function.
@@ -2217,4 +2220,76 @@ fn builtin_list_fold(
     }
 
     Ok(acc)
+}
+
+/// Wildcard pattern that matches any value.
+const WILDCARD_PATTERN: &str = "_";
+
+/// Step 7.4: match(value, pattern1, result1, pattern2, result2, ...) -> CtValue
+/// Pattern matching for compile-time values.
+///
+/// Patterns:
+/// - `CtValue::Bool/Int/String/Keyword/List`: exact match
+/// - `CtValue::String("_")`: wildcard (matches any value)
+///
+/// Returns the result of the first matching pattern.
+/// Returns error if no pattern matches.
+fn builtin_match(
+    args: &[CtValue],
+    _macro_env: &mut MacroEnv,
+    _ct_env: &mut CtEnv,
+    _expand_env: &mut ExpandEnv,
+    _builtins: &BuiltinRegistry,
+) -> BuiltinResult {
+    // Requires: value + (pattern, result) pairs = 1 + 2*N arguments (odd number)
+    if args.len() < 3 {
+        return Err(ScriptLangError::Message {
+            message: "match() requires at least 3 arguments: value, pattern, result".to_string(),
+        });
+    }
+    if args.len().is_multiple_of(2) {
+        return Err(ScriptLangError::Message {
+            message: format!(
+                "match() requires odd number of arguments (value + pattern/result pairs), got {}",
+                args.len()
+            ),
+        });
+    }
+
+    let value = &args[0];
+
+    // Iterate over pattern-result pairs
+    let mut i = 1;
+    while i + 1 < args.len() {
+        let pattern = &args[i];
+        let result = &args[i + 1];
+
+        // Check if pattern matches
+        let matches = if let CtValue::String(s) = pattern {
+            if s == WILDCARD_PATTERN {
+                // Wildcard matches any value
+                true
+            } else {
+                // String literal match
+                value == pattern
+            }
+        } else {
+            // Exact match for other types
+            value == pattern
+        };
+
+        if matches {
+            return Ok(result.clone());
+        }
+
+        i += 2;
+    }
+
+    // No pattern matched
+    Err(ScriptLangError::Message {
+        message: format!(
+            "match(): no pattern matched value {:?}. Consider adding a wildcard '_' pattern as fallback.",
+            value
+        ),
+    })
 }

@@ -1341,3 +1341,31 @@ Status: **in_progress**
 
 **下一步方向：**
 - Step 7.4: 新增 match / case 风格的 compile-time 匹配分支
+
+### Step 7.4: 新增 match/case 风格的 compile-time 模式匹配 (2026-03-24)
+
+**本次做了什么：**
+- 新增 `builtin_match(value, pattern1, result1, pattern2, result2, ...)` 函数
+- 支持的 pattern 类型：
+  - `CtValue::Bool/Int/String`：精确匹配
+  - `CtValue::Keyword/List`：结构化匹配（使用 `PartialEq`）
+  - `CtValue::String("_")`：通配符，匹配任何值
+- 参数格式：`match(value, pattern, result, pattern, result, ...)` - 奇数个参数
+- 验证参数数量必须是奇数（1 value + N pattern-result pairs）
+- 返回第一个匹配 pattern 的 result；无匹配时返回错误
+- 新增 10 个单元测试覆盖：各类型匹配、通配符、通配符 fallback、无匹配错误、参数错误
+- 创建集成测试 `71-macro-match-on-compile-time-values` 验证端到端功能
+- 更新 IMPLEMENTATION.md 添加 Step 7.3 和 Step 7.4 文档
+
+**本次发现的问题、踩的坑：**
+- `is_multiple_of(n)` 检查 `self % n == 0`，即"能被 n 整除"。`is_multiple_of(2)` = 偶数，不是"2 的倍数"（虽然等价）
+- 在 XML 宏体中使用 `<literal value="..."/>` 传递字符串字面量给 builtin，不支持 `<string>...</string>` 语法
+- `<builtin>` 标签的参数解析使用 `convert_expr_form`，只识别 `<literal>` 等支持的表达式形式
+
+**验收达成：**
+- 10 个单元测试全部通过
+- 集成测试 `71-macro-match-on-compile-time-values` 通过
+- `make gate` 通过（281 个 compiler 单元测试 + 69 个集成测试，覆盖率 90.04%）
+
+**下一步方向：**
+- Step 7.5: 基于 compile-time list 批量生成 script / choice 结构

@@ -5867,4 +5867,303 @@ mod ct_lang_tests {
         .expect_err("should error on non-keyword");
         assert!(err.to_string().contains("must be keyword"));
     }
+
+    // ============================================================================
+    // Step 7.4: match builtin tests
+    // ============================================================================
+
+    #[test]
+    fn builtin_match_int_pattern_works() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = ExpandEnv::default();
+        let mut ct_env = CtEnv::new();
+        let mut macro_env = MacroEnv::default();
+
+        let result = builtins.get("match").unwrap()(
+            &[
+                CtValue::Int(2),
+                CtValue::Int(1),
+                CtValue::String("one".to_string()),
+                CtValue::Int(2),
+                CtValue::String("two".to_string()),
+                CtValue::Int(3),
+                CtValue::String("three".to_string()),
+            ],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect("match should succeed");
+
+        assert_eq!(result, CtValue::String("two".to_string()));
+    }
+
+    #[test]
+    fn builtin_match_string_pattern_works() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = ExpandEnv::default();
+        let mut ct_env = CtEnv::new();
+        let mut macro_env = MacroEnv::default();
+
+        let result = builtins.get("match").unwrap()(
+            &[
+                CtValue::String("hello".to_string()),
+                CtValue::String("world".to_string()),
+                CtValue::String("got world".to_string()),
+                CtValue::String("hello".to_string()),
+                CtValue::String("got hello".to_string()),
+            ],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect("match should succeed");
+
+        assert_eq!(result, CtValue::String("got hello".to_string()));
+    }
+
+    #[test]
+    fn builtin_match_bool_pattern_works() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = ExpandEnv::default();
+        let mut ct_env = CtEnv::new();
+        let mut macro_env = MacroEnv::default();
+
+        let result = builtins.get("match").unwrap()(
+            &[
+                CtValue::Bool(true),
+                CtValue::Bool(false),
+                CtValue::String("false branch".to_string()),
+                CtValue::Bool(true),
+                CtValue::String("true branch".to_string()),
+            ],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect("match should succeed");
+
+        assert_eq!(result, CtValue::String("true branch".to_string()));
+    }
+
+    #[test]
+    fn builtin_match_list_pattern_works() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = ExpandEnv::default();
+        let mut ct_env = CtEnv::new();
+        let mut macro_env = MacroEnv::default();
+
+        let list_pattern = CtValue::List(vec![CtValue::Int(1), CtValue::Int(2)]);
+        let list_value = CtValue::List(vec![CtValue::Int(1), CtValue::Int(2)]);
+        let other_list = CtValue::List(vec![CtValue::Int(3), CtValue::Int(4)]);
+
+        let result = builtins.get("match").unwrap()(
+            &[
+                list_value,
+                other_list,
+                CtValue::String("other list".to_string()),
+                list_pattern,
+                CtValue::String("matched list".to_string()),
+            ],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect("match should succeed");
+
+        assert_eq!(result, CtValue::String("matched list".to_string()));
+    }
+
+    #[test]
+    fn builtin_match_keyword_pattern_works() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = ExpandEnv::default();
+        let mut ct_env = CtEnv::new();
+        let mut macro_env = MacroEnv::default();
+
+        let kw_pattern = CtValue::Keyword(vec![(
+            "key".to_string(),
+            CtValue::String("value".to_string()),
+        )]);
+        let kw_value = CtValue::Keyword(vec![(
+            "key".to_string(),
+            CtValue::String("value".to_string()),
+        )]);
+
+        let result = builtins.get("match").unwrap()(
+            &[
+                kw_value,
+                kw_pattern,
+                CtValue::String("matched keyword".to_string()),
+            ],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect("match should succeed");
+
+        assert_eq!(result, CtValue::String("matched keyword".to_string()));
+    }
+
+    #[test]
+    fn builtin_match_wildcard_matches_any_value() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = ExpandEnv::default();
+        let mut ct_env = CtEnv::new();
+        let mut macro_env = MacroEnv::default();
+
+        // Test wildcard matching an int
+        let result = builtins.get("match").unwrap()(
+            &[
+                CtValue::Int(42),
+                CtValue::String("_".to_string()),
+                CtValue::String("fallback".to_string()),
+            ],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect("match with wildcard should succeed");
+
+        assert_eq!(result, CtValue::String("fallback".to_string()));
+
+        // Test wildcard matching a string
+        let result2 = builtins.get("match").unwrap()(
+            &[
+                CtValue::String("anything".to_string()),
+                CtValue::String("_".to_string()),
+                CtValue::String("wildcard matched".to_string()),
+            ],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect("match with wildcard should succeed");
+
+        assert_eq!(result2, CtValue::String("wildcard matched".to_string()));
+    }
+
+    #[test]
+    fn builtin_match_wildcard_as_fallback() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = ExpandEnv::default();
+        let mut ct_env = CtEnv::new();
+        let mut macro_env = MacroEnv::default();
+
+        // No pattern matches, fallback to wildcard
+        let result = builtins.get("match").unwrap()(
+            &[
+                CtValue::Int(99),
+                CtValue::Int(1),
+                CtValue::String("one".to_string()),
+                CtValue::Int(2),
+                CtValue::String("two".to_string()),
+                CtValue::String("_".to_string()),
+                CtValue::String("default".to_string()),
+            ],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect("match should succeed with wildcard fallback");
+
+        assert_eq!(result, CtValue::String("default".to_string()));
+    }
+
+    #[test]
+    fn builtin_match_no_match_errors() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = ExpandEnv::default();
+        let mut ct_env = CtEnv::new();
+        let mut macro_env = MacroEnv::default();
+
+        let err = builtins.get("match").unwrap()(
+            &[
+                CtValue::Int(99),
+                CtValue::Int(1),
+                CtValue::String("one".to_string()),
+                CtValue::Int(2),
+                CtValue::String("two".to_string()),
+            ],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect_err("should error when no pattern matches");
+
+        assert!(err.to_string().contains("no pattern matched"));
+        assert!(err.to_string().contains("wildcard"));
+    }
+
+    #[test]
+    fn builtin_match_wrong_arg_count_errors() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = ExpandEnv::default();
+        let mut ct_env = CtEnv::new();
+        let mut macro_env = MacroEnv::default();
+
+        // Too few args
+        let err = builtins.get("match").unwrap()(
+            &[CtValue::Int(1), CtValue::Int(1)],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect_err("should error on 2 args");
+        assert!(err.to_string().contains("at least 3"));
+
+        // Even number of args (missing result for last pattern)
+        let err2 = builtins.get("match").unwrap()(
+            &[
+                CtValue::Int(1),
+                CtValue::Int(1),
+                CtValue::String("one".to_string()),
+                CtValue::Int(2),
+            ],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect_err("should error on even args");
+        assert!(err2.to_string().contains("odd number"));
+    }
+
+    #[test]
+    fn builtin_match_returns_first_match() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = ExpandEnv::default();
+        let mut ct_env = CtEnv::new();
+        let mut macro_env = MacroEnv::default();
+
+        // Multiple patterns could match, first one wins
+        let result = builtins.get("match").unwrap()(
+            &[
+                CtValue::Int(1),
+                CtValue::Int(1),
+                CtValue::String("first".to_string()),
+                CtValue::Int(1),
+                CtValue::String("second".to_string()),
+                CtValue::String("_".to_string()),
+                CtValue::String("third".to_string()),
+            ],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect("match should succeed");
+
+        assert_eq!(result, CtValue::String("first".to_string()));
+    }
 }
