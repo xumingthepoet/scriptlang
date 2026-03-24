@@ -1,0 +1,3 @@
+text [Narrator] A dark forest lies before you.
+text [Guard] Halt! Who goes there?
+end

@@ -1,0 +1,32 @@
+<module name="main">
+  <!-- Test Step 8.1: Narrative DSL - scene + say macros
+
+       Demonstrates:
+       1. `__using__` sets up narrative state (stores module name)
+       2. `scene(name, children)` generates <script name="name">children</script>
+       3. `say(speaker, text)` generates <text>[speaker] text</text>
+       4. `goto_scene(module, scene)` generates <goto script="@module.scene"/>
+
+       Flow:
+       main -> goto_scene("main", "intro") -> intro scene -> say -> goto_scene -> middle scene -> end -->
+
+  <!-- Initialize narrative DSL state (stores "main" as the module name) -->
+  <use module="narrative"/>
+
+  <!-- Entry point: jump to the first scene -->
+  <script name="main">
+    <goto_scene module="main" scene="intro"/>
+  </script>
+
+  <!-- Scene: intro -->
+  <scene name="intro">
+    <say speaker="Narrator" text="A dark forest lies before you."/>
+    <goto_scene module="main" scene="middle"/>
+  </scene>
+
+  <!-- Scene: middle -->
+  <scene name="middle">
+    <say speaker="Guard" text="Halt! Who goes there?"/>
+    <end/>
+  </scene>
+</module>

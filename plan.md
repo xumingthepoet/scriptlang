@@ -16,6 +16,7 @@
   - module_put 冲突检测 + test 65 通过
 - Step 6: Hygiene 扩展（6.1 ~ 6.4 完成）
 - Step 7: Compile-time language 已能承载下一阶段 narrative DSL 宏库（7.1-7.6 全部完成 2026-03-24）
+- Step 8: Narrative DSL 宏库实现（8.1 进行中）
 
 ---
 
@@ -841,6 +842,80 @@ Status: **已完成** (2026-03-24, Step 7.6 完成)
 
 ---
 
+## Step 8: Narrative DSL 宏库
+
+**Status: 进行中**
+
+**目标：** 用 compile-time language 构建一个实用的叙事 DSL 宏库，证明 Step 7 的能力可以承载真实 DSL。
+
+当前痛点（无 DSL 层时）：
+- 场景用 `<script>` 硬编码，手动写 `<goto>` 导航链
+- 状态分散在多个 `<var>` 中，无法集中表达"游戏状态"
+- 条件内容用裸 `<if when="...">` 编写，可读性差
+- 多人称对话需要大量重复的 `<text>` 标签
+
+Step 8 的叙事 DSL 宏库应提供：
+
+### Step 8.1: 基础叙事宏库 provider（`narrative`）
+
+创建一个 `narrative` provider 模块，提供：
+
+1. **`scene(name, opts, children)`** — 声明式场景宏
+   - `name`: 场景名（string）
+   - `opts`: keyword options（如 `type: "dialogue" | "narration"`）
+   - `children`: 场景内容（text / choice / goto）
+   - 编译期行为：将场景注册到 module state，按声明顺序生成自动导航链（首个场景 = 入口）
+   - 展开结果：生成 `<script name="scene_name">` + 末尾自动 goto 下一场景
+
+2. **`say(speaker, text)`** — 对话宏
+   - 编译期生成 `<text>[speaker] text</text>`
+   - speaker 使用 `[name]` 包裹，便于后续提取
+
+3. **`choose(prompt, options)`** — 选择菜单宏
+   - `prompt`: 提示文本（string）
+   - `options`: keyword list，`[{text: "...", target: "scene_name"}, ...]`
+   - 编译期展开为 `<choice>` + 多个 `<option>` 节点
+
+4. **`goto_scene(scene_name)`** — 显式跳转宏
+   - 编译期生成 `<goto script="@current_module.scene_name"/>`
+
+验收：
+- `73-narrative-dsl-scene-and-say` 通过：使用 `scene` + `say` 宏输出多段对话
+- `make gate` 通过
+
+### Step 8.2: 状态管理宏（`narrative.state`）
+
+在 `narrative` provider 中扩展状态管理：
+
+1. **`flag(name, initial)`** — 声明游戏 flag
+   - 编译期使用 `module_put` 注册 flag 到 module state
+   - 展开为对应 `<const>` 定义
+
+2. **`set_flag(name, value)`** — 设置 flag
+   - 编译期使用 `module_put` 更新 module state
+   - 展开为 `<var>` 赋值
+
+3. **`if_flag(name, then_ast, else_ast?)`** — 条件分支
+   - 编译期使用 `module_get` 读取 flag 值
+   - 运行时使用 `<if when="...">` 条件分支
+   - 需要区分：flag 值在编译期未知（需要运行时 `<if>`）vs 编译期已知（可以用 `<let>` 短路求值）
+
+验收：
+- `74-narrative-dsl-state-and-conditional` 通过
+
+### Step 8.3: 叙事 DSL demo 示例
+
+创建一个稍微完整的叙事 demo（非测试），展示：
+- 多场景自动导航
+- 状态驱动的条件内容
+- 对话 + 选择组合
+
+验收：
+- demo 可编译、可运行
+- `make gate` 通过
+
+---
+
 ## 明确暂不追求的内容
 
 当前阶段不要发散去做这些：
@@ -865,6 +940,7 @@ Status: **已完成** (2026-03-24, Step 7.6 完成)
 - Step 5: module-level compile-time accumulation 已可用于 DSL 注册模式 ✓
 - Step 6: hygiene 扩展到隐藏 helper 定义层 ✓
 - Step 7: compile-time language 已能承载下一阶段 narrative DSL 宏库 ✓（Step 7.1-7.6 全部完成）
+- Step 8: Narrative DSL 宏库实现 ✓（8.1 进行中）
 - 所有步骤对应的 examples 和单元测试都已补齐 ✓
 - `make gate` 通过 ✓
 - `IMPLEMENTATION.md` 已同步到当前真实状态 ✓
@@ -1477,4 +1553,22 @@ Step 7.6 完成。Step 7 完成定义达成：
 - IMPLEMENTATION.md 已同步
 
 **下一步方向：**
-- narrative DSL 宏库的实现（下一阶段计划，待制定）
+- narrative DSL 宏库的实现（Step 8 已制定计划）
+
+---
+
+### Step 8: Narrative DSL 宏库计划制定 (2026-03-25)
+
+**本次做了什么：**
+- 分析当前集成测试样例（01-linear、03-choice-basic、70-macro-generate-multiple-scripts、72-macro-compose-use-provider），梳理叙事内容创作的痛点
+- 设计 Step 8 的三个子步骤：8.1（基础叙事宏库 narrative provider）、8.2（状态管理宏）、8.3（完整 demo）
+- 核心宏：`scene(name, opts, children)`、`say(speaker, text)`、`choose(prompt, options)`、`goto_scene(name)`
+- 将 Step 8 写入 plan.md，插入 Step 7 之后
+
+**本次发现的问题、踩的坑：**
+- 当前叙事内容创作痛点：场景用 `<script>` 硬编码，导航链用 `<goto>` 手动拼接，状态分散在多个 `<var>` 中，条件内容可读性差
+- DSL 层宏的价值：在 compile-time 将声明式叙事描述转换为底层 XML 结构，简化作者体验
+
+**下一步方向：**
+- Step 8.1：实现 `narrative` provider，包含 `scene`、`say`、`choose`、`goto_scene` 宏
+- 验收：`73-narrative-dsl-scene-and-say` 通过

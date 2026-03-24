@@ -1705,3 +1705,80 @@ main.xml:
   text sub: Alice
   end
 ```
+
+---
+
+## Step 8: Narrative DSL 宏库（2026-03-25）
+
+完成状态：进行中（Step 8.1 完成）
+
+### Step 8.1: 基础叙事宏库 provider（2026-03-25）
+
+用 compile-time language 构建了一个 `narrative` provider，提供高层次的叙事 DSL 宏，替代直接编写底层 XML。
+
+### 核心宏
+
+**`scene(name, children)`** — 声明式场景宏
+- 接收 `name`（string）和 `children`（ast content）
+- 编译期展开为 `<script name="${name}">children</script>`
+- 场景内容（text、goto 等）作为 children 传入
+
+**`say(speaker, text)`** — 对话宏
+- 接收 `speaker`（string）和 `text`（string）
+- 编译期展开为 `<text>[${speaker}] ${text}</text>`
+
+**`goto_scene(module, scene)`** — 导航宏
+- 接收 `module`（string）和 `scene`（string）
+- 编译期展开为 `<goto script="@${module}.${scene}"/>`
+- 注意：当前没有 string concat builtin，需要显式传递完整模块名
+
+**`__using__`** — 初始化宏
+- 接收 `keyword:opts`
+- 使用 `caller_module()` builtin 获取调用者模块名
+- 通过 `module_put("narrative_module", module_name)` 存入 module state
+- 供其他叙事宏读取当前模块上下文
+
+### 使用方式
+
+```xml
+<module name="main">
+  <!-- 初始化叙事 DSL -->
+  <use module="narrative"/>
+
+  <!-- 入口脚本：跳转到第一个场景 -->
+  <script name="main">
+    <goto_scene module="main" scene="intro"/>
+  </script>
+
+  <!-- 场景定义（位于 module 顶层） -->
+  <scene name="intro">
+    <say speaker="Narrator" text="A dark forest lies before you."/>
+    <goto_scene module="main" scene="middle"/>
+  </scene>
+
+  <scene name="middle">
+    <say speaker="Guard" text="Halt! Who goes there?"/>
+    <end/>
+  </scene>
+</module>
+```
+
+期望输出：
+```
+text [Narrator] A dark forest lies before you.
+text [Guard] Halt! Who goes there?
+end
+```
+
+### 代码落点
+
+集成测试：`73-narrative-dsl-scene-and-say`
+- `xml/narrative.xml`：叙事 DSL provider 模块
+- `xml/main.xml`：使用叙事 DSL 的主模块
+
+### 已知限制
+
+1. `goto_scene` 需要显式传递 `module` 参数（当前没有 string concat builtin 来自动拼接 `@module.scene`）
+2. `choose` 宏尚未实现（需要 string 解析或 keyword list 迭代能力）
+3. 场景导航需要作者显式写 `<goto_scene>` 调用（没有自动导航链生成）
+

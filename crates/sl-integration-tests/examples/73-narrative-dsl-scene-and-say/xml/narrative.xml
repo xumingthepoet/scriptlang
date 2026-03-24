@@ -1,0 +1,79 @@
+<module name="narrative">
+  <!-- Step 8.1: Narrative DSL Provider
+       High-level macros for writing interactive narratives.
+
+       Core design:
+       - `scene(name, children)`: generates <script name="name">children</script>
+         Usage: place at module level (not inside another <script>)
+       - `say(speaker, text)`: generates <text>[speaker] text</text>
+       - `__using__`: sets up narrative state (stores caller's module name)
+       - `goto_scene(module, scene)`: generates <goto script="@module.scene"/>
+
+       Note: goto_scene requires explicit module name until string concat is available.
+       The `__using__` macro stores the caller's module name in state for future use. -->
+
+  <!-- scene: generates <script name="name">children</script>
+       Place at module level. Navigation between scenes is via explicit <goto_scene> calls.
+       Usage: <scene name="intro"><say .../><goto_scene .../></scene> -->
+  <macro name="scene" params="string:name,ast:children">
+    <quote>
+      <script name="${name}">
+        <unquote>children</unquote>
+      </script>
+    </quote>
+  </macro>
+
+  <!-- say: generates <text>[speaker] text</text>
+       Usage: <say speaker="Narrator" text="Once upon a time..."/> -->
+  <macro name="say" params="string:speaker,string:text">
+    <quote>
+      <text>[${speaker}] ${text}</text>
+    </quote>
+  </macro>
+
+  <!-- goto_scene: generates <goto script="@module.scene"/>
+       Usage: <goto_scene module="main" scene="next_scene"/>
+       Note: requires explicit module + scene params (no string concat builtin yet). -->
+  <macro name="goto_scene" params="string:module,string:scene">
+    <quote>
+      <goto script="@${module}.${scene}"/>
+    </quote>
+  </macro>
+
+  <!-- __using__: init narrative DSL
+       Stores caller's module name so other narrative macros can reference it.
+       Usage: <use module="narrative"/> at the top of a module. -->
+  <macro name="__using__" params="keyword:opts">
+    <!-- Store the caller's module name in module state.
+         The module name is available via caller_module builtin. -->
+    <let name="caller_mod" type="string">
+      <builtin name="caller_module"/>
+    </let>
+    <builtin name="module_put">
+      <literal value="narrative_module"/>
+      <var name="caller_mod"/>
+    </builtin>
+    <!-- Return empty: __using__ only sets up state -->
+    <quote/>
+  </macro>
+
+  <!-- start: generates <goto script="@module.entry"/> to jump to the registered entry scene
+       Reads the entry scene name from module state (set by first scene or explicit call).
+       Usage: <start/> in main script to jump to first scene. -->
+  <macro name="start" params="">
+    <let name="module" type="ast">
+      <builtin name="module_get">
+        <literal value="narrative_module"/>
+      </builtin>
+    </let>
+    <let name="entry" type="ast">
+      <builtin name="module_get">
+        <literal value="narrative_entry"/>
+      </builtin>
+    </let>
+    <!-- If entry is set, generate goto. Otherwise just end. -->
+    <quote>
+      <goto script="@${module}.${entry}"/>
+    </quote>
+  </macro>
+</module>
