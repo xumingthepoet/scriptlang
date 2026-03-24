@@ -8,6 +8,11 @@
 - module reducer 已经让宏生成的 module-level form 真正回灌定义期环境
 - `use -> require + __using__` 已经能跑通
 - kernel 控制流宏已经迁移到新参数协议
+- Step 5: Module-Level Compile-Time Accumulation 已完成（5.1 ~ 5.4）
+  - module state 存储于 ExpandEnv
+  - module_get / module_put / module_update builtin
+  - list / list_concat builtin
+  - test 63 通过
 - Step 1: 真正的 Module-Qualified Remote Macro Dispatch
 
 ---
@@ -391,7 +396,7 @@ Status: **completed** (2026-03-24)
 
 ## Step 5: Module-Level Compile-Time Accumulation
 
-Status: pending
+Status: completed (2026-03-24)
 
 目标：给 macro system 增加 module-level compile-time 累积状态，让 DSL 能实现"注册型"编译期协议。
 
@@ -446,7 +451,7 @@ Status: pending
 
 ### Step 5.4: 支持 module_update 模式（基于已有值更新）
 
-**目标：** 支持"读出现有值再写入"的累积模式。
+**Status: completed** (2026-03-24)
 
 前置：Step 5.3 已完成。
 
@@ -512,6 +517,8 @@ Status: pending
 
 #### Step 5.4.3: 简化 test 63，用已有 builtin 演示 registry accumulation
 
+**Status: completed** (2026-03-24)
+
 **目标：** 最小化 test 63，只用 `module_get`/`module_put`/`list`，验证多次 use 同一 provider 时 registry 累积。
 
 前置：Step 5.4.2 已完成。
@@ -544,7 +551,7 @@ Status: pending
 
 #### Step 5.4.4: 运行 make gate 并更新 IMPLEMENTATION.md
 
-**目标：** 收尾，确认所有验收条件满足。
+**Status: completed** (2026-03-24)
 
 前置：Step 5.4.3 已完成。
 
