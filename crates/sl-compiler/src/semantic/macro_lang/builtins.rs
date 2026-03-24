@@ -100,6 +100,10 @@ impl BuiltinRegistry {
         self.register("ast_wrap", builtin_ast_wrap);
         self.register("ast_concat", builtin_ast_concat);
         self.register("ast_filter_head", builtin_ast_filter_head);
+
+        // Step 5.2: Module-level state builtins
+        self.register("module_get", builtin_module_get);
+        self.register("module_put", builtin_module_put);
     }
 
     /// Register a builtin function.
@@ -1709,4 +1713,69 @@ fn builtin_ast_filter_head(
         .collect();
 
     Ok(CtValue::Ast(filtered))
+}
+
+/// Step 5.2: module_get(name: string) -> CtValue
+/// Reads a value from the current module's compile-time state.
+/// Returns Nil if the key does not exist.
+fn builtin_module_get(
+    args: &[CtValue],
+    _macro_env: &MacroEnv,
+    _ct_env: &mut CtEnv,
+    expand_env: &mut ExpandEnv,
+) -> BuiltinResult {
+    if args.len() != 1 {
+        return Err(ScriptLangError::Message {
+            message: "module_get() requires exactly 1 argument (name)".to_string(),
+        });
+    }
+
+    let name = match &args[0] {
+        CtValue::String(s) => s.clone(),
+        other => {
+            return Err(ScriptLangError::Message {
+                message: format!(
+                    "module_get() first argument (name) must be string, got {}",
+                    other.type_name()
+                ),
+            });
+        }
+    };
+
+    let state = expand_env.get_module_state();
+    Ok(state.get(&name).cloned().unwrap_or(CtValue::Nil))
+}
+
+/// Step 5.2: module_put(name: string, value: CtValue) -> CtValue
+/// Writes a value to the current module's compile-time state.
+/// Returns the written value.
+fn builtin_module_put(
+    args: &[CtValue],
+    _macro_env: &MacroEnv,
+    _ct_env: &mut CtEnv,
+    expand_env: &mut ExpandEnv,
+) -> BuiltinResult {
+    if args.len() != 2 {
+        return Err(ScriptLangError::Message {
+            message: "module_put() requires exactly 2 arguments (name, value)".to_string(),
+        });
+    }
+
+    let name = match &args[0] {
+        CtValue::String(s) => s.clone(),
+        other => {
+            return Err(ScriptLangError::Message {
+                message: format!(
+                    "module_put() first argument (name) must be string, got {}",
+                    other.type_name()
+                ),
+            });
+        }
+    };
+
+    let value = args[1].clone();
+    expand_env
+        .get_module_state_mut()
+        .insert(name, value.clone());
+    Ok(value)
 }

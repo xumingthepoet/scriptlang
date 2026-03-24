@@ -83,6 +83,27 @@ fn convert_form_to_stmt(form: &Form) -> Result<CtStmt, ScriptLangError> {
             let expr = convert_expr_form(form)?;
             Ok(CtStmt::Return { value: expr })
         }
+        // Step 5.2: <builtin name="fn"><arg1/><arg2/></builtin> as a statement (for side effects like module_put)
+        "builtin" => {
+            let name = required_attr(form, "name")?;
+            let children = extract_form_children(form)?;
+            let args: Vec<CtExpr> = children
+                .iter()
+                .filter_map(|item| {
+                    if let FormItem::Form(f) = item {
+                        convert_expr_form(f).ok()
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            Ok(CtStmt::Expr {
+                expr: CtExpr::BuiltinCall {
+                    name: name.to_string(),
+                    args,
+                },
+            })
+        }
         // Step 5: <quote> at top level returns QuoteForms
         "quote" => {
             let children = extract_form_children(form)?;

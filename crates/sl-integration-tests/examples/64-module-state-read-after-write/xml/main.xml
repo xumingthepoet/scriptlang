@@ -1,0 +1,7 @@
+<module name="main">
+  <!-- Step 5.2: Verifies module_get / module_put roundtrip.
+       Uses helper once. __using__ writes "status=ok" to module state and
+       reads it back to output via a generated script.
+       This proves that module_put writes and module_get reads the same module state. -->
+  <use module="helper"/>
+</module>

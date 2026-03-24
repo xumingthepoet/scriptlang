@@ -413,6 +413,8 @@ Status: pending
 
 ### Step 5.2: 新增 module_get / module_put builtin（基础版）
 
+**Status: completed** (2026-03-24)
+
 **目标：** 最简单的读写 API。
 
 前置：Step 5.1 已完成。
@@ -988,3 +990,21 @@ Status: pending
 
 **下一步方向：**
 - Step 5.2：新增 `module_get` / `module_put` builtin（基础读写 API）
+
+### Step 5.2: 新增 module_get / module_put builtin（基础版）(2026-03-24)
+
+**本次做了什么：**
+- 新增 `builtin_module_get` 函数：从当前 module 的 compile-time state 中读取指定 key 的值，key 不存在返回 `CtValue::Nil`
+- 新增 `builtin_module_put` 函数：将 value 写入当前 module 的 compile-time state，返回写入的值
+- 在 `BuiltinRegistry::register_defaults` 中注册 `module_get` 和 `module_put`
+- 新增 7 个单元测试：覆盖读缺失 key（返回 Nil）、读写往返、多类型值、参数错误处理
+- 新增集成测试 `64-module-state-read-after-write`：helper 的 `__using__` 写入 `status=ok` 后立即读取并输出，验证 roundtrip
+- 在 `convert.rs` 的 `convert_form_to_stmt` 中新增对 `<builtin>` 标签作为独立语句的支持（用于 `module_put` 等有副作用的 builtin 调用）
+
+**本次发现的问题、踩的坑：**
+- `<builtin name="module_put">...</builtin>` 作为独立语句（不在 `<let>` 内）在 `convert_form_to_stmt` 中不被支持，导致 "unsupported compile-time macro form `<builtin>`" 错误。修复：在 `convert_form_to_stmt` 的 match 中新增 `builtin` 分支，将 `<builtin>` 表单转换为 `CtStmt::Expr { expr: CtExpr::BuiltinCall {...} }`
+- `module_get("counter")` 在 key 不存在时返回 `CtValue::Nil`，但 `parse_int(Nil)` 会报错（只接受 String）。测试设计中避免了对 Nil 值做 parse_int，改用 `to_string(Nil)` 获得 "nil" 字符串
+- `results.txt` 中 `<text>` 标签输出格式为 `"text <content>"`（带 "text " 前缀），而不是纯内容；需与现有集成测试结果格式一致
+
+**下一步方向：**
+- Step 5.3：让 module state 支持多类型值（string、int、bool、list、keyword、ast 都能存）

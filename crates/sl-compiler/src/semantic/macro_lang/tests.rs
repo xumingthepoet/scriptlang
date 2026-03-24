@@ -4551,4 +4551,185 @@ mod ct_lang_tests {
         .expect_err("wrong arg count");
         assert!(err.to_string().contains("requires exactly 2"));
     }
+
+    fn make_module_env(name: &str) -> ExpandEnv {
+        let mut env = ExpandEnv::default();
+        env.begin_module(Some(name.to_string()), Some(format!("{name}.xml")))
+            .unwrap();
+        env
+    }
+
+    #[test]
+    fn builtin_module_get_returns_nil_when_key_absent() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("test_mod");
+        let mut ct_env = CtEnv::new();
+
+        let result = builtins.get("module_get").unwrap()(
+            &[CtValue::String("missing".to_string())],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("module_get should succeed");
+        assert_eq!(result, CtValue::Nil);
+    }
+
+    #[test]
+    fn builtin_module_put_and_get_roundtrip() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("test_mod");
+        let mut ct_env = CtEnv::new();
+
+        // Put a value
+        let written = builtins.get("module_put").unwrap()(
+            &[CtValue::String("counter".to_string()), CtValue::Int(42)],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("module_put should succeed");
+        assert_eq!(written, CtValue::Int(42));
+
+        // Get it back - same expand_env
+        let result = builtins.get("module_get").unwrap()(
+            &[CtValue::String("counter".to_string())],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("module_get should succeed");
+        assert_eq!(result, CtValue::Int(42));
+    }
+
+    #[test]
+    fn builtin_module_get_persists_across_calls() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("persist_mod");
+        let mut ct_env = CtEnv::new();
+
+        // Put multiple values
+        builtins.get("module_put").unwrap()(
+            &[
+                CtValue::String("a".to_string()),
+                CtValue::String("hello".to_string()),
+            ],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("put a");
+
+        builtins.get("module_put").unwrap()(
+            &[
+                CtValue::String("b".to_string()),
+                CtValue::List(vec![CtValue::Int(1), CtValue::Int(2)]),
+            ],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("put b");
+
+        // Both values readable
+        let a = builtins.get("module_get").unwrap()(
+            &[CtValue::String("a".to_string())],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("get a");
+        assert_eq!(a, CtValue::String("hello".to_string()));
+
+        let b = builtins.get("module_get").unwrap()(
+            &[CtValue::String("b".to_string())],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("get b");
+        assert_eq!(b, CtValue::List(vec![CtValue::Int(1), CtValue::Int(2)]));
+    }
+
+    #[test]
+    fn builtin_module_get_error_wrong_arg_count() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("err_mod");
+        let mut ct_env = CtEnv::new();
+
+        let err = builtins.get("module_get").unwrap()(
+            &[],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect_err("no args");
+        assert!(err.to_string().contains("requires exactly 1"));
+
+        let err = builtins.get("module_get").unwrap()(
+            &[CtValue::String("key".to_string()), CtValue::Int(1)],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect_err("too many args");
+        assert!(err.to_string().contains("requires exactly 1"));
+    }
+
+    #[test]
+    fn builtin_module_get_error_wrong_type() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("type_err_mod");
+        let mut ct_env = CtEnv::new();
+
+        let err = builtins.get("module_get").unwrap()(
+            &[CtValue::Int(123)],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect_err("wrong type");
+        assert!(err.to_string().contains("must be string"));
+    }
+
+    #[test]
+    fn builtin_module_put_error_wrong_arg_count() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("put_err_mod");
+        let mut ct_env = CtEnv::new();
+
+        let err = builtins.get("module_put").unwrap()(
+            &[CtValue::String("key".to_string())],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect_err("only 1 arg");
+        assert!(err.to_string().contains("requires exactly 2"));
+
+        let err = builtins.get("module_put").unwrap()(
+            &[],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect_err("no args");
+        assert!(err.to_string().contains("requires exactly 2"));
+    }
+
+    #[test]
+    fn builtin_module_put_error_wrong_name_type() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("put_type_err_mod");
+        let mut ct_env = CtEnv::new();
+
+        let err = builtins.get("module_put").unwrap()(
+            &[CtValue::Int(99), CtValue::String("val".to_string())],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect_err("wrong name type");
+        assert!(err.to_string().contains("must be string"));
+    }
 }

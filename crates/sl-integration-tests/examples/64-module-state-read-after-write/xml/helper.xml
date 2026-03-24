@@ -1,0 +1,28 @@
+<module name="helper">
+  <!-- Step 5.2: Module-level state read-after-write.
+       __using__ writes a fixed value to module state and immediately reads it back.
+       Demonstrates module_put → module_get roundtrip. -->
+  <macro name="__using__" params="keyword:opts,ast:children">
+    <!-- Write fixed value to module state. -->
+    <builtin name="module_put"><literal value="status"/><literal value="ok"/></builtin>
+
+    <!-- Read it back immediately. -->
+    <let name="retrieved" type="ast">
+      <builtin name="module_get"><literal value="status"/></builtin>
+    </let>
+
+    <!-- Convert to string for output. -->
+    <let name="status_str" type="ast">
+      <builtin name="to_string"><var name="retrieved"/></builtin>
+    </let>
+
+    <!-- Output a script that prints the retrieved value.
+         Named "main" so it becomes the module entry point. -->
+    <quote>
+      <script name="main">
+        <text>status: ${status_str}</text>
+        <end/>
+      </script>
+    </quote>
+  </macro>
+</module>
