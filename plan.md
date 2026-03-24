@@ -451,59 +451,102 @@ Status: pending
 前置：Step 5.3 已完成。
 
 **本次分析（卡点原因）：**
-连续 2 轮无实质性进展的原因：
-1. **范围蔓延**：Step 5.4 原始描述只有 3 行，但 agent 在同一轮内尝试添加 5 个新 builtin（`module_update`/`list_concat`/`module_push`/`module_increment`/`goto_script`）+ 一个超级复杂的集成测试。范围膨胀导致每轮都无法完成任何一个验收标准。
-2. **集成测试 63 变成了"超级测试"**：test 63 实现中加入了 goto script 生成、auto-incrementing script names、AST 属性动态设置等远超 Step 5.4 验收需求的逻辑，变成了同时测试 module state + AST builtins + goto scripting 的综合测试。
-3. **循环依赖**：test 63 需要新 builtin，而这些 builtin 需要 test 63 验证；每一轮都在"实现 builtin 以支撑 test"和"实现 test 以验证 builtin"之间来回切换。
-4. **步骤粒度太大**：Step 5.4 同时包含 builtin 实现 + 集成测试 + gate 验收，应拆成更小步骤。
+连续 3 轮无实质性进展的原因：
+1. **子步骤仍然太宽**：上轮将 Step 5.4 拆成 5.4.1/5.4.2/5.4.3 后，agent 仍然在同一轮内添加了 6 个新 builtin（`module_update`/`list_concat`/`list`/`string_concat`/`string_is_empty`/`ct_var`）+ 4 个 convert.rs 语言特性（`<var>`/`<keyword_attr>`/`<then>/<else>`/`<literal>`）+ 修改了 `builtin_keyword_attr` 和 `builtin_ast_attr_set`。每次都在"已经实现了一个功能"后继续添加更多。
+2. **循环依赖仍然存在**：test 63 需要 `list_concat`/`list` 来构造列表，而这两个 builtin 又是上轮"额外"加的。
+3. **convert.rs 被污染**：上轮对 convert.rs 的修改（`<var>`、`<keyword_attr>` as let providers、`<then>/<else>` wrappers）不属于任何步骤的验收范围，但已混入同一轮变更。
+4. **步骤粒度仍然偏大**：即使拆成了 3 个子步骤，每个步骤仍然要求 agent 在同一轮内做多个不相关的实现动作（1个builtin + 测试 + 修改其他无关代码）。
 
 ---
 
-#### Step 5.4.1: 实现 module_update builtin（含单元测试）
+#### Step 5.4.1: 实现 `module_update` builtin（含单元测试）
 
-**目标：** 提供"读出已有值再写入"的累积原子操作。
+**目标：** 仅实现 `module_update`，不做任何其他变更。
 
 前置：Step 5.3 已完成。
 
+**显式禁止**：本步骤不得添加、修改或删除任何其他 builtin；不得修改 `convert.rs`、`eval.rs`、`quote.rs` 或其他任何文件。
+
 具体工作：
-- `module_update(name: string, new_value: CtValue) → CtValue`：读取 key 当前值（不存在返回 Nil），写入 `new_value`，返回 `new_value`
-- 遵循 immutability 原则：所有写操作返回新值，原值不变
+- 新增 `builtin_module_update` 函数（`builtins.rs`）：
+  - 签名：`module_update(name: string, new_value: CtValue) → CtValue`
+  - 行为：读取 key 当前值（不存在返回 `CtValue::Nil`），写入 `new_value`，返回 `new_value`
+  - 遵循 immutability：返回新值，原值不变
 - 在 `BuiltinRegistry::register_defaults` 中注册 `module_update`
-- 新增单元测试覆盖：key 不存在时返回 Nil / 写后返回新值 / 参数类型错误
+- 新增单元测试：
+  - `builtin_module_update_key_not_exists_returns_nil`
+  - `builtin_module_update_returns_new_value`
+  - `builtin_module_update_overwrites_existing_value`
+  - `builtin_module_update_wrong_arg_count_errors`
 
 验收：
-- 单元测试 `builtin_module_update_*` 全部通过
+- `builtin_module_update_*` 全部通过
+- `cargo clippy` 无警告
 
 ---
 
-#### Step 5.4.2: 简化 test 63，只用已有 builtin 演示 registry accumulation
+#### Step 5.4.2: 实现 `list` builtin（含单元测试）
 
-**目标：** 最小化 test 63 的实现复杂度，专注于"多次 use 同一 provider 时 registry 累积"这一核心验收。
+**目标：** 提供 compile-time 列表构造能力，使 registry 累积模式可行。
 
 前置：Step 5.4.1 已完成。
 
+**显式禁止**：本步骤不得添加任何其他 builtin；不得修改 `convert.rs`；不得修改任何已有 builtin 的行为。
+
 具体工作：
-- `helper.xml` 的 `__using__` 宏：使用 `module_get("items")` 读取当前列表，`module_put("items", [...])` 写入更新后的列表（**不依赖 `module_push` 等新 builtin**）
-- `main.xml`：两个 `<use module="helper" item="a/b"/>` 调用，验证 registry 累积
-- **测试场景简化**：
-  - 不使用 goto scripting（跳过 `goto_script`、`module_increment` 等 builtin）
-  - 不使用动态 AST 属性设置（跳过 `ast_attr_set` + script name 动态化）
-  - 直接用 `<text>` 输出 registry 内容
-- `helper.xml` 的 `__using__` 返回一个 `<text>` 节点，输出 `registry: [items...]`
-- `main.xml` 最后输出 `<text>end</text>`
-- 期望输出：`registry: [a]` → `registry: [a, b]` → `end`
+- 新增 `builtin_list` 函数（`builtins.rs`）：
+  - 签名：`list(...items: CtValue) → CtValue::List`
+  - 行为：将所有参数打包为 `CtValue::List` 返回
+- 在 `BuiltinRegistry::register_defaults` 中注册 `list`
+- 新增单元测试：
+  - `builtin_list_empty_returns_empty_list`
+  - `builtin_list_single_item`
+  - `builtin_list_multiple_items`
+  - `builtin_list_preserves_nested_types`（验证 List/Keyword/Ast 作为 list 元素时类型不丢失）
 
 验收：
-- `63-module-state-accumulate-via-use` 通过
-- 不引入任何超出 Step 5.4 验收需求的 builtin
+- `builtin_list_*` 全部通过
+- `cargo clippy` 无警告
 
 ---
 
-#### Step 5.4.3: 运行 make gate 并更新 IMPLEMENTATION.md
+#### Step 5.4.3: 简化 test 63，用已有 builtin 演示 registry accumulation
+
+**目标：** 最小化 test 63，只用 `module_get`/`module_put`/`list`，验证多次 use 同一 provider 时 registry 累积。
+
+前置：Step 5.4.2 已完成。
+
+**显式禁止**：不得添加任何新 builtin；不得使用 goto scripting、动态 script name、`ast_attr_set` 等不在以下清单中的功能。
+
+具体工作：
+- `helper.xml` 的 `__using__` 宏：
+  - `keyword_attr("item")` 读取 opts 中的 item 值
+  - `module_get("items")` 读取当前 registry（首次返回 Nil）
+  - `list_concat(current_items, list(item))` 拼接新旧列表
+  - `module_put("items", new_list)` 写入更新后的列表
+  - `<quote><text>registry: ${registry}</text></quote>` 输出当前 registry（使用 Step 3 的 `ast_wrap`/`ast_concat` 已实现的 `${var}` 插值）
+- `main.xml`：
+  - 定义 `<script name="a">` → `<use module="helper" item="a"/>`
+  - 定义 `<script name="b">` → `<use module="helper" item="b"/>`
+  - 顶层 `<use module="helper" item="init"/>` 触发首次累积
+  - 期望输出：`registry: [a]` → `registry: [a, b]`
+- **注意**：`keyword_attr` 是 kernel.xml 内置 builtin（Step 2 已实现），无需新加
+- **注意**：如果 `list_concat` 尚未实现，改用 `module_update`（Step 5.4.1）来替代：先读取再写入
+
+验收：
+- `63-module-state-accumulate-via-use` 通过
+- 集成测试目录结构：
+  - `xml/main.xml`
+  - `xml/helper.xml`
+  - `runs/default/results.txt`（期望输出两行）
+
+---
+
+#### Step 5.4.4: 运行 make gate 并更新 IMPLEMENTATION.md
 
 **目标：** 收尾，确认所有验收条件满足。
 
-前置：Step 5.4.2 已完成。
+前置：Step 5.4.3 已完成。
 
 具体工作：
 - `make gate` 确保所有测试通过
@@ -517,7 +560,7 @@ Status: pending
 
 **目标：** 重复注册或类型不匹配时报稳定错误。
 
-前置：Step 5.4 已完成。
+前置：Step 5.4.4 已完成。
 
 具体工作：
 - 设计 module state 的冲突检测策略（例如：同一 module 同名 key 第二次 put 是否报错）
@@ -1096,3 +1139,24 @@ Status: pending
 - **5.4.1**：实现 `module_update` builtin（含单元测试），只做这一个功能，验收到单元测试通过
 - **5.4.2**：简化 test 63，只用已有 builtin（`module_get`/`module_put`）演示 registry accumulation，不依赖 goto scripting 或 auto-incrementing names
 - **5.4.3**：运行 make gate + 更新 IMPLEMENTATION.md
+
+### Step 5.4 任务分解记录（第二轮：2026-03-24 11:23）
+
+**原来卡在哪个步骤：**
+- Step 5.4.1 / 5.4.2 / 5.4.3（第一轮已拆分，但连续第 3 轮无实质性进展）
+
+**卡点原因分析：**
+上轮将 Step 5.4 拆成 3 个子步骤后，agent 仍然在同一轮内添加了超出范围的大量变更：
+1. **子步骤粒度仍不够细**：Step 5.4.1 说"实现 module_update"，但 agent 在同一轮内添加了 `list_concat`、`list`、`string_concat`、`string_is_empty`、`ct_var` 共 5 个额外 builtin（不是 1 个，而是 6 个）。
+2. **convert.rs 被污染**：同一轮内还修改了 `convert.rs`，新增了 `<var>` 提供者（调用 `ct_var`）、`<keyword_attr>` 作为 let provider、`<then>/<else>` wrapper、`<literal>` 标签。这些不在任何步骤的验收范围内。
+3. **test 63 使用了新加 builtin**：由于 5.4.1 添加了 `list_concat`/`list`，test 63 依赖了这些非计划的 builtin，形成隐式循环。
+4. **循环依赖仍然存在**：`module_update` 需要测试证明"累积"模式，但 test 63 本身又需要 `list` 来构造列表数据，agent 每次都在两者之间来回添加。
+5. **Step 5.4.1 显式禁止不够强**：上一轮的计划没有明确禁止"同时修改其他 builtin"、"同时修改 convert.rs"，agent 默认选择"顺手做完"。
+
+**分解后的子步骤：**
+- **5.4.1.1**：仅实现 `module_update` builtin + 单元测试，不碰其他任何文件
+- **5.4.1.2**：仅实现 `list` builtin + 单元测试（提供 compile-time 列表构造能力），不碰其他任何文件
+- **5.4.1.3**：简化 test 63，使用 `module_get`/`module_put`/`list`（或 `module_update`）验证 registry 累积，不添加任何新 builtin
+- **5.4.2**：运行 make gate + 更新 IMPLEMENTATION.md
+
+**关键改变**：每个子步骤增加"显式禁止"条款，规定不得修改哪些文件/添加哪些 builtin。每个步骤限制为"1 个 builtin + 其单元测试"，不允许跨步骤追加。
