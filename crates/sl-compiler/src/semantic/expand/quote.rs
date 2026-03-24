@@ -418,11 +418,13 @@ fn splice_string_slots(source: &str, runtime: &MacroEnv) -> Result<String, Scrip
             MacroValue::Keyword(kv_pairs) => {
                 output.push_str(&macro_keyword_to_string(kv_pairs));
             }
-            MacroValue::Expr(_) | MacroValue::AstItems(_) | MacroValue::Nil => {
+            MacroValue::Expr(_) | MacroValue::AstItems(_) => {
                 return Err(ScriptLangError::message(format!(
                     "macro local `{key}` cannot be spliced into string slot"
                 )));
             }
+            // Nil renders as empty string (enables first-call without prior module state)
+            MacroValue::Nil => {}
         }
         cursor = end + 1;
     }

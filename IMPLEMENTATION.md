@@ -989,6 +989,55 @@ error expanding `inner` from `helper` (called from `main`): macro body must retu
 - Coverage: 89.99% lines, 93.46% functions
 - `make gate` 通过
 
+## Step 5: Module-Level Compile-Time Accumulation（2026-03-24）
+
+完成状态：已完成（5.1 ~ 5.4）
+
+目标：给 macro system 增加 module-level compile-time 累积状态，让 DSL 能实现"注册型"编译期协议。
+
+### 5.1 ExpandEnv 中的 module-level state 存储
+
+`ExpandEnv` 新增 `module_states: HashMap<ModuleRef, ModuleLevelState>` 字段，其中 `ModuleLevelState = HashMap<String, CtValue>`。
+
+存储随 `ProgramState` 的 module 切换而隔离：同一个 `ProgramState` 中不同 module 的 state 互不干扰。
+
+### 5.2 module_get / module_put builtin
+
+- `module_get(name: string) → CtValue`：读取当前模块的 state，返回 `CtValue::Nil`（不存在时）
+- `module_put(name: string, value: CtValue) → CtValue`：写入 state，返回写入的值
+
+### 5.3 多类型值支持
+
+`ModuleLevelState` 的 value 类型支持：`CtValue` 的所有变体（String、Int、Bool、List、Keyword、Ast、Nil）。
+
+### 5.4 module_update / list / list_concat builtin
+
+- `module_update(name: string, new_value: CtValue) → CtValue`：读取当前值（不存在返回 Nil），写入 `new_value`，返回 `new_value`。支持 read-modify-write 累积模式。
+- `list(...items: CtValue) → CtValue::List`：将所有参数打包为 `CtValue::List`
+- `list_concat(...lists: CtValue) → CtValue::List`：拼接多个列表，Nil 参数视为空列表
+
+**`splice_string_slots` Nil 处理**：在 `quote.rs` 中，`MacroValue::Nil` 在字符串插值位置渲染为空字符串，使首次调用 module state（初始为 Nil）时 `${registry}` 不报类型错误。
+
+### 代码落点
+
+- `crates/sl-compiler/src/semantic/env.rs`
+  - `ModuleLevelState` 类型别名
+  - `ExpandEnv.module_states`
+  - `ExpandEnv::get_module_state()` / `get_module_state_mut()`
+- `crates/sl-compiler/src/semantic/macro_lang/builtins.rs`
+  - `builtin_module_get` / `builtin_module_put` / `builtin_module_update`
+  - `builtin_list` / `builtin_list_concat`
+- `crates/sl-compiler/src/semantic/expand/quote.rs`
+  - `MacroValue::Nil` 在 `splice_string_slots` 中渲染为空字符串
+
+### 测试状态
+
+- 所有现有测试通过（245 compiler unit tests + 7 runtime tests + 63 integration tests）
+- 新增单元测试：`builtin_module_update_*` (3个)、`builtin_list_*` (4个)、`builtin_list_concat_*` (3个)
+- 新增集成测试 63 (`63-module-state-accumulate-via-use`)：验证多次 `use` 同一 provider 时 registry 累积
+- Coverage: 89.97% lines, 93.33% functions
+- `make gate` 通过
+
 ## Step 7: 支持 nested module / private 边界上的 `use`（2026-03-23）
 
 完成状态：已完成
@@ -1076,9 +1125,11 @@ error expanding `inner` from `helper` (called from `main`): macro body must retu
 
 所有 Step 已完成。macro 语言系统现已完整实现：
 
-- Step 1-4: compile-time language 基础设施
+- Step 3.2/3.3/3.4: AST 一等数据 builtins
+- Step 4: 远程宏调用和 Caller Env
 - Step 5: `__using__` 协议和 `use` 宏
-- Step 6: hygiene、冲突检测和错误定位
+- Step 5.1-5.4: Module-Level Compile-Time Accumulation（module state 存储 + module_get/put/update + list/list_concat）
+- Step 6: Hygiene、冲突检测、错误定位（Caller Env 完善 + Expansion Trace）
 - Step 7: nested module 和 private 宏可见性
 - Step 8: kernel 宏迁移到新系统
 

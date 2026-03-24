@@ -104,6 +104,11 @@ impl BuiltinRegistry {
         // Step 5.2: Module-level state builtins
         self.register("module_get", builtin_module_get);
         self.register("module_put", builtin_module_put);
+        self.register("module_update", builtin_module_update);
+
+        // Step 5.4.2: list and list_concat builtins
+        self.register("list", builtin_list);
+        self.register("list_concat", builtin_list_concat);
     }
 
     /// Register a builtin function.
@@ -1778,4 +1783,76 @@ fn builtin_module_put(
         .get_module_state_mut()
         .insert(name, value.clone());
     Ok(value)
+}
+
+/// Step 5.4.1: module_update(name: string, new_value: CtValue) -> CtValue
+/// Reads the current value for the key (returns Nil if absent), then writes new_value.
+/// Returns new_value. This enables read-modify-write accumulation patterns.
+fn builtin_module_update(
+    args: &[CtValue],
+    _macro_env: &MacroEnv,
+    _ct_env: &mut CtEnv,
+    expand_env: &mut ExpandEnv,
+) -> BuiltinResult {
+    if args.len() != 2 {
+        return Err(ScriptLangError::Message {
+            message: "module_update() requires exactly 2 arguments (name, new_value)".to_string(),
+        });
+    }
+
+    let name = match &args[0] {
+        CtValue::String(s) => s.clone(),
+        other => {
+            return Err(ScriptLangError::Message {
+                message: format!(
+                    "module_update() first argument (name) must be string, got {}",
+                    other.type_name()
+                ),
+            });
+        }
+    };
+
+    let new_value = args[1].clone();
+    expand_env
+        .get_module_state_mut()
+        .insert(name, new_value.clone());
+    Ok(new_value)
+}
+
+/// Step 5.4.2: list(...items: CtValue) -> CtValue::List
+/// Packs all arguments into a CtValue::List.
+fn builtin_list(
+    args: &[CtValue],
+    _macro_env: &MacroEnv,
+    _ct_env: &mut CtEnv,
+    _expand_env: &mut ExpandEnv,
+) -> BuiltinResult {
+    Ok(CtValue::List(args.to_vec()))
+}
+
+/// list_concat(...lists: CtValue) -> CtValue::List
+/// Concatenates all list arguments into a single flat list.
+/// Nil arguments are treated as empty lists (for seamless use with module_get on first call).
+fn builtin_list_concat(
+    args: &[CtValue],
+    _macro_env: &MacroEnv,
+    _ct_env: &mut CtEnv,
+    _expand_env: &mut ExpandEnv,
+) -> BuiltinResult {
+    let mut result = Vec::new();
+    for arg in args {
+        match arg {
+            CtValue::List(items) => result.extend(items.clone()),
+            CtValue::Nil => { /* treat as empty, skip */ }
+            other => {
+                return Err(ScriptLangError::Message {
+                    message: format!(
+                        "list_concat() all arguments must be list or nil, got {}",
+                        other.type_name()
+                    ),
+                });
+            }
+        }
+    }
+    Ok(CtValue::List(result))
 }

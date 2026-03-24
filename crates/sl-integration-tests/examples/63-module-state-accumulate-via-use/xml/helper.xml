@@ -1,0 +1,43 @@
+<module name="helper">
+  <!-- Step 5.4.3: Module state accumulation via multiple use calls.
+       Demonstrates registry accumulation pattern using only:
+       - keyword_attr (Step 2 builtin) - reads keyword values from opts
+       - module_update (Step 5.4.1) - atomic read-modify-write to module state
+       - list / list_concat (Step 5.4.2) - construct and concatenate compile-time lists
+
+       The key insight:
+       - keyword_attr("item") returns CtValue::String("a") from opts keyword
+       - list(item) wraps it as CtValue::List([String("a")])
+       - list_concat(Nil, ["a"]) -> ["a"] (Nil treated as empty list)
+       - list_concat(["a"], ["b"]) -> ["a", "b"]
+       - module_update atomically writes and returns the updated list
+       - ${registry} in <text> formats MacroValue::List as [a, b] -->
+  <macro name="__using__" params="keyword:opts,ast:children">
+    <!-- Read current items from module state.
+         On first call: returns Nil (initial state).
+         On subsequent calls: returns the accumulated list. -->
+    <let name="current_items" type="ast">
+      <builtin name="module_get"><literal value="items"/></builtin>
+    </let>
+
+    <!-- keyword_attr("item") returns CtValue::String("a") from opts keyword.
+         list() wraps it as CtValue::List([String("a")]).
+         list_concat handles Nil gracefully (empty list) on first call. -->
+    <let name="new_items" type="ast">
+      <builtin name="list_concat"><var name="current_items"/><builtin name="list"><keyword_attr name="item"/></builtin></builtin>
+    </let>
+
+    <!-- module_update atomically writes new_items to module state and returns it.
+         The returned value is bound to registry for display. -->
+    <let name="registry" type="ast">
+      <builtin name="module_update"><literal value="items"/><var name="new_items"/></builtin>
+    </let>
+
+    <!-- Return a <text> node. splice_string_slots interpolates ${registry}
+         from MacroEnv.locals: MacroValue::List formats as "[item1, item2, ...]"
+         where each item is formatted via macro_value_to_string. -->
+    <quote>
+      <text>registry: ${registry}</text>
+    </quote>
+  </macro>
+</module>

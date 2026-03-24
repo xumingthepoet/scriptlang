@@ -1,0 +1,3 @@
+text registry: [a]
+text registry: [a, b]
+end

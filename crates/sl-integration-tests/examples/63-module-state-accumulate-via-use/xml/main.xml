@@ -1,0 +1,15 @@
+<module name="main">
+  <!-- Step 5.4.3: Verifies module state accumulates across multiple use calls.
+       Two use calls share module-level state.
+       First use: registry starts as Nil → accumulates ["a"], outputs registry: [a]
+       Second use: registry is ["a"] → accumulates ["a", "b"], outputs registry: [a, b]
+       Expected output: two text lines plus "end". -->
+  <script name="main">
+    <use module="helper" item="a"/>
+    <use module="helper" item="b"/>
+    <goto script="@main.end"/>
+  </script>
+  <script name="end">
+    <end/>
+  </script>
+</module>

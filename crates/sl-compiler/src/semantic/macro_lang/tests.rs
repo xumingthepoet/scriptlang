@@ -4820,4 +4820,269 @@ mod ct_lang_tests {
         .expect("get ast");
         assert_eq!(result, ast);
     }
+
+    // ========================================================================
+    // Step 5.4.1: module_update builtin tests
+    // ========================================================================
+
+    #[test]
+    fn builtin_module_update_key_not_exists_returns_new_value() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("update_mod");
+        let mut ct_env = CtEnv::new();
+
+        let result = builtins.get("module_update").unwrap()(
+            &[CtValue::String("counter".to_string()), CtValue::Int(1)],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("update new key");
+        assert_eq!(result, CtValue::Int(1));
+    }
+
+    #[test]
+    fn builtin_module_update_overwrites_existing_value() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("update_mod");
+        let mut ct_env = CtEnv::new();
+
+        // First put
+        builtins.get("module_put").unwrap()(
+            &[CtValue::String("counter".to_string()), CtValue::Int(1)],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("put initial");
+
+        // Update overwrites
+        let result = builtins.get("module_update").unwrap()(
+            &[CtValue::String("counter".to_string()), CtValue::Int(2)],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("update existing");
+        assert_eq!(result, CtValue::Int(2));
+
+        // Verify the value was updated
+        let after = builtins.get("module_get").unwrap()(
+            &[CtValue::String("counter".to_string())],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("get after update");
+        assert_eq!(after, CtValue::Int(2));
+    }
+
+    #[test]
+    fn builtin_module_update_wrong_arg_count_errors() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("update_mod");
+        let mut ct_env = CtEnv::new();
+
+        let err = builtins.get("module_update").unwrap()(
+            &[CtValue::String("key".to_string())],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect_err("should error on 1 arg");
+        assert!(err.to_string().contains("exactly 2 arguments"));
+
+        let err = builtins.get("module_update").unwrap()(
+            &[
+                CtValue::String("key".to_string()),
+                CtValue::Int(1),
+                CtValue::Int(2),
+            ],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect_err("should error on 3 args");
+        assert!(err.to_string().contains("exactly 2 arguments"));
+    }
+
+    // ========================================================================
+    // Step 5.4.2: list builtin tests
+    // ========================================================================
+
+    #[test]
+    fn builtin_list_empty_returns_empty_list() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("list_mod");
+        let mut ct_env = CtEnv::new();
+
+        let result =
+            builtins.get("list").unwrap()(&[], &empty_macro_env(), &mut ct_env, &mut expand_env)
+                .expect("list empty");
+        assert_eq!(result, CtValue::List(vec![]));
+    }
+
+    #[test]
+    fn builtin_list_single_item() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("list_mod");
+        let mut ct_env = CtEnv::new();
+
+        let result = builtins.get("list").unwrap()(
+            &[CtValue::String("a".to_string())],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("list single");
+        assert_eq!(
+            result,
+            CtValue::List(vec![CtValue::String("a".to_string())])
+        );
+    }
+
+    #[test]
+    fn builtin_list_multiple_items() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("list_mod");
+        let mut ct_env = CtEnv::new();
+
+        let result = builtins.get("list").unwrap()(
+            &[
+                CtValue::String("a".to_string()),
+                CtValue::Int(42),
+                CtValue::Bool(true),
+            ],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("list multiple");
+        assert_eq!(
+            result,
+            CtValue::List(vec![
+                CtValue::String("a".to_string()),
+                CtValue::Int(42),
+                CtValue::Bool(true)
+            ])
+        );
+    }
+
+    #[test]
+    fn builtin_list_preserves_nested_types() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("list_mod");
+        let mut ct_env = CtEnv::new();
+
+        let nested_list = CtValue::List(vec![CtValue::Int(1), CtValue::Int(2)]);
+        let nested_keyword = CtValue::Keyword(vec![(
+            "key".to_string(),
+            CtValue::String("value".to_string()),
+        )]);
+        let nested_ast = CtValue::Ast(vec![FormItem::Form(Form {
+            head: "text".to_string(),
+            meta: dummy_form_meta(),
+            fields: vec![],
+        })]);
+
+        let result = builtins.get("list").unwrap()(
+            &[
+                nested_list.clone(),
+                nested_keyword.clone(),
+                nested_ast.clone(),
+            ],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("list nested");
+        assert_eq!(
+            result,
+            CtValue::List(vec![nested_list, nested_keyword, nested_ast])
+        );
+    }
+
+    // ========================================================================
+    // list_concat builtin tests
+    // ========================================================================
+
+    #[test]
+    fn builtin_list_concat_two_lists() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("concat_mod");
+        let mut ct_env = CtEnv::new();
+
+        let result = builtins.get("list_concat").unwrap()(
+            &[
+                CtValue::List(vec![CtValue::String("a".to_string())]),
+                CtValue::List(vec![CtValue::String("b".to_string())]),
+            ],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("concat two");
+        assert_eq!(
+            result,
+            CtValue::List(vec![
+                CtValue::String("a".to_string()),
+                CtValue::String("b".to_string()),
+            ])
+        );
+    }
+
+    #[test]
+    fn builtin_list_concat_nil_as_empty() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("concat_mod");
+        let mut ct_env = CtEnv::new();
+
+        // Nil as first arg (mimics first-call scenario with module_get returning Nil)
+        let result = builtins.get("list_concat").unwrap()(
+            &[
+                CtValue::Nil,
+                CtValue::List(vec![CtValue::String("a".to_string())]),
+            ],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("concat with nil");
+        assert_eq!(
+            result,
+            CtValue::List(vec![CtValue::String("a".to_string())])
+        );
+    }
+
+    #[test]
+    fn builtin_list_concat_empty_args() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("concat_mod");
+        let mut ct_env = CtEnv::new();
+
+        let result = builtins.get("list_concat").unwrap()(
+            &[],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("concat empty");
+        assert_eq!(result, CtValue::List(vec![]));
+    }
+
+    #[test]
+    fn builtin_list_concat_wrong_type_errors() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("concat_mod");
+        let mut ct_env = CtEnv::new();
+
+        let err = builtins.get("list_concat").unwrap()(
+            &[CtValue::String("not a list".to_string())],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect_err("should error on string");
+        assert!(err.to_string().contains("must be list or nil"));
+    }
 }
