@@ -59,9 +59,8 @@ if [[ -z "${CLAUDE_LOOP_TEST_CMD}" ]] && ! command -v claude >/dev/null 2>&1; th
 fi
 
 TASK_DOC_ABS="$(cd "$(dirname "${TASK_DOC_PATH}")" && pwd)/$(basename "${TASK_DOC_PATH}")"
-CURRENT_TIME="$(date '+%Y-%m-%d %H:%M:%S %Z')"
 
-PROMPT_ROUND_1="当前时间：${CURRENT_TIME}。
+PROMPT_ROUND_1="当前时间：\${CURRENT_TIME}。
 
 ## 任务
 阅读 \`${TASK_DOC_ABS}\`，按文档中的当前进度执行下一条任务。不要跳步，不要空转，不要偏离任务做无关整理。
@@ -112,7 +111,7 @@ PROMPT_ROUND_1="当前时间：${CURRENT_TIME}。
 ## 工具
 优先用 TODO 工具分配任务给 subagent，分担上下文压力。"
 
-PROMPT_ROUND_2="当前时间：${CURRENT_TIME}。
+PROMPT_ROUND_2="当前时间：\${CURRENT_TIME}。
 
 ## 角色
 你是大循环中的第二步（审查步），审查第 __ROUND_NUM__ 轮的 prompt1（执行步）。
@@ -177,7 +176,7 @@ PROMPT_ROUND_2="当前时间：${CURRENT_TIME}。
 - 断点状态不要救场，直接结束让下一轮继续。
 - 全部通过时不要做任何操作，直接结束即可。"
 
-PROMPT_DECOMPOSE="当前时间：${CURRENT_TIME}。
+PROMPT_DECOMPOSE="当前时间：\${CURRENT_TIME}。
 
 ## 角色
 你是任务分解专家。大循环已经连续 2 轮在同一个任务上没有任何实质性进展。
@@ -322,6 +321,7 @@ for ((round = 1; round <= MAX_ROUNDS; round++)); do
 
   echo "===== Round ${round}/${MAX_ROUNDS}: task ${TASK_DOC_ABS} ====="
   ROUND_START_SECONDS="${SECONDS}"
+  CURRENT_TIME="$(date '+%Y-%m-%d %H:%M:%S %Z')"
 
   # If stuck for 2+ rounds, run decompose first before normal P1+P2
   if [[ "${NO_PROGRESS_ROUNDS}" -ge 2 ]]; then

@@ -1365,3 +1365,136 @@ Use module_update() to overwrite, or choose a different key name.
 - ✅ kernel 宏迁移到新系统
 - ✅ `make gate` 通过
 - ✅ `IMPLEMENTATION.md` 已同步
+
+## Step 7.1: 审计现有 builtin 覆盖范围（2026-03-24）
+
+完成状态：已完成
+
+### 审计结果
+
+审计了 31 个 builtin，分为 9 大类：
+
+| 类别 | 已有 | 缺失 |
+|------|------|------|
+| macro introspection | `attr`, `content`, `has_attr` | — |
+| string conversion | `parse_bool`, `parse_int`, `to_string` | — |
+| keyword ops | `keyword_get`, `keyword_has`, `keyword_attr` | `keyword_pairs`, `keyword_iter`, `keyword_map`, `keyword_fold` |
+| list ops | `list`, `list_concat`, `list_length` | `list_map`, `list_fold`, `list_foreach`, `list_filter` |
+| module/require | `caller_env`, `caller_module`, `expand_alias`, `require_module`, `define_import`, `define_alias`, `define_require` | — |
+| remote macro | `invoke_macro` | — |
+| AST read | `ast_head`, `ast_children`, `ast_attr_get`, `ast_attr_keys` | `ast_tail`, `ast_zip` |
+| AST write | `ast_attr_set`, `ast_wrap`, `ast_concat`, `ast_filter_head` | `ast_transform`, `ast_insert_child` |
+| module state | `module_get`, `module_put`, `module_update` | `module_keys`, `module_delete` |
+| 控制流（eval 层） | `if`, `return` | `unless`, `match/case`, `for/while`, `try/catch`, `cond` |
+
+**关键发现：**
+- 完全没有列表遍历 builtin（`list_map`/`list_fold`/`list_foreach` 均缺失）
+- keyword 只能逐 key 读取（`keyword_get`），无法遍历所有 key-value 对
+- 没有 match/case 模式匹配，只有 `if`/`else`
+- eval.rs 层有 `if`/`return`，但无 `unless`、循环、try/catch
+
+## Step 7.2: 新增 list 遍历 builtin（2026-03-24）
+
+完成状态：已完成
+
+### 架构变更
+
+#### BuiltinFn 签名扩展
+
+`BuiltinFn` 新增 `&BuiltinRegistry` 参数，允许 builtin 之间相互调用（list_map/list_foreach/list_fold 需要调用其他 builtin）：
+
+```rust
+pub type BuiltinFn = fn(
+    &[CtValue],
+    &mut MacroEnv,
+    &mut CtEnv,
+    &mut ExpandEnv,
+    &BuiltinRegistry,
+) -> BuiltinResult;
+```
+
+#### 新增 list 遍历 builtins
+
+- **`list_foreach(list, callback_ast)`** → `Nil`：对 list 中每个元素执行 callback（副作用）
+- **`list_map(list, callback_ast)`** → `List`：对 list 中每个元素应用 callback，返回新 list
+- **`list_fold(list, init, callback_ast)`** → `CtValue`：累积折叠
+
+#### Callback 机制
+
+- Callback 是 `<quote>...</quote>` 形式的 AST 片段
+- 当前 list 元素绑定到 `_item` 变量（在 `ct_env` 中）
+- Callback 通过 `quote_items_callback` 评估，支持 hygiene 和 unquote
+- `evaluate_callback` 辅助函数处理 AST → 执行 → 结果解包的完整流程
+
+#### Quote/Unquote 扩展
+
+`quote.rs` 中 `<unquote>` 支持 `MacroValue::Int` 和 `MacroValue::Bool`（之前只支持 `ast`/`string`）：
+
+```rust
+MacroValue::Int(n) => output.push(FormItem::Text(n.to_string())),
+MacroValue::Bool(b) => output.push(FormItem::Text(b.to_string())),
+```
+
+`evaluate_callback` 智能解析字符串回原始类型（Int/Bool/String），保留类型信息：
+
+```rust
+if let Ok(n) = text.parse::<i64>() {
+    return Ok(CtValue::Int(n));
+}
+if text == "true" {
+    return Ok(CtValue::Bool(true));
+}
+// ...
+```
+
+### 代码落点
+
+- `crates/sl-compiler/src/semantic/macro_lang/builtins.rs`
+  - `BuiltinFn` 签名扩展（新增 `&BuiltinRegistry` 参数）
+  - `builtin_list_foreach` / `builtin_list_map` / `builtin_list_fold`
+  - `evaluate_callback` / `extract_single_text_child` 辅助函数
+  - 所有 builtin 函数签名更新（`&MacroEnv` → `&mut MacroEnv`，新增 `&BuiltinRegistry`）
+- `crates/sl-compiler/src/semantic/macro_lang/eval.rs`
+  - `sync_ct_env_to_macro_env` 导出为 `pub(crate)`
+  - `quote_items_callback` 辅助函数
+- `crates/sl-compiler/src/semantic/expand/quote.rs`
+  - `<unquote>` 支持 `MacroValue::Int` / `MacroValue::Bool`
+  - 更新测试以匹配新错误消息
+
+### 测试状态
+
+- 所有现有测试通过（263 compiler unit tests + 68 integration tests）
+- 新增单元测试（15个）：
+  - `builtin_list_map_works` / `builtin_list_map_empty_list_returns_empty`
+  - `builtin_list_map_wrong_arg_count_errors` / `builtin_list_map_first_arg_not_list_errors` / `builtin_list_map_callback_not_ast_errors`
+  - `builtin_list_fold_sums_integers` / `builtin_list_fold_empty_list_returns_init`
+  - `builtin_list_fold_wrong_arg_count_errors` / `builtin_list_fold_first_arg_not_list_errors`
+  - （以及 `list_foreach` 的类似测试）
+- Coverage: 89.99% lines, 93.41% functions
+- `make gate` 通过
+
+### 使用示例
+
+```xml
+<!-- 对列表中每个元素进行变换 -->
+<let name="items" type="list">
+  <builtin name="list">
+    <string>a</string>
+    <string>b</string>
+    <string>c</string>
+  </builtin>
+</let>
+
+<let name="transformed" type="list">
+  <builtin name="list_map">
+    <var>items</var>
+    <quote>
+      <text>
+        <unquote>
+          <var>_item</var>
+        </unquote>
+      </text>
+    </quote>
+  </builtin>
+</let>
+```

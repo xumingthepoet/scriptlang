@@ -6,7 +6,7 @@ use crate::semantic::expand::dispatch::ExpandRuleScope;
 use crate::semantic::expand::macro_env::MacroEnv;
 use crate::semantic::expand::macro_values::MacroValue;
 use crate::semantic::expand::quote::quote_items;
-use sl_core::{Form, FormMeta, ScriptLangError, SourcePosition};
+use sl_core::{Form, FormItem, FormMeta, ScriptLangError, SourcePosition};
 
 /// Format a complete expansion trace including intermediate entries from a saved snapshot.
 /// Used by invoke_macro to attach the full trace when inner entries were already popped.
@@ -164,7 +164,7 @@ pub fn eval_expr(
 
             // Call builtin: builtins receive &MacroEnv and &mut ExpandEnv
             // (MacroEnv is read-only, ExpandEnv is for mutations)
-            builtin(&evaluated_args, macro_env, ct_env, expand_env)
+            builtin(&evaluated_args, macro_env, ct_env, expand_env, builtins)
         }
 
         CtExpr::Quote { body, .. } => {
@@ -214,7 +214,7 @@ pub fn eval_expr(
 
 /// Sync CtEnv variables to MacroEnv.locals so that eval_unquote (which uses
 /// MacroEnv.locals) can find variables set by the new compile-time evaluator.
-fn sync_ct_env_to_macro_env(ct_env: &CtEnv, macro_env: &mut MacroEnv) {
+pub(crate) fn sync_ct_env_to_macro_env(ct_env: &CtEnv, macro_env: &mut MacroEnv) {
     for (name, value) in ct_env.all() {
         macro_env
             .locals
@@ -262,4 +262,41 @@ pub(crate) fn macro_value_to_ct_value(mv: &MacroValue) -> CtValue {
             CtValue::List(items.iter().map(macro_value_to_ct_value).collect())
         }
     }
+}
+
+// ============================================================================
+// Callback evaluation helpers for list iteration builtins
+// ============================================================================
+
+/// Evaluate a callback AST (list of FormItems) with _item bound in ct_env.
+///
+/// This is used by list_foreach / list_map / list_fold to evaluate the user-provided
+/// callback for each list element. The callback is written as:
+///   <quote><text><unquote><var>_item</var></unquote></text></quote>
+/// and produces a CtValue for each iteration by processing through quote_items
+/// with _item bound in the compile-time environment.
+pub(crate) fn quote_items_callback(
+    expand_env: &mut ExpandEnv,
+    runtime: &mut MacroEnv,
+    callback_items: &[FormItem],
+) -> Result<Vec<FormItem>, ScriptLangError> {
+    // Create a minimal dummy invocation form for quote processing
+    let invocation = Form {
+        head: "$quote".to_string(),
+        meta: FormMeta {
+            source_name: None,
+            start: SourcePosition { row: 0, column: 0 },
+            end: SourcePosition { row: 0, column: 0 },
+            start_byte: 0,
+            end_byte: 0,
+        },
+        fields: Vec::new(),
+    };
+    quote_items(
+        &invocation,
+        expand_env,
+        ExpandRuleScope::Statement,
+        runtime,
+        callback_items,
+    )
 }

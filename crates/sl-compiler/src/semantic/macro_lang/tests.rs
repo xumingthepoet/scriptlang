@@ -344,9 +344,10 @@ mod ct_lang_tests {
         let mut ct_env = CtEnv::new();
         let result = builtins.get("keyword_attr").unwrap()(
             &[CtValue::String("opts".to_string())],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("keyword_attr should succeed");
 
@@ -372,9 +373,10 @@ mod ct_lang_tests {
 
         let result2 = builtins.get("keyword_attr").unwrap()(
             &[CtValue::String("opts".to_string())],
-            &macro_env2,
+            &mut macro_env2,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("keyword_attr nested keyword should succeed");
 
@@ -397,9 +399,10 @@ mod ct_lang_tests {
 
         let result3 = builtins.get("keyword_attr").unwrap()(
             &[CtValue::String("opts".to_string())],
-            &macro_env3,
+            &mut macro_env3,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("keyword_attr bool should succeed");
 
@@ -470,24 +473,32 @@ mod ct_lang_tests {
 
         let result = builtins.get("attr").expect("attr builtin exists")(
             &[CtValue::String("name".to_string())],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("attr should succeed");
         assert_eq!(result, CtValue::String("test".to_string()));
 
         // Error: wrong arg count
-        let err = builtins.get("attr").unwrap()(&[], &macro_env, &mut ct_env, &mut expand_env)
-            .expect_err("wrong arg count");
+        let err = builtins.get("attr").unwrap()(
+            &[],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect_err("wrong arg count");
         assert!(err.to_string().contains("requires exactly 1 argument"));
 
         // Error: wrong type
         let err = builtins.get("attr").unwrap()(
             &[CtValue::Int(1)],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("wrong type");
         assert!(err.to_string().contains("must be string"));
@@ -495,9 +506,10 @@ mod ct_lang_tests {
         // Error: missing attribute
         let err = builtins.get("attr").unwrap()(
             &[CtValue::String("missing".to_string())],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("missing attr");
         assert!(err.to_string().contains("not found"));
@@ -515,31 +527,39 @@ mod ct_lang_tests {
 
         let result = builtins.get("has_attr").expect("has_attr exists")(
             &[CtValue::String("exists".to_string())],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("has_attr should succeed");
         assert_eq!(result, CtValue::Bool(true));
 
         let result = builtins.get("has_attr").unwrap()(
             &[CtValue::String("missing".to_string())],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("has_attr missing");
         assert_eq!(result, CtValue::Bool(false));
 
         // Error: wrong arg count
-        let err = builtins.get("has_attr").unwrap()(&[], &macro_env, &mut ct_env, &mut expand_env)
-            .expect_err("wrong arg count");
+        let err = builtins.get("has_attr").unwrap()(
+            &[],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect_err("wrong arg count");
         assert!(err.to_string().contains("requires exactly 1 argument"));
     }
 
     #[test]
     fn builtin_parse_bool_and_int_work() {
-        let macro_env = MacroEnv::default();
+        let mut macro_env = MacroEnv::default();
         let mut ct_env = CtEnv::new();
         let builtins = BuiltinRegistry::new();
         let mut expand_env = empty_expand_env();
@@ -547,27 +567,30 @@ mod ct_lang_tests {
         // parse_bool
         let result = builtins.get("parse_bool").expect("parse_bool exists")(
             &[CtValue::String("true".to_string())],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("parse_bool true");
         assert_eq!(result, CtValue::Bool(true));
 
         let result = builtins.get("parse_bool").unwrap()(
             &[CtValue::String("false".to_string())],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("parse_bool false");
         assert_eq!(result, CtValue::Bool(false));
 
         let err = builtins.get("parse_bool").unwrap()(
             &[CtValue::String("invalid".to_string())],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("parse_bool invalid");
         assert!(err.to_string().contains("cannot parse"));
@@ -575,18 +598,20 @@ mod ct_lang_tests {
         // parse_int
         let result = builtins.get("parse_int").expect("parse_int exists")(
             &[CtValue::String("42".to_string())],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("parse_int 42");
         assert_eq!(result, CtValue::Int(42));
 
         let err = builtins.get("parse_int").unwrap()(
             &[CtValue::String("abc".to_string())],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("parse_int invalid");
         assert!(err.to_string().contains("cannot parse"));
@@ -594,7 +619,7 @@ mod ct_lang_tests {
 
     #[test]
     fn builtin_keyword_and_list_operations() {
-        let macro_env = MacroEnv::default();
+        let mut macro_env = MacroEnv::default();
         let mut ct_env = CtEnv::new();
         let builtins = BuiltinRegistry::new();
         let mut expand_env = empty_expand_env();
@@ -607,18 +632,20 @@ mod ct_lang_tests {
         // keyword_get
         let result = builtins.get("keyword_get").expect("keyword_get exists")(
             &[keyword.clone(), CtValue::String("name".to_string())],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("keyword_get");
         assert_eq!(result, CtValue::String("test".to_string()));
 
         let err = builtins.get("keyword_get").unwrap()(
             &[keyword.clone(), CtValue::String("missing".to_string())],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("keyword_get missing");
         assert!(err.to_string().contains("not found"));
@@ -626,9 +653,10 @@ mod ct_lang_tests {
         // keyword_has
         let result = builtins.get("keyword_has").expect("keyword_has exists")(
             &[keyword.clone(), CtValue::String("name".to_string())],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("keyword_has");
         assert_eq!(result, CtValue::Bool(true));
@@ -636,50 +664,59 @@ mod ct_lang_tests {
         // list_length
         let result = builtins.get("list_length").expect("list_length exists")(
             &[keyword],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("list_length keyword");
         assert_eq!(result, CtValue::Int(2));
 
         let list = CtValue::List(vec![CtValue::Nil, CtValue::Nil, CtValue::Nil]);
-        let result =
-            builtins.get("list_length").unwrap()(&[list], &macro_env, &mut ct_env, &mut expand_env)
-                .expect("list_length list");
+        let result = builtins.get("list_length").unwrap()(
+            &[list],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect("list_length list");
         assert_eq!(result, CtValue::Int(3));
     }
 
     #[test]
     fn builtin_to_string_works() {
-        let macro_env = MacroEnv::default();
+        let mut macro_env = MacroEnv::default();
         let mut ct_env = CtEnv::new();
         let builtins = BuiltinRegistry::new();
         let mut expand_env = empty_expand_env();
 
         let result = builtins.get("to_string").expect("to_string exists")(
             &[CtValue::Bool(true)],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("to_string bool");
         assert_eq!(result, CtValue::String("true".to_string()));
 
         let result = builtins.get("to_string").unwrap()(
             &[CtValue::Int(123)],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("to_string int");
         assert_eq!(result, CtValue::String("123".to_string()));
 
         let result = builtins.get("to_string").unwrap()(
             &[CtValue::Nil],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("to_string nil");
         assert_eq!(result, CtValue::String("nil".to_string()));
@@ -689,7 +726,7 @@ mod ct_lang_tests {
     fn builtin_content_works() {
         use sl_core::FormItem;
 
-        let macro_env = MacroEnv {
+        let mut macro_env = MacroEnv {
             content: vec![FormItem::Text("test content".to_string())],
             ..Default::default()
         };
@@ -699,9 +736,10 @@ mod ct_lang_tests {
 
         let result = builtins.get("content").expect("content exists")(
             &[],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("content");
         assert!(matches!(result, CtValue::Ast(items) if items.len() == 1));
@@ -709,9 +747,10 @@ mod ct_lang_tests {
         // Error: too many args
         let err = builtins.get("content").unwrap()(
             &[CtValue::Nil, CtValue::Nil],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("too many args");
         assert!(err.to_string().contains("at most 1 argument"));
@@ -743,9 +782,10 @@ mod ct_lang_tests {
 
         let result = builtins.get("caller_env").expect("caller_env exists")(
             &[],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("caller_env should succeed");
 
@@ -775,12 +815,13 @@ mod ct_lang_tests {
         }
 
         // Verify default (no source location)
-        let empty_macro_env = MacroEnv::default();
+        let mut empty_macro_env = MacroEnv::default();
         let result = builtins.get("caller_env").expect("caller_env exists")(
             &[],
-            &empty_macro_env,
+            &mut empty_macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("caller_env should succeed");
         match result {
@@ -809,9 +850,10 @@ mod ct_lang_tests {
         // Error: too many args
         let err = builtins.get("caller_env").unwrap()(
             &[CtValue::Nil],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("too many args");
         assert!(err.to_string().contains("takes no arguments"));
@@ -834,9 +876,10 @@ mod ct_lang_tests {
         // Resolve alias
         let result = builtins.get("expand_alias").expect("expand_alias exists")(
             &[CtValue::String("h".to_string())],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("expand alias");
         assert_eq!(result, CtValue::String("helper".to_string()));
@@ -844,9 +887,10 @@ mod ct_lang_tests {
         // Unknown name returns as-is
         let result = builtins.get("expand_alias").unwrap()(
             &[CtValue::String("unknown".to_string())],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("unknown alias");
         assert_eq!(result, CtValue::String("unknown".to_string()));
@@ -854,23 +898,29 @@ mod ct_lang_tests {
         // ModuleRef also works
         let result = builtins.get("expand_alias").unwrap()(
             &[CtValue::ModuleRef("mh".to_string())],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("module ref");
         assert_eq!(result, CtValue::String("main.helper".to_string()));
 
         // Error: wrong arg count
-        let err =
-            builtins.get("expand_alias").unwrap()(&[], &macro_env, &mut ct_env, &mut expand_env)
-                .expect_err("wrong args");
+        let err = builtins.get("expand_alias").unwrap()(
+            &[],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect_err("wrong args");
         assert!(err.to_string().contains("requires exactly 1"));
     }
 
     #[test]
     fn builtin_require_module_adds_to_expand_env() {
-        let macro_env = MacroEnv {
+        let mut macro_env = MacroEnv {
             current_module: Some("main".to_string()),
             ..Default::default()
         };
@@ -885,9 +935,10 @@ mod ct_lang_tests {
             .get("require_module")
             .expect("require_module exists")(
             &[CtValue::String("helper".to_string())],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("require_module");
         // Returns the expanded module name (helper has no alias, so returns "helper")
@@ -899,9 +950,10 @@ mod ct_lang_tests {
         // Idempotent: calling again doesn't panic
         let result = builtins.get("require_module").unwrap()(
             &[CtValue::String("helper".to_string())],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("require_module idempotent");
         // Returns the expanded name even when already required
@@ -918,9 +970,10 @@ mod ct_lang_tests {
 
         let result = builtins.get("define_import").expect("define_import exists")(
             &[CtValue::String("kernel".to_string())],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("define_import");
         assert_eq!(result, CtValue::Nil);
@@ -933,9 +986,10 @@ mod ct_lang_tests {
         let mut expand_env2 = empty_expand_env();
         let result = builtins.get("define_import").unwrap()(
             &[CtValue::String("k".to_string())],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env2,
+            &builtins,
         )
         .expect("define_import with alias");
         assert_eq!(result, CtValue::Nil);
@@ -944,7 +998,7 @@ mod ct_lang_tests {
 
     #[test]
     fn builtin_define_alias_adds_alias() {
-        let macro_env = MacroEnv::default();
+        let mut macro_env = MacroEnv::default();
 
         let mut ct_env = CtEnv::new();
         let builtins = BuiltinRegistry::new();
@@ -955,9 +1009,10 @@ mod ct_lang_tests {
                 CtValue::String("helper".to_string()),
                 CtValue::String("h".to_string()),
             ],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("define_alias");
         assert_eq!(result, CtValue::Nil);
@@ -969,7 +1024,7 @@ mod ct_lang_tests {
 
     #[test]
     fn builtin_define_require_adds_require() {
-        let macro_env = MacroEnv::default();
+        let mut macro_env = MacroEnv::default();
 
         let mut ct_env = CtEnv::new();
         let builtins = BuiltinRegistry::new();
@@ -979,9 +1034,10 @@ mod ct_lang_tests {
             .get("define_require")
             .expect("define_require exists")(
             &[CtValue::String("helper".to_string())],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("define_require");
         assert_eq!(result, CtValue::Nil);
@@ -990,7 +1046,7 @@ mod ct_lang_tests {
 
     #[test]
     fn builtin_invoke_macro_rejects_unrequired_module() {
-        let macro_env = MacroEnv {
+        let mut macro_env = MacroEnv {
             current_module: Some("main".to_string()),
             ..Default::default()
         };
@@ -1007,9 +1063,10 @@ mod ct_lang_tests {
                 CtValue::String("some_macro".to_string()),
                 CtValue::Keyword(vec![]),
             ],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("should fail");
         // Module exists but is not in scope (not required)
@@ -1039,9 +1096,10 @@ mod ct_lang_tests {
                 CtValue::String("nonexistent".to_string()),
                 CtValue::Keyword(vec![]),
             ],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("should fail");
         // Module exists but macro is not defined in it
@@ -1141,9 +1199,10 @@ mod ct_lang_tests {
                     CtValue::String("test".to_string()),
                 )]),
             ],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("invoke_macro should succeed");
 
@@ -2959,8 +3018,13 @@ mod ct_lang_tests {
             CtValue::String("macro".to_string()),
             CtValue::Int(42),
         ];
-        let result =
-            builtins.get("invoke_macro").unwrap()(args, &macro_env, &mut ct_env, &mut expand_env);
+        let result = builtins.get("invoke_macro").unwrap()(
+            args,
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        );
         // Should return an error (type check failure or module-not-found)
         let err = result.expect_err("wrong third arg type should error");
         // The error should mention args type issue OR the builtin invocation failure
@@ -2995,9 +3059,10 @@ mod ct_lang_tests {
                 CtValue::String("macro".to_string()),
                 CtValue::Keyword(vec![]),
             ],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("wrong first arg type");
         assert!(
@@ -3008,7 +3073,7 @@ mod ct_lang_tests {
 
     #[test]
     fn builtin_invoke_macro_module_not_in_scope_errors() {
-        let macro_env = MacroEnv {
+        let mut macro_env = MacroEnv {
             current_module: Some("caller".to_string()),
             ..Default::default()
         };
@@ -3024,9 +3089,10 @@ mod ct_lang_tests {
                 CtValue::String("__using__".to_string()),
                 CtValue::Keyword(vec![]),
             ],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("module not in scope");
         // Module exists but is not required → "not in scope"
@@ -3054,9 +3120,10 @@ mod ct_lang_tests {
                 CtValue::String("nonexistent".to_string()),
                 CtValue::Keyword(vec![]),
             ],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("macro not found");
         // Module exists but macro is not defined in it
@@ -3144,9 +3211,10 @@ mod ct_lang_tests {
                 CtValue::String("__using__".to_string()),
                 CtValue::Keyword(vec![("opt1".to_string(), CtValue::Nil)]),
             ],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("nil keyword arg value type");
         assert!(
@@ -3237,9 +3305,10 @@ mod ct_lang_tests {
                 CtValue::String("__using__".to_string()),
                 CtValue::Keyword(vec![]),
             ],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("invoke_macro with alias should succeed");
         match result {
@@ -3348,9 +3417,10 @@ mod ct_lang_tests {
                     ),
                 ]),
             ],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("List/Keyword/Ast keyword args should not error");
         match result {
@@ -3363,16 +3433,17 @@ mod ct_lang_tests {
 
     #[test]
     fn builtin_expand_alias_wrong_type() {
-        let macro_env = MacroEnv::default();
+        let mut macro_env = MacroEnv::default();
         let mut ct_env = CtEnv::new();
         let builtins = BuiltinRegistry::new();
         let mut expand_env = empty_expand_env();
 
         let err = builtins.get("expand_alias").unwrap()(
             &[CtValue::Int(123)],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("wrong type");
         assert!(err.to_string().contains("must be string or module"));
@@ -3380,16 +3451,17 @@ mod ct_lang_tests {
 
     #[test]
     fn builtin_require_module_wrong_type() {
-        let macro_env = MacroEnv::default();
+        let mut macro_env = MacroEnv::default();
         let mut ct_env = CtEnv::new();
         let builtins = BuiltinRegistry::new();
         let mut expand_env = empty_expand_env();
 
         let err = builtins.get("require_module").unwrap()(
             &[CtValue::Int(123)],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("wrong type");
         assert!(err.to_string().contains("must be string or module"));
@@ -3397,16 +3469,17 @@ mod ct_lang_tests {
 
     #[test]
     fn builtin_define_import_wrong_type() {
-        let macro_env = MacroEnv::default();
+        let mut macro_env = MacroEnv::default();
         let mut ct_env = CtEnv::new();
         let builtins = BuiltinRegistry::new();
         let mut expand_env = empty_expand_env();
 
         let err = builtins.get("define_import").unwrap()(
             &[CtValue::Int(123)],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("wrong type");
         assert!(err.to_string().contains("must be string or module"));
@@ -3414,16 +3487,17 @@ mod ct_lang_tests {
 
     #[test]
     fn builtin_define_alias_wrong_first_arg_type() {
-        let macro_env = MacroEnv::default();
+        let mut macro_env = MacroEnv::default();
         let mut ct_env = CtEnv::new();
         let builtins = BuiltinRegistry::new();
         let mut expand_env = empty_expand_env();
 
         let err = builtins.get("define_alias").unwrap()(
             &[CtValue::Int(123), CtValue::String("a".to_string())],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("wrong type");
         assert!(
@@ -3434,16 +3508,17 @@ mod ct_lang_tests {
 
     #[test]
     fn builtin_define_alias_wrong_second_arg_type() {
-        let macro_env = MacroEnv::default();
+        let mut macro_env = MacroEnv::default();
         let mut ct_env = CtEnv::new();
         let builtins = BuiltinRegistry::new();
         let mut expand_env = empty_expand_env();
 
         let err = builtins.get("define_alias").unwrap()(
             &[CtValue::String("helper".to_string()), CtValue::Int(123)],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("wrong type");
         assert!(err.to_string().contains("second argument must be string"));
@@ -3451,16 +3526,17 @@ mod ct_lang_tests {
 
     #[test]
     fn builtin_define_require_wrong_type() {
-        let macro_env = MacroEnv::default();
+        let mut macro_env = MacroEnv::default();
         let mut ct_env = CtEnv::new();
         let builtins = BuiltinRegistry::new();
         let mut expand_env = empty_expand_env();
 
         let err = builtins.get("define_require").unwrap()(
             &[CtValue::Int(123)],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("wrong type");
         assert!(err.to_string().contains("must be string or module"));
@@ -3484,9 +3560,10 @@ mod ct_lang_tests {
                 CtValue::Int(123),
                 CtValue::Keyword(vec![]),
             ],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("wrong type");
         assert!(err.to_string().contains("macro_name"));
@@ -3494,7 +3571,7 @@ mod ct_lang_tests {
 
     #[test]
     fn builtin_invoke_macro_requires_3_args() {
-        let macro_env = MacroEnv::default();
+        let mut macro_env = MacroEnv::default();
         let mut ct_env = CtEnv::new();
         let builtins = BuiltinRegistry::new();
         let mut expand_env = empty_expand_env();
@@ -3502,9 +3579,10 @@ mod ct_lang_tests {
         // Too few args
         let err = builtins.get("invoke_macro").unwrap()(
             &[CtValue::String("helper".to_string())],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("too few args");
         assert!(err.to_string().contains("requires exactly 3"));
@@ -3517,9 +3595,10 @@ mod ct_lang_tests {
                 CtValue::Keyword(vec![]),
                 CtValue::String("extra".to_string()),
             ],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("too many args");
         assert!(err.to_string().contains("requires exactly 3"));
@@ -3527,16 +3606,17 @@ mod ct_lang_tests {
 
     #[test]
     fn builtin_keyword_attr_missing_keyword() {
-        let macro_env = MacroEnv::default();
+        let mut macro_env = MacroEnv::default();
         let mut ct_env = CtEnv::new();
         let builtins = BuiltinRegistry::new();
         let mut expand_env = empty_expand_env();
 
         let err = builtins.get("keyword_attr").unwrap()(
             &[CtValue::String("missing".to_string())],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("missing keyword");
         assert!(err.to_string().contains("not found"));
@@ -3544,7 +3624,7 @@ mod ct_lang_tests {
 
     #[test]
     fn builtin_caller_module_returns_module_name() {
-        let macro_env = MacroEnv {
+        let mut macro_env = MacroEnv {
             current_module: Some("test_module".to_string()),
             ..Default::default()
         };
@@ -3552,16 +3632,26 @@ mod ct_lang_tests {
         let builtins = BuiltinRegistry::new();
         let mut expand_env = empty_expand_env();
 
-        let result =
-            builtins.get("caller_module").unwrap()(&[], &macro_env, &mut ct_env, &mut expand_env)
-                .expect("caller_module should succeed");
+        let result = builtins.get("caller_module").unwrap()(
+            &[],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect("caller_module should succeed");
         assert_eq!(result, CtValue::String("test_module".to_string()));
 
         // Test without module set
-        let macro_env = MacroEnv::default();
-        let result =
-            builtins.get("caller_module").unwrap()(&[], &macro_env, &mut ct_env, &mut expand_env)
-                .expect("caller_module should succeed");
+        let mut macro_env = MacroEnv::default();
+        let result = builtins.get("caller_module").unwrap()(
+            &[],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect("caller_module should succeed");
         assert_eq!(result, CtValue::String("<unknown>".to_string()));
     }
 
@@ -3580,7 +3670,7 @@ mod ct_lang_tests {
             }
         }
 
-        let macro_env = MacroEnv {
+        let mut macro_env = MacroEnv {
             content: vec![
                 FormItem::Form(sl_core::Form {
                     head: "slot".to_string(),
@@ -3614,9 +3704,10 @@ mod ct_lang_tests {
                 "head".to_string(),
                 CtValue::String("slot".to_string()),
             )])],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("content with filter");
         match result {
@@ -3635,7 +3726,7 @@ mod ct_lang_tests {
 
     #[test]
     fn builtin_content_with_filter_wrong_type_in_kv() {
-        let macro_env = MacroEnv::default();
+        let mut macro_env = MacroEnv::default();
         let mut ct_env = CtEnv::new();
         let builtins = BuiltinRegistry::new();
         let mut expand_env = empty_expand_env();
@@ -3645,9 +3736,10 @@ mod ct_lang_tests {
                 "head".to_string(),
                 CtValue::Int(123),
             )])],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("wrong type in kv");
         assert!(err.to_string().contains("must be string"));
@@ -3655,7 +3747,7 @@ mod ct_lang_tests {
 
     #[test]
     fn builtin_expand_alias_wrong_arg_count() {
-        let macro_env = MacroEnv::default();
+        let mut macro_env = MacroEnv::default();
         let mut ct_env = CtEnv::new();
         let builtins = BuiltinRegistry::new();
         let mut expand_env = empty_expand_env();
@@ -3665,9 +3757,10 @@ mod ct_lang_tests {
                 CtValue::String("a".to_string()),
                 CtValue::String("b".to_string()),
             ],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("too many args");
         assert!(err.to_string().contains("requires exactly 1"));
@@ -3675,42 +3768,53 @@ mod ct_lang_tests {
 
     #[test]
     fn builtin_require_module_wrong_arg_count() {
-        let macro_env = MacroEnv::default();
+        let mut macro_env = MacroEnv::default();
         let mut ct_env = CtEnv::new();
         let builtins = BuiltinRegistry::new();
         let mut expand_env = empty_expand_env();
 
-        let err =
-            builtins.get("require_module").unwrap()(&[], &macro_env, &mut ct_env, &mut expand_env)
-                .expect_err("too few args");
+        let err = builtins.get("require_module").unwrap()(
+            &[],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect_err("too few args");
         assert!(err.to_string().contains("requires exactly 1"));
     }
 
     #[test]
     fn builtin_define_import_wrong_arg_count() {
-        let macro_env = MacroEnv::default();
+        let mut macro_env = MacroEnv::default();
         let mut ct_env = CtEnv::new();
         let builtins = BuiltinRegistry::new();
         let mut expand_env = empty_expand_env();
 
-        let err =
-            builtins.get("define_import").unwrap()(&[], &macro_env, &mut ct_env, &mut expand_env)
-                .expect_err("too few args");
+        let err = builtins.get("define_import").unwrap()(
+            &[],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect_err("too few args");
         assert!(err.to_string().contains("requires exactly 1"));
     }
 
     #[test]
     fn builtin_define_alias_wrong_arg_count() {
-        let macro_env = MacroEnv::default();
+        let mut macro_env = MacroEnv::default();
         let mut ct_env = CtEnv::new();
         let builtins = BuiltinRegistry::new();
         let mut expand_env = empty_expand_env();
 
         let err = builtins.get("define_alias").unwrap()(
             &[CtValue::String("helper".to_string())],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("too few args");
         assert!(err.to_string().contains("requires exactly 2"));
@@ -3718,29 +3822,35 @@ mod ct_lang_tests {
 
     #[test]
     fn builtin_define_require_wrong_arg_count() {
-        let macro_env = MacroEnv::default();
+        let mut macro_env = MacroEnv::default();
         let mut ct_env = CtEnv::new();
         let builtins = BuiltinRegistry::new();
         let mut expand_env = empty_expand_env();
 
-        let err =
-            builtins.get("define_require").unwrap()(&[], &macro_env, &mut ct_env, &mut expand_env)
-                .expect_err("too few args");
+        let err = builtins.get("define_require").unwrap()(
+            &[],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect_err("too few args");
         assert!(err.to_string().contains("requires exactly 1"));
     }
 
     #[test]
     fn builtin_invoke_macro_wrong_arg_count() {
-        let macro_env = MacroEnv::default();
+        let mut macro_env = MacroEnv::default();
         let mut ct_env = CtEnv::new();
         let builtins = BuiltinRegistry::new();
         let mut expand_env = empty_expand_env();
 
         let err = builtins.get("invoke_macro").unwrap()(
             &[CtValue::String("helper".to_string())],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("too few args");
         assert!(err.to_string().contains("requires exactly 3"));
@@ -3748,16 +3858,17 @@ mod ct_lang_tests {
 
     #[test]
     fn builtin_keyword_get_wrong_arg_count() {
-        let macro_env = MacroEnv::default();
+        let mut macro_env = MacroEnv::default();
         let mut ct_env = CtEnv::new();
         let builtins = BuiltinRegistry::new();
         let mut expand_env = empty_expand_env();
 
         let err = builtins.get("keyword_get").unwrap()(
             &[CtValue::Keyword(vec![])],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("too few args");
         assert!(err.to_string().contains("requires exactly 2"));
@@ -3765,7 +3876,7 @@ mod ct_lang_tests {
 
     #[test]
     fn builtin_keyword_has_wrong_first_arg_type() {
-        let macro_env = MacroEnv::default();
+        let mut macro_env = MacroEnv::default();
         let mut ct_env = CtEnv::new();
         let builtins = BuiltinRegistry::new();
         let mut expand_env = empty_expand_env();
@@ -3775,9 +3886,10 @@ mod ct_lang_tests {
                 CtValue::String("not a keyword".to_string()),
                 CtValue::String("key".to_string()),
             ],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("wrong first arg type");
         assert!(err.to_string().contains("first argument must be keyword"));
@@ -3785,16 +3897,17 @@ mod ct_lang_tests {
 
     #[test]
     fn builtin_keyword_has_wrong_second_arg_type() {
-        let macro_env = MacroEnv::default();
+        let mut macro_env = MacroEnv::default();
         let mut ct_env = CtEnv::new();
         let builtins = BuiltinRegistry::new();
         let mut expand_env = empty_expand_env();
 
         let err = builtins.get("keyword_has").unwrap()(
             &[CtValue::Keyword(vec![]), CtValue::Int(123)],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("wrong second arg type");
         assert!(err.to_string().contains("second argument must be string"));
@@ -3802,16 +3915,17 @@ mod ct_lang_tests {
 
     #[test]
     fn builtin_list_length_wrong_type() {
-        let macro_env = MacroEnv::default();
+        let mut macro_env = MacroEnv::default();
         let mut ct_env = CtEnv::new();
         let builtins = BuiltinRegistry::new();
         let mut expand_env = empty_expand_env();
 
         let err = builtins.get("list_length").unwrap()(
             &[CtValue::String("not a list".to_string())],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("wrong type");
         assert!(err.to_string().contains("must be list or keyword"));
@@ -3819,7 +3933,7 @@ mod ct_lang_tests {
 
     #[test]
     fn builtin_to_string_complex_value() {
-        let macro_env = MacroEnv::default();
+        let mut macro_env = MacroEnv::default();
         let mut ct_env = CtEnv::new();
         let builtins = BuiltinRegistry::new();
         let mut expand_env = empty_expand_env();
@@ -3827,18 +3941,20 @@ mod ct_lang_tests {
         // Test to_string with complex types that fall into the catch-all branch
         let result = builtins.get("to_string").unwrap()(
             &[CtValue::Ast(vec![])],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("to_string should succeed");
         assert_eq!(result, CtValue::String("Ast([])".to_string()));
 
         let result = builtins.get("to_string").unwrap()(
             &[CtValue::ModuleRef("test".to_string())],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("to_string should succeed");
         assert_eq!(result, CtValue::String("ModuleRef(\"test\")".to_string()));
@@ -3939,9 +4055,10 @@ mod ct_lang_tests {
                 CtValue::String("__private__".to_string()),
                 CtValue::Keyword(vec![]),
             ],
-            &macro_env,
+            &mut macro_env,
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("should reject private macro");
         assert!(
@@ -3988,9 +4105,10 @@ mod ct_lang_tests {
 
         let result = builtins.get("ast_head").expect("ast_head exists")(
             &[ast],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("ast_head should succeed");
         assert_eq!(result, CtValue::String("text".to_string()));
@@ -3998,9 +4116,10 @@ mod ct_lang_tests {
         // Error: wrong arg count
         let err = builtins.get("ast_head").unwrap()(
             &[],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("wrong arg count");
         assert!(err.to_string().contains("requires exactly 1"));
@@ -4008,9 +4127,10 @@ mod ct_lang_tests {
         // Error: wrong type
         let err = builtins.get("ast_head").unwrap()(
             &[CtValue::String("not an ast".to_string())],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("wrong type");
         assert!(err.to_string().contains("must be ast"));
@@ -4018,9 +4138,10 @@ mod ct_lang_tests {
         // Error: empty ast (text only)
         let err = builtins.get("ast_head").unwrap()(
             &[CtValue::Ast(vec![FormItem::Text("just text".to_string())])],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("no form elements");
         assert!(err.to_string().contains("no form elements"));
@@ -4050,9 +4171,10 @@ mod ct_lang_tests {
 
         let result = builtins.get("ast_children").expect("ast_children exists")(
             &[ast],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("ast_children should succeed");
 
@@ -4068,9 +4190,10 @@ mod ct_lang_tests {
 
         let result2 = builtins.get("ast_children").unwrap()(
             &[ast_no_children],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("ast_children with no children field");
         assert_eq!(result2, CtValue::Ast(vec![]));
@@ -4078,9 +4201,10 @@ mod ct_lang_tests {
         // Error: empty ast
         let err = builtins.get("ast_children").unwrap()(
             &[CtValue::Ast(vec![])],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("empty ast");
         assert!(err.to_string().contains("no form elements"));
@@ -4110,9 +4234,10 @@ mod ct_lang_tests {
         // Get string attribute
         let result = builtins.get("ast_attr_get").expect("ast_attr_get exists")(
             &[ast.clone(), CtValue::String("name".to_string())],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("ast_attr_get should succeed");
         assert_eq!(result, CtValue::String("my_script".to_string()));
@@ -4120,9 +4245,10 @@ mod ct_lang_tests {
         // Error: missing attribute
         let err = builtins.get("ast_attr_get").unwrap()(
             &[ast.clone(), CtValue::String("missing".to_string())],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("missing attr");
         assert!(err.to_string().contains("not found"));
@@ -4130,9 +4256,10 @@ mod ct_lang_tests {
         // Error: wrong arg count
         let err = builtins.get("ast_attr_get").unwrap()(
             &[ast],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("wrong arg count");
         assert!(err.to_string().contains("requires exactly 2"));
@@ -4140,9 +4267,10 @@ mod ct_lang_tests {
         // Error: second arg not string
         let err = builtins.get("ast_attr_get").unwrap()(
             &[CtValue::Ast(vec![]), CtValue::Int(42)],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("second arg not string");
         assert!(err.to_string().contains("must be string"));
@@ -4175,9 +4303,10 @@ mod ct_lang_tests {
 
         let result = builtins.get("ast_attr_keys").expect("ast_attr_keys exists")(
             &[ast],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("ast_attr_keys should succeed");
 
@@ -4212,9 +4341,10 @@ mod ct_lang_tests {
         // Error: wrong type
         let err = builtins.get("ast_attr_keys").unwrap()(
             &[CtValue::String("not ast".to_string())],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("wrong type");
         assert!(err.to_string().contains("must be ast"));
@@ -4252,9 +4382,10 @@ mod ct_lang_tests {
                 CtValue::String("mode".to_string()),
                 CtValue::String("debug".to_string()),
             ],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("ast_attr_set should succeed");
 
@@ -4288,9 +4419,10 @@ mod ct_lang_tests {
                 CtValue::String("name".to_string()),
                 CtValue::String("new_name".to_string()),
             ],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("override attr should succeed");
 
@@ -4324,9 +4456,10 @@ mod ct_lang_tests {
                 CtValue::String("extra".to_string()),
                 CtValue::String("val".to_string()),
             ],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("add attr should succeed");
         let result_ast3 = match result3 {
@@ -4339,9 +4472,10 @@ mod ct_lang_tests {
         // Error: wrong number of args
         let err = builtins.get("ast_attr_set").unwrap()(
             &[CtValue::Ast(vec![])],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("wrong arg count");
         assert!(err.to_string().contains("requires exactly 3"));
@@ -4353,9 +4487,10 @@ mod ct_lang_tests {
                 CtValue::String("key".to_string()),
                 CtValue::String("val".to_string()),
             ],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("empty ast");
         assert!(err.to_string().contains("no form elements"));
@@ -4378,9 +4513,10 @@ mod ct_lang_tests {
 
         let result = builtins.get("ast_wrap").expect("ast_wrap exists")(
             &[inner, CtValue::String("wrapper".to_string())],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("ast_wrap should succeed");
 
@@ -4409,9 +4545,10 @@ mod ct_lang_tests {
         // Error: wrong number of args
         let err = builtins.get("ast_wrap").unwrap()(
             &[CtValue::Ast(vec![])],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("wrong arg count");
         assert!(err.to_string().contains("requires 2 or 3"));
@@ -4440,9 +4577,10 @@ mod ct_lang_tests {
         let list = CtValue::List(vec![ast1, ast2]);
         let result = builtins.get("ast_concat").expect("ast_concat exists")(
             &[list],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("ast_concat should succeed");
 
@@ -4459,9 +4597,10 @@ mod ct_lang_tests {
         let empty_list = CtValue::List(vec![]);
         let result2 = builtins.get("ast_concat").unwrap()(
             &[empty_list],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("concat empty list should succeed");
         assert!(matches!(result2, CtValue::Ast(items) if items.is_empty()));
@@ -4469,9 +4608,10 @@ mod ct_lang_tests {
         // Error: non-list arg
         let err = builtins.get("ast_concat").unwrap()(
             &[CtValue::String("not a list".to_string())],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("non-list arg");
         assert!(err.to_string().contains("argument must be ast"));
@@ -4507,9 +4647,10 @@ mod ct_lang_tests {
             .get("ast_filter_head")
             .expect("ast_filter_head exists")(
             &[ast, CtValue::String("script".to_string())],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("ast_filter_head should succeed");
 
@@ -4530,9 +4671,10 @@ mod ct_lang_tests {
         })]);
         let result2 = builtins.get("ast_filter_head").unwrap()(
             &[ast2, CtValue::String("nonexistent".to_string())],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("filter no match");
         let result_ast2 = match result2 {
@@ -4544,9 +4686,10 @@ mod ct_lang_tests {
         // Error: wrong arg count
         let err = builtins.get("ast_filter_head").unwrap()(
             &[CtValue::Ast(vec![])],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("wrong arg count");
         assert!(err.to_string().contains("requires exactly 2"));
@@ -4567,9 +4710,10 @@ mod ct_lang_tests {
 
         let result = builtins.get("module_get").unwrap()(
             &[CtValue::String("missing".to_string())],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("module_get should succeed");
         assert_eq!(result, CtValue::Nil);
@@ -4584,9 +4728,10 @@ mod ct_lang_tests {
         // Put a value
         let written = builtins.get("module_put").unwrap()(
             &[CtValue::String("counter".to_string()), CtValue::Int(42)],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("module_put should succeed");
         assert_eq!(written, CtValue::Int(42));
@@ -4594,9 +4739,10 @@ mod ct_lang_tests {
         // Get it back - same expand_env
         let result = builtins.get("module_get").unwrap()(
             &[CtValue::String("counter".to_string())],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("module_get should succeed");
         assert_eq!(result, CtValue::Int(42));
@@ -4614,9 +4760,10 @@ mod ct_lang_tests {
                 CtValue::String("a".to_string()),
                 CtValue::String("hello".to_string()),
             ],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("put a");
 
@@ -4625,27 +4772,30 @@ mod ct_lang_tests {
                 CtValue::String("b".to_string()),
                 CtValue::List(vec![CtValue::Int(1), CtValue::Int(2)]),
             ],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("put b");
 
         // Both values readable
         let a = builtins.get("module_get").unwrap()(
             &[CtValue::String("a".to_string())],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("get a");
         assert_eq!(a, CtValue::String("hello".to_string()));
 
         let b = builtins.get("module_get").unwrap()(
             &[CtValue::String("b".to_string())],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("get b");
         assert_eq!(b, CtValue::List(vec![CtValue::Int(1), CtValue::Int(2)]));
@@ -4659,18 +4809,20 @@ mod ct_lang_tests {
 
         let err = builtins.get("module_get").unwrap()(
             &[],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("no args");
         assert!(err.to_string().contains("requires exactly 1"));
 
         let err = builtins.get("module_get").unwrap()(
             &[CtValue::String("key".to_string()), CtValue::Int(1)],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("too many args");
         assert!(err.to_string().contains("requires exactly 1"));
@@ -4684,9 +4836,10 @@ mod ct_lang_tests {
 
         let err = builtins.get("module_get").unwrap()(
             &[CtValue::Int(123)],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("wrong type");
         assert!(err.to_string().contains("must be string"));
@@ -4700,18 +4853,20 @@ mod ct_lang_tests {
 
         let err = builtins.get("module_put").unwrap()(
             &[CtValue::String("key".to_string())],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("only 1 arg");
         assert!(err.to_string().contains("requires exactly 2"));
 
         let err = builtins.get("module_put").unwrap()(
             &[],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("no args");
         assert!(err.to_string().contains("requires exactly 2"));
@@ -4725,9 +4880,10 @@ mod ct_lang_tests {
 
         let err = builtins.get("module_put").unwrap()(
             &[CtValue::Int(99), CtValue::String("val".to_string())],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("wrong name type");
         assert!(err.to_string().contains("must be string"));
@@ -4744,18 +4900,20 @@ mod ct_lang_tests {
         // First put succeeds
         builtins.get("module_put").unwrap()(
             &[CtValue::String("key".to_string()), CtValue::Int(1)],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("first put should succeed");
 
         // Second put with same key fails
         let err = builtins.get("module_put").unwrap()(
             &[CtValue::String("key".to_string()), CtValue::Int(2)],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("second put should conflict");
         assert!(err.to_string().contains("conflict"));
@@ -4772,18 +4930,20 @@ mod ct_lang_tests {
         // First put
         builtins.get("module_put").unwrap()(
             &[CtValue::String("counter".to_string()), CtValue::Int(1)],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("first put");
 
         // Update succeeds (it is allowed to overwrite)
         let result = builtins.get("module_update").unwrap()(
             &[CtValue::String("counter".to_string()), CtValue::Int(2)],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("update should succeed despite existing key");
         assert_eq!(result, CtValue::Int(2));
@@ -4798,25 +4958,28 @@ mod ct_lang_tests {
 
         builtins.get("module_put").unwrap()(
             &[CtValue::String("a".to_string()), CtValue::Int(1)],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("put a");
         builtins.get("module_put").unwrap()(
             &[CtValue::String("b".to_string()), CtValue::Int(2)],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("put b");
 
         assert_eq!(
             builtins.get("module_get").unwrap()(
                 &[CtValue::String("a".to_string())],
-                &empty_macro_env(),
+                &mut empty_macro_env(),
                 &mut ct_env,
                 &mut expand_env,
+                &builtins,
             )
             .unwrap(),
             CtValue::Int(1)
@@ -4824,9 +4987,10 @@ mod ct_lang_tests {
         assert_eq!(
             builtins.get("module_get").unwrap()(
                 &[CtValue::String("b".to_string())],
-                &empty_macro_env(),
+                &mut empty_macro_env(),
                 &mut ct_env,
                 &mut expand_env,
+                &builtins,
             )
             .unwrap(),
             CtValue::Int(2)
@@ -4843,17 +5007,19 @@ mod ct_lang_tests {
 
         builtins.get("module_put").unwrap()(
             &[CtValue::String("flag".to_string()), CtValue::Bool(true)],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("put bool");
 
         let result = builtins.get("module_get").unwrap()(
             &[CtValue::String("flag".to_string())],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("get bool");
         assert_eq!(result, CtValue::Bool(true));
@@ -4875,17 +5041,19 @@ mod ct_lang_tests {
 
         builtins.get("module_put").unwrap()(
             &[CtValue::String("config".to_string()), kw.clone()],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("put keyword");
 
         let result = builtins.get("module_get").unwrap()(
             &[CtValue::String("config".to_string())],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("get keyword");
         assert_eq!(result, kw);
@@ -4905,17 +5073,19 @@ mod ct_lang_tests {
 
         builtins.get("module_put").unwrap()(
             &[CtValue::String("fragment".to_string()), ast.clone()],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("put ast");
 
         let result = builtins.get("module_get").unwrap()(
             &[CtValue::String("fragment".to_string())],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("get ast");
         assert_eq!(result, ast);
@@ -4933,9 +5103,10 @@ mod ct_lang_tests {
 
         let result = builtins.get("module_update").unwrap()(
             &[CtValue::String("counter".to_string()), CtValue::Int(1)],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("update new key");
         assert_eq!(result, CtValue::Int(1));
@@ -4950,18 +5121,20 @@ mod ct_lang_tests {
         // First put
         builtins.get("module_put").unwrap()(
             &[CtValue::String("counter".to_string()), CtValue::Int(1)],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("put initial");
 
         // Update overwrites
         let result = builtins.get("module_update").unwrap()(
             &[CtValue::String("counter".to_string()), CtValue::Int(2)],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("update existing");
         assert_eq!(result, CtValue::Int(2));
@@ -4969,9 +5142,10 @@ mod ct_lang_tests {
         // Verify the value was updated
         let after = builtins.get("module_get").unwrap()(
             &[CtValue::String("counter".to_string())],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("get after update");
         assert_eq!(after, CtValue::Int(2));
@@ -4985,9 +5159,10 @@ mod ct_lang_tests {
 
         let err = builtins.get("module_update").unwrap()(
             &[CtValue::String("key".to_string())],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("should error on 1 arg");
         assert!(err.to_string().contains("exactly 2 arguments"));
@@ -4998,9 +5173,10 @@ mod ct_lang_tests {
                 CtValue::Int(1),
                 CtValue::Int(2),
             ],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("should error on 3 args");
         assert!(err.to_string().contains("exactly 2 arguments"));
@@ -5016,9 +5192,14 @@ mod ct_lang_tests {
         let mut expand_env = make_module_env("list_mod");
         let mut ct_env = CtEnv::new();
 
-        let result =
-            builtins.get("list").unwrap()(&[], &empty_macro_env(), &mut ct_env, &mut expand_env)
-                .expect("list empty");
+        let result = builtins.get("list").unwrap()(
+            &[],
+            &mut empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect("list empty");
         assert_eq!(result, CtValue::List(vec![]));
     }
 
@@ -5030,9 +5211,10 @@ mod ct_lang_tests {
 
         let result = builtins.get("list").unwrap()(
             &[CtValue::String("a".to_string())],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("list single");
         assert_eq!(
@@ -5053,9 +5235,10 @@ mod ct_lang_tests {
                 CtValue::Int(42),
                 CtValue::Bool(true),
             ],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("list multiple");
         assert_eq!(
@@ -5091,9 +5274,10 @@ mod ct_lang_tests {
                 nested_keyword.clone(),
                 nested_ast.clone(),
             ],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("list nested");
         assert_eq!(
@@ -5117,9 +5301,10 @@ mod ct_lang_tests {
                 CtValue::List(vec![CtValue::String("a".to_string())]),
                 CtValue::List(vec![CtValue::String("b".to_string())]),
             ],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("concat two");
         assert_eq!(
@@ -5143,9 +5328,10 @@ mod ct_lang_tests {
                 CtValue::Nil,
                 CtValue::List(vec![CtValue::String("a".to_string())]),
             ],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("concat with nil");
         assert_eq!(
@@ -5162,9 +5348,10 @@ mod ct_lang_tests {
 
         let result = builtins.get("list_concat").unwrap()(
             &[],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect("concat empty");
         assert_eq!(result, CtValue::List(vec![]));
@@ -5178,11 +5365,312 @@ mod ct_lang_tests {
 
         let err = builtins.get("list_concat").unwrap()(
             &[CtValue::String("not a list".to_string())],
-            &empty_macro_env(),
+            &mut empty_macro_env(),
             &mut ct_env,
             &mut expand_env,
+            &builtins,
         )
         .expect_err("should error on string");
         assert!(err.to_string().contains("must be list or nil"));
+    }
+
+    // ========================================================================
+    // Step 7.2: list iteration builtin tests
+    // ========================================================================
+
+    /// Helper: create a FormItem::Form for `<unquote>name</unquote>`.
+    /// The variable name goes in the body as a FormItem::Text child (not a <var> element).
+    /// This is what eval_unquote expects: raw_body_text reads text from the children field.
+    fn unquote_var(name: &str) -> FormItem {
+        let meta = FormMeta::default();
+        // Body: a single FormItem::Text with the variable name
+        // raw_body_text reads FormItem::Text from the "children" field
+        FormItem::Form(Form {
+            head: "unquote".to_string(),
+            meta,
+            fields: vec![FormField {
+                name: "children".to_string(),
+                value: FormValue::Sequence(vec![FormItem::Text(name.to_string())]),
+            }],
+        })
+    }
+
+    /// Helper: create a QuoteForms CtValue from form items
+    fn quote_forms(items: Vec<FormItem>) -> CtValue {
+        CtValue::Ast(items)
+    }
+
+    #[test]
+    fn builtin_list_foreach_returns_nil() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("foreach_mod");
+        let mut ct_env = CtEnv::new();
+        let mut macro_env = MacroEnv::default();
+
+        // Callback: <quote><text><unquote><var>_item</var></unquote></text></quote>
+        // This evaluates _item and returns it as Ast (side-effect-free)
+        let callback = quote_forms(vec![unquote_var("_item")]);
+
+        let result = builtins.get("list_foreach").unwrap()(
+            &[
+                CtValue::List(vec![
+                    CtValue::String("a".to_string()),
+                    CtValue::String("b".to_string()),
+                ]),
+                callback,
+            ],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect("list_foreach should succeed");
+        assert_eq!(result, CtValue::Nil);
+    }
+
+    #[test]
+    fn builtin_list_foreach_wrong_arg_count_errors() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("foreach_mod");
+        let mut ct_env = CtEnv::new();
+        let mut macro_env = MacroEnv::default();
+
+        // Only 1 arg
+        let err = builtins.get("list_foreach").unwrap()(
+            &[CtValue::List(vec![])],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect_err("should error on 1 arg");
+        assert!(err.to_string().contains("requires exactly 2"));
+    }
+
+    #[test]
+    fn builtin_list_foreach_first_arg_not_list_errors() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("foreach_mod");
+        let mut ct_env = CtEnv::new();
+        let mut macro_env = MacroEnv::default();
+
+        let err = builtins.get("list_foreach").unwrap()(
+            &[
+                CtValue::String("not a list".to_string()),
+                quote_forms(vec![]),
+            ],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect_err("should error on non-list");
+        assert!(err.to_string().contains("must be list"));
+    }
+
+    #[test]
+    fn builtin_list_map_identity_transform() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("map_mod");
+        let mut ct_env = CtEnv::new();
+        let mut macro_env = MacroEnv::default();
+
+        // Callback: <quote><unquote><var>_item</var></unquote></quote>
+        // Returns _item (the bound list element)
+        let callback = quote_forms(vec![unquote_var("_item")]);
+
+        let result = builtins.get("list_map").unwrap()(
+            &[
+                CtValue::List(vec![
+                    CtValue::String("a".to_string()),
+                    CtValue::String("b".to_string()),
+                ]),
+                callback,
+            ],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect("list_map should succeed");
+
+        // Each item should be returned as-is (the callback returns _item)
+        let expected = CtValue::List(vec![
+            CtValue::String("a".to_string()),
+            CtValue::String("b".to_string()),
+        ]);
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn builtin_list_map_empty_list_returns_empty() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("map_mod");
+        let mut ct_env = CtEnv::new();
+        let mut macro_env = MacroEnv::default();
+
+        let callback = quote_forms(vec![unquote_var("_item")]);
+
+        let result = builtins.get("list_map").unwrap()(
+            &[CtValue::List(vec![]), callback],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect("list_map should succeed");
+        assert_eq!(result, CtValue::List(vec![]));
+    }
+
+    #[test]
+    fn builtin_list_map_wrong_arg_count_errors() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("map_mod");
+        let mut ct_env = CtEnv::new();
+        let mut macro_env = MacroEnv::default();
+
+        let err = builtins.get("list_map").unwrap()(
+            &[CtValue::List(vec![])],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect_err("should error on 1 arg");
+        assert!(err.to_string().contains("requires exactly 2"));
+    }
+
+    #[test]
+    fn builtin_list_map_first_arg_not_list_errors() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("map_mod");
+        let mut ct_env = CtEnv::new();
+        let mut macro_env = MacroEnv::default();
+
+        let err = builtins.get("list_map").unwrap()(
+            &[CtValue::Int(42), quote_forms(vec![])],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect_err("should error on non-list");
+        assert!(err.to_string().contains("must be list"));
+    }
+
+    #[test]
+    fn builtin_list_map_callback_not_ast_errors() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("map_mod");
+        let mut ct_env = CtEnv::new();
+        let mut macro_env = MacroEnv::default();
+
+        // Second arg is not an Ast (it's a String)
+        let err = builtins.get("list_map").unwrap()(
+            &[
+                CtValue::List(vec![]),
+                CtValue::String("not a callback".to_string()),
+            ],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect_err("should error on non-ast callback");
+        assert!(err.to_string().contains("callback"));
+    }
+
+    #[test]
+    fn builtin_list_fold_sums_integers() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("fold_mod");
+        let mut ct_env = CtEnv::new();
+        let mut macro_env = MacroEnv::default();
+
+        // Callback: <quote><unquote><var>_item</var></unquote></quote>
+        // Returns _item (the bound list element as CtValue)
+        let callback = quote_forms(vec![unquote_var("_item")]);
+
+        let result = builtins.get("list_fold").unwrap()(
+            &[
+                CtValue::List(vec![CtValue::Int(1), CtValue::Int(2), CtValue::Int(3)]),
+                CtValue::Int(0), // init = 0
+                callback,
+            ],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect("list_fold should succeed");
+
+        // Last element is 3 (accumulator ends as last callback result)
+        assert_eq!(result, CtValue::Int(3));
+    }
+
+    #[test]
+    fn builtin_list_fold_empty_list_returns_init() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("fold_mod");
+        let mut ct_env = CtEnv::new();
+        let mut macro_env = MacroEnv::default();
+
+        let callback = quote_forms(vec![unquote_var("_item")]);
+
+        let result = builtins.get("list_fold").unwrap()(
+            &[
+                CtValue::List(vec![]),
+                CtValue::String("init".to_string()),
+                callback,
+            ],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect("list_fold should succeed");
+
+        // Empty list: init is returned
+        assert_eq!(result, CtValue::String("init".to_string()));
+    }
+
+    #[test]
+    fn builtin_list_fold_wrong_arg_count_errors() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("fold_mod");
+        let mut ct_env = CtEnv::new();
+        let mut macro_env = MacroEnv::default();
+
+        let err = builtins.get("list_fold").unwrap()(
+            &[CtValue::List(vec![]), CtValue::Int(0)],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect_err("should error on 2 args");
+        assert!(err.to_string().contains("requires exactly 3"));
+    }
+
+    #[test]
+    fn builtin_list_fold_first_arg_not_list_errors() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("fold_mod");
+        let mut ct_env = CtEnv::new();
+        let mut macro_env = MacroEnv::default();
+
+        let err = builtins.get("list_fold").unwrap()(
+            &[
+                CtValue::String("not a list".to_string()),
+                CtValue::Int(0),
+                quote_forms(vec![]),
+            ],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect_err("should error on non-list");
+        assert!(err.to_string().contains("must be list"));
     }
 }

@@ -63,10 +63,12 @@ fn quote_ast_items(
                 MacroValue::Nil => {
                     return Err(error_at(form, "<unquote> requires a value, but got nil"));
                 }
-                MacroValue::Expr(_) | MacroValue::Bool(_) | MacroValue::Int(_) => {
+                MacroValue::Int(n) => output.push(FormItem::Text(n.to_string())),
+                MacroValue::Bool(b) => output.push(FormItem::Text(b.to_string())),
+                MacroValue::Expr(_) => {
                     return Err(error_at(
                         form,
-                        "<unquote> in AST children position requires `ast` or `string` value",
+                        "<unquote> in AST children position cannot handle expression values",
                     ));
                 }
             },
@@ -707,7 +709,7 @@ mod tests {
         assert!(
             ast_child_error
                 .to_string()
-                .contains("requires `ast` or `string` value")
+                .contains("cannot handle expression values")
         );
 
         let form_result = quote_form(

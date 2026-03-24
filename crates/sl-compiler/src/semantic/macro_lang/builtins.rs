@@ -1,6 +1,6 @@
 //! Compile-time builtin functions.
 
-use super::eval::macro_value_to_ct_value;
+use super::eval::{macro_value_to_ct_value, quote_items_callback, sync_ct_env_to_macro_env};
 use super::{CtEnv, CtValue};
 use crate::semantic::env::ExpandEnv;
 use crate::semantic::expand::dispatch::ExpandRuleScope;
@@ -42,10 +42,12 @@ pub type BuiltinResult = Result<CtValue, ScriptLangError>;
 
 /// A compile-time builtin function.
 /// Builtins receive:
-/// - `&MacroEnv`: read-only access to caller context
+/// - `&mut MacroEnv`: mutable access to caller context (needed for list_map/list_foreach/list_fold callbacks)
 /// - `&mut CtEnv`: mutable local variable bindings
 /// - `&mut ExpandEnv`: mutable module state (for require/import/alias/invoke operations)
-pub type BuiltinFn = fn(&[CtValue], &MacroEnv, &mut CtEnv, &mut ExpandEnv) -> BuiltinResult;
+/// - `&BuiltinRegistry`: access to other builtins (needed for list_map/list_foreach/list_fold callbacks)
+pub type BuiltinFn =
+    fn(&[CtValue], &mut MacroEnv, &mut CtEnv, &mut ExpandEnv, &BuiltinRegistry) -> BuiltinResult;
 
 /// Registry of compile-time builtin functions.
 pub struct BuiltinRegistry {
@@ -109,6 +111,11 @@ impl BuiltinRegistry {
         // Step 5.4.2: list and list_concat builtins
         self.register("list", builtin_list);
         self.register("list_concat", builtin_list_concat);
+
+        // Step 7.2: list iteration builtins
+        self.register("list_foreach", builtin_list_foreach);
+        self.register("list_map", builtin_list_map);
+        self.register("list_fold", builtin_list_fold);
     }
 
     /// Register a builtin function.
@@ -137,9 +144,10 @@ impl Default for BuiltinRegistry {
 /// attribute is not found in macro_env.attributes (handles keyword:opts protocol).
 fn builtin_attr(
     args: &[CtValue],
-    macro_env: &MacroEnv,
+    macro_env: &mut MacroEnv,
     _ct_env: &mut CtEnv,
     _expand_env: &mut ExpandEnv,
+    _: &BuiltinRegistry,
 ) -> BuiltinResult {
     if args.len() != 1 {
         return Err(ScriptLangError::Message {
@@ -187,9 +195,10 @@ fn builtin_attr(
 /// `content()` or `content(head="...")`: Get macro invocation content.
 fn builtin_content(
     args: &[CtValue],
-    macro_env: &MacroEnv,
+    macro_env: &mut MacroEnv,
     _ct_env: &mut CtEnv,
     _expand_env: &mut ExpandEnv,
+    _: &BuiltinRegistry,
 ) -> BuiltinResult {
     let head_filter = if args.is_empty() {
         None
@@ -267,9 +276,10 @@ fn builtin_content(
 /// Also checks keyword parameters in macro_env.locals (for keyword:opts protocol).
 fn builtin_has_attr(
     args: &[CtValue],
-    macro_env: &MacroEnv,
+    macro_env: &mut MacroEnv,
     _ct_env: &mut CtEnv,
     _expand_env: &mut ExpandEnv,
+    _: &BuiltinRegistry,
 ) -> BuiltinResult {
     if args.len() != 1 {
         return Err(ScriptLangError::Message {
@@ -311,9 +321,10 @@ fn builtin_has_attr(
 /// `keyword_get(keyword, key)`: Get a value from a keyword list.
 fn builtin_keyword_get(
     args: &[CtValue],
-    _macro_env: &MacroEnv,
+    _macro_env: &mut MacroEnv,
     _ct_env: &mut CtEnv,
     _expand_env: &mut ExpandEnv,
+    _: &BuiltinRegistry,
 ) -> BuiltinResult {
     if args.len() != 2 {
         return Err(ScriptLangError::Message {
@@ -358,9 +369,10 @@ fn builtin_keyword_get(
 /// This is used by the macro body when a param is declared with type "keyword".
 fn builtin_keyword_attr(
     args: &[CtValue],
-    macro_env: &MacroEnv,
+    macro_env: &mut MacroEnv,
     _ct_env: &mut CtEnv,
     _expand_env: &mut ExpandEnv,
+    _: &BuiltinRegistry,
 ) -> BuiltinResult {
     if args.len() != 1 {
         return Err(ScriptLangError::Message {
@@ -465,9 +477,10 @@ fn convert_macro_value_to_ct_value(value: &MacroValue) -> CtValue {
 /// `keyword_has(keyword, key)`: Check if a keyword list has a key.
 fn builtin_keyword_has(
     args: &[CtValue],
-    _macro_env: &MacroEnv,
+    _macro_env: &mut MacroEnv,
     _ct_env: &mut CtEnv,
     _expand_env: &mut ExpandEnv,
+    _: &BuiltinRegistry,
 ) -> BuiltinResult {
     if args.len() != 2 {
         return Err(ScriptLangError::Message {
@@ -505,9 +518,10 @@ fn builtin_keyword_has(
 /// `list_length(list)`: Get the length of a list.
 fn builtin_list_length(
     args: &[CtValue],
-    _macro_env: &MacroEnv,
+    _macro_env: &mut MacroEnv,
     _ct_env: &mut CtEnv,
     _expand_env: &mut ExpandEnv,
+    _: &BuiltinRegistry,
 ) -> BuiltinResult {
     if args.len() != 1 {
         return Err(ScriptLangError::Message {
@@ -530,9 +544,10 @@ fn builtin_list_length(
 /// `to_string(value)`: Convert a value to string.
 fn builtin_to_string(
     args: &[CtValue],
-    _macro_env: &MacroEnv,
+    _macro_env: &mut MacroEnv,
     _ct_env: &mut CtEnv,
     _expand_env: &mut ExpandEnv,
+    _: &BuiltinRegistry,
 ) -> BuiltinResult {
     if args.len() != 1 {
         return Err(ScriptLangError::Message {
@@ -554,9 +569,10 @@ fn builtin_to_string(
 /// `parse_bool(value)`: Parse a string value as bool.
 fn builtin_parse_bool(
     args: &[CtValue],
-    _macro_env: &MacroEnv,
+    _macro_env: &mut MacroEnv,
     _ct_env: &mut CtEnv,
     _expand_env: &mut ExpandEnv,
+    _: &BuiltinRegistry,
 ) -> BuiltinResult {
     if args.len() != 1 {
         return Err(ScriptLangError::Message {
@@ -588,9 +604,10 @@ fn builtin_parse_bool(
 /// `parse_int(value)`: Parse a string value as int.
 fn builtin_parse_int(
     args: &[CtValue],
-    _macro_env: &MacroEnv,
+    _macro_env: &mut MacroEnv,
     _ct_env: &mut CtEnv,
     _expand_env: &mut ExpandEnv,
+    _: &BuiltinRegistry,
 ) -> BuiltinResult {
     if args.len() != 1 {
         return Err(ScriptLangError::Message {
@@ -624,9 +641,10 @@ fn builtin_parse_int(
 /// `caller_env()`: Return a CtValue exposing the caller environment.
 fn builtin_caller_env(
     args: &[CtValue],
-    macro_env: &MacroEnv,
+    macro_env: &mut MacroEnv,
     _ct_env: &mut CtEnv,
     _expand_env: &mut ExpandEnv,
+    _: &BuiltinRegistry,
 ) -> BuiltinResult {
     if !args.is_empty() {
         return Err(ScriptLangError::Message {
@@ -705,9 +723,10 @@ fn builtin_caller_env(
 /// `caller_module()`: Return the current module name as a string.
 fn builtin_caller_module(
     args: &[CtValue],
-    macro_env: &MacroEnv,
+    macro_env: &mut MacroEnv,
     _ct_env: &mut CtEnv,
     _expand_env: &mut ExpandEnv,
+    _: &BuiltinRegistry,
 ) -> BuiltinResult {
     if !args.is_empty() {
         return Err(ScriptLangError::Message {
@@ -726,9 +745,10 @@ fn builtin_caller_module(
 /// `expand_alias(module_ref)`: Expand a module alias or name to full module name.
 fn builtin_expand_alias(
     args: &[CtValue],
-    macro_env: &MacroEnv,
+    macro_env: &mut MacroEnv,
     _ct_env: &mut CtEnv,
     _expand_env: &mut ExpandEnv,
+    _: &BuiltinRegistry,
 ) -> BuiltinResult {
     if args.len() != 1 {
         return Err(ScriptLangError::Message {
@@ -761,9 +781,10 @@ fn builtin_expand_alias(
 /// `require_module(module_ref)`: Ensure a module is required (add to requires list).
 fn builtin_require_module(
     args: &[CtValue],
-    macro_env: &MacroEnv,
+    macro_env: &mut MacroEnv,
     _ct_env: &mut CtEnv,
     expand_env: &mut ExpandEnv,
+    _: &BuiltinRegistry,
 ) -> BuiltinResult {
     if args.len() != 1 {
         return Err(ScriptLangError::Message {
@@ -816,9 +837,10 @@ fn builtin_require_module(
 /// `define_import(module_ref)`: Add an import to the current module.
 fn builtin_define_import(
     args: &[CtValue],
-    macro_env: &MacroEnv,
+    macro_env: &mut MacroEnv,
     _ct_env: &mut CtEnv,
     expand_env: &mut ExpandEnv,
+    _: &BuiltinRegistry,
 ) -> BuiltinResult {
     if args.len() != 1 {
         return Err(ScriptLangError::Message {
@@ -853,9 +875,10 @@ fn builtin_define_import(
 /// `define_alias(module_ref, as)`: Add an alias for a module.
 fn builtin_define_alias(
     args: &[CtValue],
-    macro_env: &MacroEnv,
+    macro_env: &mut MacroEnv,
     _ct_env: &mut CtEnv,
     expand_env: &mut ExpandEnv,
+    _: &BuiltinRegistry,
 ) -> BuiltinResult {
     if args.len() != 2 {
         return Err(ScriptLangError::Message {
@@ -905,9 +928,10 @@ fn builtin_define_alias(
 /// `define_require(module_ref)`: Add a require to the current module.
 fn builtin_define_require(
     args: &[CtValue],
-    macro_env: &MacroEnv,
+    macro_env: &mut MacroEnv,
     _ct_env: &mut CtEnv,
     expand_env: &mut ExpandEnv,
+    _: &BuiltinRegistry,
 ) -> BuiltinResult {
     if args.len() != 1 {
         return Err(ScriptLangError::Message {
@@ -942,9 +966,10 @@ fn builtin_define_require(
 /// `invoke_macro(module_ref, macro_name, args)`: Invoke a macro from another module.
 fn builtin_invoke_macro(
     args: &[CtValue],
-    macro_env: &MacroEnv,
+    macro_env: &mut MacroEnv,
     _ct_env: &mut CtEnv,
     expand_env: &mut ExpandEnv,
+    _: &BuiltinRegistry,
 ) -> BuiltinResult {
     if args.len() != 3 {
         return Err(ScriptLangError::Message {
@@ -1257,9 +1282,10 @@ fn form_value_to_ct_value(value: &FormValue) -> CtValue {
 /// Returns an error if the AST is empty or contains only text nodes.
 fn builtin_ast_head(
     args: &[CtValue],
-    _macro_env: &MacroEnv,
+    _macro_env: &mut MacroEnv,
     _ct_env: &mut CtEnv,
     _expand_env: &mut ExpandEnv,
+    _: &BuiltinRegistry,
 ) -> BuiltinResult {
     if args.len() != 1 {
         return Err(ScriptLangError::Message {
@@ -1284,9 +1310,10 @@ fn builtin_ast_head(
 /// Returns an empty ast if the AST is empty or contains only text nodes.
 fn builtin_ast_children(
     args: &[CtValue],
-    _macro_env: &MacroEnv,
+    _macro_env: &mut MacroEnv,
     _ct_env: &mut CtEnv,
     _expand_env: &mut ExpandEnv,
+    _: &BuiltinRegistry,
 ) -> BuiltinResult {
     if args.len() != 1 {
         return Err(ScriptLangError::Message {
@@ -1325,9 +1352,10 @@ fn builtin_ast_children(
 /// Returns the attribute value as CtValue (string or ast), or an error if not found.
 fn builtin_ast_attr_get(
     args: &[CtValue],
-    _macro_env: &MacroEnv,
+    _macro_env: &mut MacroEnv,
     _ct_env: &mut CtEnv,
     _expand_env: &mut ExpandEnv,
+    _: &BuiltinRegistry,
 ) -> BuiltinResult {
     if args.len() != 2 {
         return Err(ScriptLangError::Message {
@@ -1375,9 +1403,10 @@ fn builtin_ast_attr_get(
 /// `ast_attr_keys(ast)`: Return a list of all attribute keys on the first form in the AST.
 fn builtin_ast_attr_keys(
     args: &[CtValue],
-    _macro_env: &MacroEnv,
+    _macro_env: &mut MacroEnv,
     _ct_env: &mut CtEnv,
     _expand_env: &mut ExpandEnv,
+    _: &BuiltinRegistry,
 ) -> BuiltinResult {
     if args.len() != 1 {
         return Err(ScriptLangError::Message {
@@ -1416,9 +1445,10 @@ fn builtin_ast_attr_keys(
 /// Does NOT modify the original ast (immutable).
 fn builtin_ast_attr_set(
     args: &[CtValue],
-    _macro_env: &MacroEnv,
+    _macro_env: &mut MacroEnv,
     _ct_env: &mut CtEnv,
     _expand_env: &mut ExpandEnv,
+    _: &BuiltinRegistry,
 ) -> BuiltinResult {
     if args.len() != 3 {
         return Err(ScriptLangError::Message {
@@ -1511,9 +1541,10 @@ fn ct_value_to_form_field_value(v: &CtValue) -> FormValue {
 /// Returns CtValue::Ast containing a single FormItem::Form.
 fn builtin_ast_wrap(
     args: &[CtValue],
-    _macro_env: &MacroEnv,
+    _macro_env: &mut MacroEnv,
     _ct_env: &mut CtEnv,
     _expand_env: &mut ExpandEnv,
+    _: &BuiltinRegistry,
 ) -> BuiltinResult {
     if args.len() != 2 && args.len() != 3 {
         return Err(ScriptLangError::Message {
@@ -1607,9 +1638,10 @@ fn builtin_ast_wrap(
 /// Returns a flat list of FormItems.
 fn builtin_ast_concat(
     args: &[CtValue],
-    _macro_env: &MacroEnv,
+    _macro_env: &mut MacroEnv,
     _ct_env: &mut CtEnv,
     _expand_env: &mut ExpandEnv,
+    _: &BuiltinRegistry,
 ) -> BuiltinResult {
     // Collect all AST items from varargs or a single list argument
     let mut all_items: Vec<CtValue> = Vec::new();
@@ -1677,9 +1709,10 @@ fn builtin_ast_concat(
 /// Returns a new ast (immutable).
 fn builtin_ast_filter_head(
     args: &[CtValue],
-    _macro_env: &MacroEnv,
+    _macro_env: &mut MacroEnv,
     _ct_env: &mut CtEnv,
     _expand_env: &mut ExpandEnv,
+    _: &BuiltinRegistry,
 ) -> BuiltinResult {
     if args.len() != 2 {
         return Err(ScriptLangError::Message {
@@ -1733,9 +1766,10 @@ fn builtin_ast_filter_head(
 /// Returns Nil if the key does not exist.
 fn builtin_module_get(
     args: &[CtValue],
-    _macro_env: &MacroEnv,
+    _macro_env: &mut MacroEnv,
     _ct_env: &mut CtEnv,
     expand_env: &mut ExpandEnv,
+    _: &BuiltinRegistry,
 ) -> BuiltinResult {
     if args.len() != 1 {
         return Err(ScriptLangError::Message {
@@ -1764,9 +1798,10 @@ fn builtin_module_get(
 /// Returns the written value.
 fn builtin_module_put(
     args: &[CtValue],
-    _macro_env: &MacroEnv,
+    _macro_env: &mut MacroEnv,
     _ct_env: &mut CtEnv,
     expand_env: &mut ExpandEnv,
+    _: &BuiltinRegistry,
 ) -> BuiltinResult {
     if args.len() != 2 {
         return Err(ScriptLangError::Message {
@@ -1806,9 +1841,10 @@ fn builtin_module_put(
 /// Returns new_value. This enables read-modify-write accumulation patterns.
 fn builtin_module_update(
     args: &[CtValue],
-    _macro_env: &MacroEnv,
+    _macro_env: &mut MacroEnv,
     _ct_env: &mut CtEnv,
     expand_env: &mut ExpandEnv,
+    _: &BuiltinRegistry,
 ) -> BuiltinResult {
     if args.len() != 2 {
         return Err(ScriptLangError::Message {
@@ -1839,9 +1875,10 @@ fn builtin_module_update(
 /// Packs all arguments into a CtValue::List.
 fn builtin_list(
     args: &[CtValue],
-    _macro_env: &MacroEnv,
+    _macro_env: &mut MacroEnv,
     _ct_env: &mut CtEnv,
     _expand_env: &mut ExpandEnv,
+    _: &BuiltinRegistry,
 ) -> BuiltinResult {
     Ok(CtValue::List(args.to_vec()))
 }
@@ -1851,9 +1888,10 @@ fn builtin_list(
 /// Nil arguments are treated as empty lists (for seamless use with module_get on first call).
 fn builtin_list_concat(
     args: &[CtValue],
-    _macro_env: &MacroEnv,
+    _macro_env: &mut MacroEnv,
     _ct_env: &mut CtEnv,
     _expand_env: &mut ExpandEnv,
+    _: &BuiltinRegistry,
 ) -> BuiltinResult {
     let mut result = Vec::new();
     for arg in args {
@@ -1871,4 +1909,241 @@ fn builtin_list_concat(
         }
     }
     Ok(CtValue::List(result))
+}
+
+// =============================================================================
+// Step 7.2: List iteration builtins
+// =============================================================================
+
+const LOOP_ITEM_NAME: &str = "_item";
+
+/// Evaluate a callback AST (a list of FormItems) with the current list item
+/// bound to `_item` in ct_env.
+///
+/// The callback is written as `<quote><unquote>_item</unquote></quote>`.
+/// After processing through `quote_items_callback`, the result for such a callback
+/// is a single text item (the unquoted value). We unwrap this to return the
+/// actual scalar `CtValue::String` so that `list_map`/`list_fold` get proper values.
+fn evaluate_callback(
+    callback_ast: &[FormItem],
+    macro_env: &mut MacroEnv,
+    ct_env: &mut CtEnv,
+    expand_env: &mut ExpandEnv,
+    _builtins: &BuiltinRegistry,
+) -> Result<CtValue, ScriptLangError> {
+    // Clone macro_env once (quote_items needs &mut for gensym)
+    let mut runtime = macro_env.clone();
+    // Sync ct_env (including _item binding) so eval_unquote can find it
+    sync_ct_env_to_macro_env(ct_env, &mut runtime);
+    // Process the callback form items through quote_items (handles hygiene + unquote)
+    let processed = quote_items_callback(expand_env, &mut runtime, callback_ast)?;
+
+    // Unwrap scalar results from quote:
+    // For `[<unquote>_item</unquote>]` where _item = "a",
+    // processed = [FormItem::Text("a")].
+    // We want the original CtValue (String/Int/Bool), not CtValue::Ast([...]).
+    if processed.len() == 1 {
+        // Case 1: Single text item → try to parse as Int/Bool/String
+        if let FormItem::Text(ref text) = processed[0] {
+            // Try to preserve original type by parsing back from string
+            // This is needed because quote/unquote converts Int/Bool to string
+            if let Ok(n) = text.parse::<i64>() {
+                return Ok(CtValue::Int(n));
+            }
+            if text == "true" {
+                return Ok(CtValue::Bool(true));
+            }
+            if text == "false" {
+                return Ok(CtValue::Bool(false));
+            }
+            return Ok(CtValue::String(text.clone()));
+        }
+        // Case 2: Single $quote form with one text child → unwrap
+        if let FormItem::Form(ref form) = processed[0]
+            && form.head == "$quote"
+            && let Some(text) = extract_single_text_child(form)
+        {
+            // Same parsing logic as above
+            if let Ok(n) = text.parse::<i64>() {
+                return Ok(CtValue::Int(n));
+            }
+            if text == "true" {
+                return Ok(CtValue::Bool(true));
+            }
+            if text == "false" {
+                return Ok(CtValue::Bool(false));
+            }
+            return Ok(CtValue::String(text));
+        }
+    }
+
+    Ok(CtValue::Ast(processed))
+}
+
+/// Extract the single FormItem::Text child from a form's "children" field.
+fn extract_single_text_child(form: &Form) -> Option<String> {
+    for field in &form.fields {
+        if field.name == "children"
+            && let FormValue::Sequence(items) = &field.value
+            && items.len() == 1
+            && let FormItem::Text(text) = &items[0]
+        {
+            return Some(text.clone());
+        }
+    }
+    None
+}
+
+/// Step 7.2: list_foreach(list, callback_ast) -> Nil
+/// Iterates over list and executes callback for each element (side effects only).
+fn builtin_list_foreach(
+    args: &[CtValue],
+    macro_env: &mut MacroEnv,
+    ct_env: &mut CtEnv,
+    expand_env: &mut ExpandEnv,
+    builtins: &BuiltinRegistry,
+) -> BuiltinResult {
+    if args.len() != 2 {
+        return Err(ScriptLangError::Message {
+            message: "list_foreach() requires exactly 2 arguments: list and callback".to_string(),
+        });
+    }
+
+    let list = match &args[0] {
+        CtValue::List(items) => items,
+        other => {
+            return Err(ScriptLangError::Message {
+                message: format!(
+                    "list_foreach() first argument must be list, got {}",
+                    other.type_name()
+                ),
+            });
+        }
+    };
+
+    let callback_ast = match &args[1] {
+        CtValue::Ast(items) => items,
+        other => {
+            return Err(ScriptLangError::Message {
+                message: format!(
+                    "list_foreach() second argument (callback) must be ast (quote result), got {}",
+                    other.type_name()
+                ),
+            });
+        }
+    };
+
+    for item in list {
+        // Bind current item to _item for callback evaluation
+        ct_env.set(LOOP_ITEM_NAME.to_string(), item.clone());
+        // Evaluate callback (result discarded for list_foreach)
+        let _ = evaluate_callback(callback_ast, macro_env, ct_env, expand_env, builtins)?;
+    }
+
+    Ok(CtValue::Nil)
+}
+
+/// Step 7.2: list_map(list, callback_ast) -> CtValue::List
+/// Iterates over list, applies callback to each element, returns list of results.
+fn builtin_list_map(
+    args: &[CtValue],
+    macro_env: &mut MacroEnv,
+    ct_env: &mut CtEnv,
+    expand_env: &mut ExpandEnv,
+    builtins: &BuiltinRegistry,
+) -> BuiltinResult {
+    if args.len() != 2 {
+        return Err(ScriptLangError::Message {
+            message: "list_map() requires exactly 2 arguments: list and callback".to_string(),
+        });
+    }
+
+    let list = match &args[0] {
+        CtValue::List(items) => items,
+        other => {
+            return Err(ScriptLangError::Message {
+                message: format!(
+                    "list_map() first argument must be list, got {}",
+                    other.type_name()
+                ),
+            });
+        }
+    };
+
+    let callback_ast = match &args[1] {
+        CtValue::Ast(items) => items,
+        other => {
+            return Err(ScriptLangError::Message {
+                message: format!(
+                    "list_map() second argument (callback) must be ast (quote result), got {}",
+                    other.type_name()
+                ),
+            });
+        }
+    };
+
+    let mut results = Vec::with_capacity(list.len());
+    for item in list {
+        // Bind current item to _item for callback evaluation
+        ct_env.set(LOOP_ITEM_NAME.to_string(), item.clone());
+        // Evaluate callback and collect result
+        let result = evaluate_callback(callback_ast, macro_env, ct_env, expand_env, builtins)?;
+        results.push(result);
+    }
+
+    Ok(CtValue::List(results))
+}
+
+/// Step 7.2: list_fold(list, init, callback_ast) -> CtValue
+/// Accumulates a value over the list by applying callback(starting with init) to each element.
+fn builtin_list_fold(
+    args: &[CtValue],
+    macro_env: &mut MacroEnv,
+    ct_env: &mut CtEnv,
+    expand_env: &mut ExpandEnv,
+    builtins: &BuiltinRegistry,
+) -> BuiltinResult {
+    if args.len() != 3 {
+        return Err(ScriptLangError::Message {
+            message: "list_fold() requires exactly 3 arguments: list, init, and callback"
+                .to_string(),
+        });
+    }
+
+    let list = match &args[0] {
+        CtValue::List(items) => items,
+        other => {
+            return Err(ScriptLangError::Message {
+                message: format!(
+                    "list_fold() first argument must be list, got {}",
+                    other.type_name()
+                ),
+            });
+        }
+    };
+
+    let init = args[1].clone();
+
+    let callback_ast = match &args[2] {
+        CtValue::Ast(items) => items,
+        other => {
+            return Err(ScriptLangError::Message {
+                message: format!(
+                    "list_fold() third argument (callback) must be ast (quote result), got {}",
+                    other.type_name()
+                ),
+            });
+        }
+    };
+
+    let mut acc = init;
+    for item in list {
+        // Bind current item to _item for callback evaluation
+        ct_env.set(LOOP_ITEM_NAME.to_string(), item.clone());
+        // Evaluate callback and update accumulator
+        let result = evaluate_callback(callback_ast, macro_env, ct_env, expand_env, builtins)?;
+        acc = result;
+    }
+
+    Ok(acc)
 }
