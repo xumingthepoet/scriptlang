@@ -1281,3 +1281,39 @@ Status: **in_progress**
 
 **下一步方向：**
 - Step 7.2：新增 list 遍历 builtin（`list_foreach` / `list_map` / `list_fold`）
+
+### Step 7.2: 新增 list 遍历 builtin（for_each / map / fold）（2026-03-24）
+
+**本次做了什么：**
+- 扩展 `BuiltinFn` 签名：新增 `&BuiltinRegistry` 参数，允许 builtin 之间相互调用（list_map/list_foreach/list_fold 需要调用其他 builtin）
+- 实现了 3 个 list 遍历 builtin：
+  - `list_foreach(list, callback_ast)` → Nil：对 list 中每个元素执行 callback（副作用）
+  - `list_map(list, callback_ast)` → List：对 list 中每个元素应用 callback，返回新 list
+  - `list_fold(list, init, callback_ast)` → CtValue：累积折叠
+- 实现 callback 机制：
+  - Callback 是 `<quote>...</quote>` 形式的 AST 片段
+  - 当前 list 元素绑定到 `_item` 变量（在 `ct_env` 中）
+  - 通过 `quote_items_callback` 评估，支持 hygiene 和 unquote
+  - `evaluate_callback` 辅助函数处理 AST → 执行 → 结果解包的完整流程
+- 修复 `quote.rs` 中 `<unquote>` 的类型限制：
+  - 之前只支持 `MacroValue::AstItems` / `MacroValue::String` / `MacroValue::List` / `MacroValue::Keyword`
+  - 现在新增支持 `MacroValue::Int` / `MacroValue::Bool`（转换为字符串）
+- 实现 `evaluate_callback` 的智能类型解析：
+  - 从 `FormItem::Text` 解析回原始类型（Int/Bool/String）
+  - 保留类型信息，避免 Int 被当作 String
+- 更新所有 builtin 函数签名：`&MacroEnv` → `&mut MacroEnv`，新增 `&BuiltinRegistry` 参数
+- 新增 15 个单元测试覆盖所有 3 个 builtin 的正常路径和错误路径
+- 所有 263 个 compiler 单元测试通过，所有 68 个集成测试通过
+- `make gate` 通过
+- 更新 IMPLEMENTATION.md
+
+**本次发现的问题、踩的坑：**
+- `MacroValue::Int` / `MacroValue::Bool` 在 `quote.rs` 的 `<unquote>` 处理中不被支持，会报错 "requires `ast` or `string` value"。需要扩展支持这两种类型
+- `evaluate_callback` 从 `FormItem::Text` 解包时，最初只返回 `CtValue::String`，导致 `Int` 类型的 `_item` 变成字符串。需要智能解析回原始类型
+- Clippy `collapsible_if`：嵌套的 `if` 块需要合并为 `if A && B { ... }`
+- `BuiltinFn` 签名变更影响所有 builtin 函数，需要逐一更新签名和调用点
+
+**下一步方向：**
+- Step 7.3: 新增 keyword opts 遍历能力（`keyword_keys` / `keyword_pairs`）
+- 实现 `69-macro-iterate-over-keyword-opts` 集成测试
+
