@@ -966,3 +966,25 @@ Status: pending
 
 **下一步方向：**
 - Step 5: Module-Level Compile-Time Accumulation（`ExpandEnv` 中引入 module-level state 存储）
+
+### Step 5.1: 在 ExpandEnv 中引入 module-level state 存储（2026-03-24）
+
+**本次做了什么：**
+- `ExpandEnv` 新增 `module_level_state: BTreeMap<String, BTreeMap<String, CtValue>>` 字段，按 module 隔离 compile-time 状态
+- 新增 `get_module_state()` 和 `get_module_state_mut()` helper 方法供后续步骤使用
+- 移除 `Eq` 从 `ExpandEnv`（`CtValue` 未实现 `Eq`，嵌套 `BTreeMap` 链无法派生）
+- 新增 5 个单元测试覆盖隔离性验证：
+  - `module_state_isolation_different_modules`：不同 module 状态互不干扰
+  - `module_state_isolation_same_module_separate_programs`：同名 module 在不同 `ExpandEnv` 中独立
+  - `module_state_multiple_keys_and_types`：支持存储 int/string/list 等多类型值
+  - `module_state_default_empty`：新 module 默认状态为空
+  - `module_state_creation_on_first_write`：首次写入时自动创建 entry
+- `make gate` 通过（224 sl-compiler 单元测试 + 所有集成测试，90.06% 覆盖率）
+
+**本次发现的问题、踩的坑：**
+- `CtValue` 只实现了 `PartialEq` 未实现 `Eq`，导致 `HashMap<String, CtValue>` 无法派生 `Eq`，进而在 `ExpandEnv` 上也无法派生 `Eq`。最终方案：使用 `BTreeMap` 替代 `HashMap`，并从 `ExpandEnv` 移除 `Eq` 派生
+- `ProgramState` 派生了 `Eq`，但若包含 `module_level_state`（含 `CtValue` 值）则无法派生。解决方案：把 `module_level_state` 放在 `ExpandEnv` 而非 `ProgramState` 中，避免影响 `ProgramState` 的 `Eq` 派生
+- Clippy `unnecessary_get_then_check`：`.get(key).is_none()` 应替换为 `.contains_key(key)`，同样 `.is_some()` → `.contains_key()`
+
+**下一步方向：**
+- Step 5.2：新增 `module_get` / `module_put` builtin（基础读写 API）

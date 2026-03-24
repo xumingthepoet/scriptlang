@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use sl_core::{Form, FormItem};
 
+use super::macro_lang::CtValue;
 use super::types::DeclaredType;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -51,7 +52,7 @@ pub(crate) struct ProgramState {
     pub(crate) module_macros: BTreeMap<String, BTreeMap<String, MacroDefinition>>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct ExpandEnv {
     pub(crate) phase: Option<CompilePhase>,
     pub(crate) source_name: Option<String>,
@@ -72,6 +73,9 @@ pub(crate) struct ExpandEnv {
     /// Each entry records a macro invocation in the current expansion chain.
     /// Only populated when a macro expansion fails (lazy).
     pub(crate) expansion_trace: Vec<TraceEntry>,
+    /// Per-module compile-time state. Each module's state is isolated.
+    /// Stored in ExpandEnv (not ProgramState) so it doesn't block Eq derive.
+    pub(crate) module_level_state: BTreeMap<String, BTreeMap<String, CtValue>>,
 }
 
 /// A single entry in the macro expansion trace.
@@ -350,6 +354,28 @@ impl ExpandEnv {
             .join(" -> ");
         format!(" (expansion trace: {entries})")
     }
+
+    /// Get the module-level state for the current module.
+    /// Returns an empty map if the current module has no state entry yet.
+    #[allow(dead_code)]
+    pub(crate) fn get_module_state(&self) -> BTreeMap<String, CtValue> {
+        self.module_level_state
+            .get(self.module.module_name.as_deref().unwrap_or("_none_"))
+            .cloned()
+            .unwrap_or_else(BTreeMap::new)
+    }
+
+    /// Get a mutable reference to the module-level state for the current module.
+    /// Creates the entry if it does not exist.
+    #[allow(dead_code)]
+    pub(crate) fn get_module_state_mut(&mut self) -> &mut BTreeMap<String, CtValue> {
+        let module_name = self
+            .module
+            .module_name
+            .clone()
+            .unwrap_or_else(|| "_none_".to_string());
+        self.module_level_state.entry(module_name).or_default()
+    }
 }
 
 impl ProgramState {
@@ -447,5 +473,108 @@ impl ModuleMembers {
 
     pub(crate) fn declared_names(&self) -> BTreeSet<String> {
         self.declared.clone()
+    }
+}
+
+#[cfg(test)]
+mod module_level_state_tests {
+    use super::{CtValue, ExpandEnv};
+
+    fn make_module_env(name: &str) -> ExpandEnv {
+        let mut env = ExpandEnv::default();
+        env.begin_module(Some(name.to_string()), Some(format!("{name}.xml")))
+            .unwrap();
+        env
+    }
+
+    #[test]
+    fn module_state_isolation_different_modules() {
+        let mut env_a = make_module_env("module_a");
+        let env_b = make_module_env("module_b");
+
+        // Write to module_a
+        env_a
+            .get_module_state_mut()
+            .insert("key".to_string(), CtValue::Int(42));
+
+        // module_b should not see module_a's state
+        assert!(!env_b.get_module_state().contains_key("key"));
+        // module_a should see its own state
+        assert_eq!(env_a.get_module_state().get("key"), Some(&CtValue::Int(42)));
+    }
+
+    #[test]
+    fn module_state_isolation_same_module_separate_programs() {
+        let mut env1 = make_module_env("shared_name");
+        let mut env2 = ExpandEnv::default();
+        env2.begin_module(
+            Some("shared_name".to_string()),
+            Some("shared_name.xml".to_string()),
+        )
+        .unwrap();
+
+        // Write to first program's module
+        env1.get_module_state_mut()
+            .insert("counter".to_string(), CtValue::Int(10));
+
+        // Second program's same-named module should be independent
+        assert!(!env2.get_module_state().contains_key("counter"));
+    }
+
+    #[test]
+    fn module_state_multiple_keys_and_types() {
+        let mut env = make_module_env("multi");
+
+        {
+            let state = env.get_module_state_mut();
+            state.insert("int_val".to_string(), CtValue::Int(99));
+            state.insert(
+                "string_val".to_string(),
+                CtValue::String("hello".to_string()),
+            );
+            state.insert(
+                "list_val".to_string(),
+                CtValue::List(vec![CtValue::Int(1), CtValue::Int(2)]),
+            );
+        }
+
+        let state = env.get_module_state();
+        assert_eq!(state.get("int_val"), Some(&CtValue::Int(99)));
+        assert_eq!(
+            state.get("string_val"),
+            Some(&CtValue::String("hello".to_string()))
+        );
+        assert_eq!(
+            state.get("list_val"),
+            Some(&CtValue::List(vec![CtValue::Int(1), CtValue::Int(2)]))
+        );
+    }
+
+    #[test]
+    fn module_state_default_empty() {
+        let env = make_module_env("empty_mod");
+        // New module has no state entry until first write
+        assert!(!env.module_level_state.contains_key("empty_mod"));
+        // get_module_state returns empty map for non-existent entry
+        assert!(env.get_module_state().is_empty());
+    }
+
+    #[test]
+    fn module_state_creation_on_first_write() {
+        let mut env = make_module_env("first_write");
+        assert!(!env.module_level_state.contains_key("first_write"));
+
+        env.get_module_state_mut()
+            .insert("created".to_string(), CtValue::Bool(true));
+
+        // Entry now exists
+        assert!(env.module_level_state.contains_key("first_write"));
+        assert_eq!(
+            env.module_level_state
+                .get("first_write")
+                .unwrap()
+                .get("created"),
+            Some(&CtValue::Bool(true))
+        );
     }
 }
