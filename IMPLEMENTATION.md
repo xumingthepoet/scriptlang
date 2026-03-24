@@ -1038,6 +1038,43 @@ error expanding `inner` from `helper` (called from `main`): macro body must retu
 - Coverage: 89.97% lines, 93.33% functions
 - `make gate` 通过
 
+## Step 5.5: Module State 冲突检测（2026-03-24）
+
+完成状态：已完成
+
+### 架构变更
+
+#### `module_put` 冲突检测
+
+`builtin_module_put` 在 key 已存在时返回错误，不再静默覆盖：
+
+```
+module_put() conflict: key `xxx` already exists in module state.
+Use module_update() to overwrite, or choose a different key name.
+```
+
+#### `module_update` 始终允许覆盖
+
+`module_update` 专为累积模式设计，始终允许写入（不受冲突检测影响）。
+
+### 代码落点
+
+- `crates/sl-compiler/src/semantic/macro_lang/builtins.rs`
+  - `builtin_module_put` 冲突检测逻辑
+
+### 测试状态
+
+- 所有现有测试通过（249 compiler unit tests + 7 runtime tests + 64 integration tests）
+- 新增单元测试（3个）：`builtin_module_put_conflict_when_key_exists`、`builtin_module_update_overwrites_despite_conflict`、`builtin_module_put_different_keys_allowed`
+- 新增集成测试 65 (`65-invalid-module-state-conflict`)：验证第二次 `use` 触发冲突错误
+- Coverage: 89.98% lines, 93.33% functions
+- `make gate` 通过
+
+**Step 5 完成定义：**
+- sl 获得"注册型 DSL"能力
+- `module_put` 防止意外覆盖，`module_update` 支持安全累积
+- 后续 narrative DSL 能基于 compiler 内部状态做分阶段组装
+
 ## Step 7: 支持 nested module / private 边界上的 `use`（2026-03-23）
 
 完成状态：已完成
@@ -1129,6 +1166,7 @@ error expanding `inner` from `helper` (called from `main`): macro body must retu
 - Step 4: 远程宏调用和 Caller Env
 - Step 5: `__using__` 协议和 `use` 宏
 - Step 5.1-5.4: Module-Level Compile-Time Accumulation（module state 存储 + module_get/put/update + list/list_concat）
+- Step 5.5: Module State 冲突检测（module_put 冲突报错，module_update 允许覆盖）
 - Step 6: Hygiene、冲突检测、错误定位（Caller Env 完善 + Expansion Trace）
 - Step 7: nested module 和 private 宏可见性
 - Step 8: kernel 宏迁移到新系统

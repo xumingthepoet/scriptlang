@@ -4733,6 +4733,106 @@ mod ct_lang_tests {
         assert!(err.to_string().contains("must be string"));
     }
 
+    // Step 5.5: Conflict detection tests
+
+    #[test]
+    fn builtin_module_put_conflict_when_key_exists() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("conflict_mod");
+        let mut ct_env = CtEnv::new();
+
+        // First put succeeds
+        builtins.get("module_put").unwrap()(
+            &[CtValue::String("key".to_string()), CtValue::Int(1)],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("first put should succeed");
+
+        // Second put with same key fails
+        let err = builtins.get("module_put").unwrap()(
+            &[CtValue::String("key".to_string()), CtValue::Int(2)],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect_err("second put should conflict");
+        assert!(err.to_string().contains("conflict"));
+        assert!(err.to_string().contains("key `key` already exists"));
+    }
+
+    #[test]
+    fn builtin_module_update_overwrites_despite_conflict() {
+        // module_update is allowed to overwrite even if key exists
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("update_overwrite_mod");
+        let mut ct_env = CtEnv::new();
+
+        // First put
+        builtins.get("module_put").unwrap()(
+            &[CtValue::String("counter".to_string()), CtValue::Int(1)],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("first put");
+
+        // Update succeeds (it is allowed to overwrite)
+        let result = builtins.get("module_update").unwrap()(
+            &[CtValue::String("counter".to_string()), CtValue::Int(2)],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("update should succeed despite existing key");
+        assert_eq!(result, CtValue::Int(2));
+    }
+
+    #[test]
+    fn builtin_module_put_different_keys_allowed() {
+        // Multiple different keys in same module are fine
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("multi_key_mod");
+        let mut ct_env = CtEnv::new();
+
+        builtins.get("module_put").unwrap()(
+            &[CtValue::String("a".to_string()), CtValue::Int(1)],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("put a");
+        builtins.get("module_put").unwrap()(
+            &[CtValue::String("b".to_string()), CtValue::Int(2)],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("put b");
+
+        assert_eq!(
+            builtins.get("module_get").unwrap()(
+                &[CtValue::String("a".to_string())],
+                &empty_macro_env(),
+                &mut ct_env,
+                &mut expand_env,
+            )
+            .unwrap(),
+            CtValue::Int(1)
+        );
+        assert_eq!(
+            builtins.get("module_get").unwrap()(
+                &[CtValue::String("b".to_string())],
+                &empty_macro_env(),
+                &mut ct_env,
+                &mut expand_env,
+            )
+            .unwrap(),
+            CtValue::Int(2)
+        );
+    }
+
     // Step 5.3: Multi-type support tests
 
     #[test]

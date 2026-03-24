@@ -1779,9 +1779,17 @@ fn builtin_module_put(
     };
 
     let value = args[1].clone();
-    expand_env
-        .get_module_state_mut()
-        .insert(name, value.clone());
+    let state = expand_env.get_module_state_mut();
+    if state.contains_key(&name) {
+        return Err(ScriptLangError::Message {
+            message: format!(
+                "module_put() conflict: key `{}` already exists in module state. \
+                 Use module_update() to overwrite, or choose a different key name.",
+                name
+            ),
+        });
+    }
+    state.insert(name, value.clone());
     Ok(value)
 }
 

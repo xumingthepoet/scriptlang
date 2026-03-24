@@ -1,0 +1,15 @@
+<module name="helper">
+  <!-- Step 5.5: module_put conflict detection.
+       Each use of this module attempts module_put("registered", true).
+       First call: succeeds (key absent).
+       Second call: fails with conflict error (key already exists).
+       The user should use module_update() for accumulation patterns instead. -->
+  <macro name="__using__" params="keyword:opts">
+    <let name="result" type="expr">
+      <builtin name="module_put"><literal value="registered"/><literal value="true"/></builtin>
+    </let>
+    <quote>
+      <text>helper loaded</text>
+    </quote>
+  </macro>
+</module>

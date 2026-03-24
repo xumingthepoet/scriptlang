@@ -1,0 +1,11 @@
+<module name="main">
+  <!-- Step 5.5: Verifies module_put reports conflict when key already exists.
+       First use of helper: module_put("registered", true) succeeds.
+       Second use of helper: module_put("registered", true) fails with
+       "module_put() conflict: key `registered` already exists".
+       Expected: error containing "conflict" and "registered". -->
+  <script name="main">
+    <use module="helper"/>
+    <use module="helper"/>
+  </script>
+</module>
