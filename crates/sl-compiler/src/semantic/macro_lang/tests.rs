@@ -5395,9 +5395,11 @@ mod ct_lang_tests {
         })
     }
 
-    /// Helper: create a QuoteForms CtValue from form items
+    /// Helper: create a lazy quote CtValue from form items.
+    /// The lazy quote defers string-slot processing until the callback is evaluated
+    /// (when _item is bound by list_map/list_foreach/list_fold).
     fn quote_forms(items: Vec<FormItem>) -> CtValue {
-        CtValue::Ast(items)
+        CtValue::LazyQuote(items)
     }
 
     #[test]

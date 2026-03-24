@@ -76,10 +76,14 @@ pub fn eval_stmt(
         CtStmt::Let { name, value, .. } => {
             let val = eval_expr(value, macro_env, ct_env, builtins, expand_env)?;
             ct_env.set(name.clone(), val.clone());
-            // Also store in macro_env.locals so <unquote> can access it (Step 3.3)
-            macro_env
-                .locals
-                .insert(name.clone(), ct_value_to_macro_value(&val));
+            // Also store in macro_env.locals so <unquote> can access it (Step 3.3).
+            // Skip LazyQuote: it cannot be converted to MacroValue and is self-contained
+            // (only used by list_map callbacks, which don't need macro_env.locals access).
+            if !matches!(val, CtValue::LazyQuote(_)) {
+                macro_env
+                    .locals
+                    .insert(name.clone(), ct_value_to_macro_value(&val));
+            }
             Ok(EvalResult::Value(CtValue::Nil))
         }
 
@@ -89,9 +93,11 @@ pub fn eval_stmt(
                 .update(name, val.clone())
                 .map_err(|e| ScriptLangError::Message { message: e })?;
             // Also update macro_env.locals for <unquote> consistency (Step 3.3)
-            macro_env
-                .locals
-                .insert(name.clone(), ct_value_to_macro_value(&val));
+            if !matches!(val, CtValue::LazyQuote(_)) {
+                macro_env
+                    .locals
+                    .insert(name.clone(), ct_value_to_macro_value(&val));
+            }
             Ok(EvalResult::Value(CtValue::Nil))
         }
 
@@ -173,32 +179,39 @@ pub fn eval_expr(
             Ok(value)
         }
 
-        CtExpr::QuoteForms { items } => {
-            // Process raw form items through quote_items (hygiene + splice)
-            // Clone macro_env since quote_items needs &mut MacroEnv for gensym
-            let mut runtime = macro_env.clone();
-            // Sync CtEnv variables to MacroEnv.locals so eval_unquote can find them
-            sync_ct_env_to_macro_env(ct_env, &mut runtime);
-            // Create a minimal dummy invocation form for quote processing
-            let invocation = Form {
-                head: "$quote".to_string(),
-                meta: FormMeta {
-                    source_name: None,
-                    start: SourcePosition { row: 0, column: 0 },
-                    end: SourcePosition { row: 0, column: 0 },
-                    start_byte: 0,
-                    end_byte: 0,
-                },
-                fields: Vec::new(),
-            };
-            let processed = quote_items(
-                &invocation,
-                expand_env,
-                ExpandRuleScope::Statement,
-                &mut runtime,
-                items,
-            )?;
-            Ok(CtValue::Ast(processed))
+        CtExpr::QuoteForms { items, lazy } => {
+            if *lazy {
+                // Lazy: defer processing until use-time (for list_map/list_fold callbacks).
+                // The caller (e.g. builtin_list_map) will call quote_items_callback which binds
+                // _item BEFORE calling quote_items, so string slots resolve correctly.
+                Ok(CtValue::LazyQuote(items.clone()))
+            } else {
+                // Eager: process now with current environment.
+                // Clone macro_env since quote_items needs &mut MacroEnv for gensym
+                let mut runtime = macro_env.clone();
+                // Sync CtEnv variables to MacroEnv.locals so eval_unquote can find them
+                sync_ct_env_to_macro_env(ct_env, &mut runtime);
+                // Create a minimal dummy invocation form for quote processing
+                let invocation = Form {
+                    head: "$quote".to_string(),
+                    meta: FormMeta {
+                        source_name: None,
+                        start: SourcePosition { row: 0, column: 0 },
+                        end: SourcePosition { row: 0, column: 0 },
+                        start_byte: 0,
+                        end_byte: 0,
+                    },
+                    fields: Vec::new(),
+                };
+                let processed = quote_items(
+                    &invocation,
+                    expand_env,
+                    ExpandRuleScope::Statement,
+                    &mut runtime,
+                    items,
+                )?;
+                Ok(CtValue::Ast(processed))
+            }
         }
 
         CtExpr::Unquote { expr, .. } => {
@@ -214,11 +227,14 @@ pub fn eval_expr(
 
 /// Sync CtEnv variables to MacroEnv.locals so that eval_unquote (which uses
 /// MacroEnv.locals) can find variables set by the new compile-time evaluator.
+/// Skips LazyQuote values since they cannot be converted to MacroValue.
 pub(crate) fn sync_ct_env_to_macro_env(ct_env: &CtEnv, macro_env: &mut MacroEnv) {
     for (name, value) in ct_env.all() {
-        macro_env
-            .locals
-            .insert(name.clone(), ct_value_to_macro_value(value));
+        if !matches!(value, CtValue::LazyQuote(_)) {
+            macro_env
+                .locals
+                .insert(name.clone(), ct_value_to_macro_value(value));
+        }
     }
 }
 
@@ -240,6 +256,11 @@ pub(crate) fn ct_value_to_macro_value(ct: &CtValue) -> MacroValue {
         CtValue::ModuleRef(m) => MacroValue::String(m.clone()),
         CtValue::Ast(items) => MacroValue::AstItems(items.clone()),
         CtValue::CallerEnv => MacroValue::String("<caller_env>".to_string()),
+        CtValue::LazyQuote(_) => {
+            // LazyQuote is an internal construct; it should never be synced to MacroEnv.
+            // If reached, it means a callback was not properly evaluated.
+            unreachable!("LazyQuote cannot be converted to MacroValue")
+        }
     }
 }
 

@@ -25,10 +25,13 @@ pub fn convert_macro_body(body: &[FormItem]) -> Result<CtBlock, ScriptLangError>
             }
             FormItem::Form(form) => {
                 if form.head == "quote" {
-                    // Inline quote as return with QuoteForms
+                    // Inline quote as return with QuoteForms (eager by default)
                     let children = extract_form_children(form)?;
                     stmts.push(CtStmt::Return {
-                        value: CtExpr::QuoteForms { items: children },
+                        value: CtExpr::QuoteForms {
+                            items: children,
+                            lazy: false,
+                        },
                     });
                 } else {
                     let stmt = convert_form_to_stmt(form)?;
@@ -108,7 +111,10 @@ fn convert_form_to_stmt(form: &Form) -> Result<CtStmt, ScriptLangError> {
         "quote" => {
             let children = extract_form_children(form)?;
             Ok(CtStmt::Return {
-                value: CtExpr::QuoteForms { items: children },
+                value: CtExpr::QuoteForms {
+                    items: children,
+                    lazy: false,
+                },
             })
         }
         other => Err(error_at(
@@ -394,7 +400,7 @@ fn convert_provider_to_expr(form: &Form, type_name: &str) -> Result<CtExpr, Scri
             })
         }
         "quote" => {
-            // <quote> as a provider: extract children and return as QuoteForms
+            // <quote> as a provider: extract children and return as QuoteForms (eager)
             if type_name != "ast" {
                 return Err(error_at(
                     form,
@@ -402,7 +408,10 @@ fn convert_provider_to_expr(form: &Form, type_name: &str) -> Result<CtExpr, Scri
                 ));
             }
             let children = extract_form_children(form)?;
-            Ok(CtExpr::QuoteForms { items: children })
+            Ok(CtExpr::QuoteForms {
+                items: children,
+                lazy: false,
+            })
         }
         other => Err(error_at(
             form,
@@ -543,10 +552,16 @@ fn convert_expr_form(form: &Form) -> Result<CtExpr, ScriptLangError> {
                 ],
             })
         }
-        // Step 5: <quote>...</quote> as expression: produce QuoteForms
+        // Step 5: <quote>...</quote> as expression: produce QuoteForms.
+        // Supports lazy="true" attribute for list_map/list_fold callbacks where
+        // string interpolation (${var}) must resolve with loop variable bound.
         "quote" => {
             let children = extract_form_children(form)?;
-            Ok(CtExpr::QuoteForms { items: children })
+            let lazy = attr(form, "lazy").map(|v| v == "true").unwrap_or(false);
+            Ok(CtExpr::QuoteForms {
+                items: children,
+                lazy,
+            })
         }
         other => Err(error_at(
             form,

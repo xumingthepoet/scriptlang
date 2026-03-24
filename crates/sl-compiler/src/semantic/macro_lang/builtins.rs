@@ -34,6 +34,8 @@ fn ct_value_to_string(value: &CtValue) -> String {
             .join(","),
         // Ast: represent as opaque string (cannot be losslessly serialized as attribute string)
         CtValue::Ast(_) => "[ast]".to_string(),
+        // LazyQuote: same as Ast (internal construct, shouldn't appear in invoke_macro args)
+        CtValue::LazyQuote(_) => "[lazy_quote]".to_string(),
     }
 }
 
@@ -79,6 +81,7 @@ impl BuiltinRegistry {
         self.register("keyword_has", builtin_keyword_has);
         self.register("keyword_keys", builtin_keyword_keys);
         self.register("keyword_pairs", builtin_keyword_pairs);
+        self.register("keyword_values", builtin_keyword_values);
         self.register("list_length", builtin_list_length);
         self.register("to_string", builtin_to_string);
         self.register("keyword_attr", builtin_keyword_attr);
@@ -552,6 +555,37 @@ fn builtin_keyword_keys(
         .collect();
 
     Ok(CtValue::List(keys))
+}
+
+/// `keyword_values(keyword)`: Get all values from a keyword list as a list.
+fn builtin_keyword_values(
+    args: &[CtValue],
+    _macro_env: &mut MacroEnv,
+    _ct_env: &mut CtEnv,
+    _expand_env: &mut ExpandEnv,
+    _: &BuiltinRegistry,
+) -> BuiltinResult {
+    if args.len() != 1 {
+        return Err(ScriptLangError::Message {
+            message: "keyword_values() requires exactly 1 argument".to_string(),
+        });
+    }
+
+    let keyword = match &args[0] {
+        CtValue::Keyword(kv) => kv,
+        other => {
+            return Err(ScriptLangError::Message {
+                message: format!(
+                    "keyword_values() argument must be keyword, got {}",
+                    other.type_name()
+                ),
+            });
+        }
+    };
+
+    let values: Vec<CtValue> = keyword.iter().map(|(_, v)| v.clone()).collect();
+
+    Ok(CtValue::List(values))
 }
 
 /// Step 7.3: `keyword_pairs(keyword)`: Get all key-value pairs from a keyword list.
@@ -2095,12 +2129,12 @@ fn builtin_list_foreach(
         }
     };
 
-    let callback_ast = match &args[1] {
-        CtValue::Ast(items) => items,
+    let callback_items = match &args[1] {
+        CtValue::LazyQuote(items) => items.clone(),
         other => {
             return Err(ScriptLangError::Message {
                 message: format!(
-                    "list_foreach() second argument (callback) must be ast (quote result), got {}",
+                    "list_foreach() second argument (callback) must be a quote (lazy), got {}",
                     other.type_name()
                 ),
             });
@@ -2111,7 +2145,7 @@ fn builtin_list_foreach(
         // Bind current item to _item for callback evaluation
         ct_env.set(LOOP_ITEM_NAME.to_string(), item.clone());
         // Evaluate callback (result discarded for list_foreach)
-        let _ = evaluate_callback(callback_ast, macro_env, ct_env, expand_env, builtins)?;
+        let _ = evaluate_callback(&callback_items, macro_env, ct_env, expand_env, builtins)?;
     }
 
     Ok(CtValue::Nil)
@@ -2144,12 +2178,12 @@ fn builtin_list_map(
         }
     };
 
-    let callback_ast = match &args[1] {
-        CtValue::Ast(items) => items,
+    let callback_items = match &args[1] {
+        CtValue::LazyQuote(items) => items.clone(),
         other => {
             return Err(ScriptLangError::Message {
                 message: format!(
-                    "list_map() second argument (callback) must be ast (quote result), got {}",
+                    "list_map() second argument (callback) must be a quote (lazy), got {}",
                     other.type_name()
                 ),
             });
@@ -2161,7 +2195,7 @@ fn builtin_list_map(
         // Bind current item to _item for callback evaluation
         ct_env.set(LOOP_ITEM_NAME.to_string(), item.clone());
         // Evaluate callback and collect result
-        let result = evaluate_callback(callback_ast, macro_env, ct_env, expand_env, builtins)?;
+        let result = evaluate_callback(&callback_items, macro_env, ct_env, expand_env, builtins)?;
         results.push(result);
     }
 
@@ -2198,12 +2232,12 @@ fn builtin_list_fold(
 
     let init = args[1].clone();
 
-    let callback_ast = match &args[2] {
-        CtValue::Ast(items) => items,
+    let callback_items = match &args[2] {
+        CtValue::LazyQuote(items) => items.clone(),
         other => {
             return Err(ScriptLangError::Message {
                 message: format!(
-                    "list_fold() third argument (callback) must be ast (quote result), got {}",
+                    "list_fold() third argument (callback) must be a quote (lazy), got {}",
                     other.type_name()
                 ),
             });
@@ -2215,7 +2249,7 @@ fn builtin_list_fold(
         // Bind current item to _item for callback evaluation
         ct_env.set(LOOP_ITEM_NAME.to_string(), item.clone());
         // Evaluate callback and update accumulator
-        let result = evaluate_callback(callback_ast, macro_env, ct_env, expand_env, builtins)?;
+        let result = evaluate_callback(&callback_items, macro_env, ct_env, expand_env, builtins)?;
         acc = result;
     }
 

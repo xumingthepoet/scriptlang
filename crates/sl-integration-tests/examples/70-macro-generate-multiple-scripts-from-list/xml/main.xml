@@ -1,0 +1,13 @@
+<module name="main">
+  <!-- Step 7.5: Use list_map + AST builtins to generate multiple <text> nodes from keyword keys.
+       Each keyword key (name1, name2, name3) becomes a <text> output via list_map.
+       The helper's __using__ macro:
+       1. keyword_keys → list of names ["name1", "name2", "name3"]
+       2. list_map + callback → list of <text> AST nodes (one per name)
+       3. ast_concat → combined AST
+       4. Return → runtime executes all <text> nodes in sequence. -->
+  <script name="main">
+    <use module="helper" name1="Alice" name2="Bob" name3="Charlie"/>
+    <end/>
+  </script>
+</module>

@@ -1,0 +1,48 @@
+<module name="helper">
+  <!-- Step 7.5: Use list_map + AST builtins to generate multiple <text> nodes from keyword values.
+       Pattern: list_map iterates over keyword values, callback uses <quote lazy="true"> with
+       ${_item} string interpolation. The lazy attribute causes the quote to return
+       CtValue::LazyQuote (deferred processing), which list_map evaluates with _item bound
+       to the current list element. splice_string_slots resolves ${_item} correctly.
+       ast_concat combines all CtValue::Ast fragments into one CtValue::Ast.
+       Return via <quote><unquote>...</unquote></quote> flows through macro return → reducer → runtime. -->
+  <macro name="__using__" params="keyword:opts">
+    <!-- Get keyword values from opts: returns CtValue::List of values ["Alice", "Bob", "Charlie"] -->
+    <let name="values" type="ast">
+      <builtin name="keyword_values">
+        <var name="opts"/>
+      </builtin>
+    </let>
+
+    <!-- list_map: callback is <quote lazy="true"> with ${_item} string interpolation.
+         The lazy attribute defers processing: instead of evaluating ${_item} immediately
+         (when _item is not yet bound), the quote items are stored as LazyQuote and
+         processed later by list_map with _item bound to the current list element.
+         1. <quote lazy="true"> stores [<text>${_item}</text>] as LazyQuote
+         2. list_map extracts the form items and calls quote_items_callback with _item bound
+         3. splice_string_slots resolves ${_item} → "Alice"/"Bob"/"Charlie"
+         4. Result: list of CtValue::Ast([<text>]) nodes. -->
+    <let name="text_nodes" type="ast">
+      <builtin name="list_map">
+        <var name="values"/>
+        <quote lazy="true">
+          <text>${_item}</text>
+        </quote>
+      </builtin>
+    </let>
+
+    <!-- ast_concat combines all CtValue::Ast into one CtValue::Ast.
+         Each input is CtValue::Ast([FormItem::Form(<text>)]), so all_items = all text forms.
+         Result: CtValue::Ast containing multiple <text> FormItem nodes. -->
+    <let name="combined" type="ast">
+      <builtin name="ast_concat">
+        <var name="text_nodes"/>
+      </builtin>
+    </let>
+
+    <!-- Return via quote/unquote: CtValue::Ast flows through macro return → reducer → runtime. -->
+    <quote>
+      <unquote>combined</unquote>
+    </quote>
+  </macro>
+</module>

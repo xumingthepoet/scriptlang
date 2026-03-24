@@ -1421,9 +1421,11 @@ pub type BuiltinFn = fn(
 
 #### Callback 机制
 
-- Callback 是 `<quote>...</quote>` 形式的 AST 片段
-- 当前 list 元素绑定到 `_item` 变量（在 `ct_env` 中）
-- Callback 通过 `quote_items_callback` 评估，支持 hygiene 和 unquote
+- Callback 是 `<quote lazy="true">...</quote>` 形式的 AST 片段
+- `lazy="true"` 属性使 `QuoteForms` 返回 `CtValue::LazyQuote`（延迟处理），而不是立即调用 `quote_items`
+- `builtin_list_map` 提取 `LazyQuote` 中的原始 `FormItem`，调用 `quote_items_callback`
+- 在 `quote_items_callback` 调用之前，`_item` 已经绑定到 `ct_env`，`sync_ct_env_to_macro_env` 将其同步到 `runtime`
+- 因此 `${_item}` 字符串插值在正确绑定的环境下被 `splice_string_slots` 正确解析
 - `evaluate_callback` 辅助函数处理 AST → 执行 → 结果解包的完整流程
 
 #### Quote/Unquote 扩展
@@ -1507,11 +1509,12 @@ if text == "true" {
 
 - **`keyword_keys(keyword)`** → `List<String>`：返回所有 key 的列表
 - **`keyword_pairs(keyword)`** → `List`：返回所有 `[key, value]` pair 的列表
+- **`keyword_values(keyword)`** → `List`：返回所有 value 的列表
 
 ### 代码落点
 
 - `crates/sl-compiler/src/semantic/macro_lang/builtins.rs`
-  - `builtin_keyword_keys` / `builtin_keyword_pairs`
+  - `builtin_keyword_keys` / `builtin_keyword_pairs` / `builtin_keyword_values`
 
 ## Step 7.4: 新增 match/case 风格的 compile-time 模式匹配（2026-03-24）
 
@@ -1573,4 +1576,78 @@ if text == "true" {
 ### 集成测试
 
 - `71-macro-match-on-compile-time-values`
+```
+
+## Step 7.5: 基于 compile-time list 批量生成 script/choice 结构（2026-03-24）
+
+完成状态：已完成
+
+### 核心实现
+
+通过 `list_map` + `keyword_values` + `ast_concat` + `<quote lazy="true">` 实现批量 AST 生成：
+
+1. `keyword_values(opts)` → 获取所有 keyword 值：`["Alice", "Bob", "Charlie"]`
+2. `list_map(values, <quote lazy="true"><text>${_item}</text></quote>)` → 对每个值生成 `<text>` AST 节点
+3. `ast_concat(text_nodes)` → 合并所有 `<text>` 节点为一个 AST
+4. `<quote><unquote>combined</unquote></quote>` → 返回合并后的 AST
+
+### 关键技术：LazyQuote
+
+`<quote lazy="true">` 属性使 `QuoteForms` 返回 `CtValue::LazyQuote`（延迟处理）：
+- `convert_expr_form` 检测 `lazy="true"` 属性，设置 `QuoteForms.lazy = true`
+- `eval_expr` 对 `lazy=true` 的 `QuoteForms` 直接返回 `CtValue::LazyQuote(items)`，不调用 `quote_items`
+- `builtin_list_map` 提取 `LazyQuote` 中的原始 `FormItem`，绑定 `_item` 后调用 `quote_items_callback`
+- `splice_string_slots` 在正确绑定的环境下解析 `${_item}`
+
+### 架构变更
+
+**`CtExpr::QuoteForms` 新增 `lazy: bool` 字段**：
+- `convert_expr_form` 检查 `lazy="true"` XML 属性
+- `eval_expr` 根据 `lazy` 标志决定是否延迟处理
+
+**`CtValue::LazyQuote(Vec<FormItem>)` 新增变体**：
+- 表示延迟处理的 quote 片段
+- 在 `ct_value_to_macro_value` 中为 `unreachable!()`（永远不会同步到 `MacroEnv`）
+- `sync_ct_env_to_macro_env` 跳过 `LazyQuote` 条目
+
+### 代码落点
+
+- `crates/sl-compiler/src/semantic/macro_lang/ast.rs`
+  - `CtExpr::QuoteForms` 新增 `lazy: bool` 字段
+  - `CtValue::LazyQuote(Vec<FormItem>)` 新增变体
+- `crates/sl-compiler/src/semantic/macro_lang/convert.rs`
+  - `convert_expr_form` 检查 `lazy="true"` 属性
+  - 所有 `QuoteForms` 创建处添加 `lazy: false` 默认值
+- `crates/sl-compiler/src/semantic/macro_lang/eval.rs`
+  - `eval_expr` 对 `lazy=true` 的 `QuoteForms` 返回 `CtValue::LazyQuote`
+  - `sync_ct_env_to_macro_env` 跳过 `LazyQuote`
+  - `eval_stmt` 的 `Let`/`Set` 不将 `LazyQuote` 同步到 `macro_env.locals`
+- `crates/sl-compiler/src/semantic/expand/macro_eval.rs`
+  - `evaluate_macro_items` 处理 `CtValue::LazyQuote`：同步非 Lazy 值后调用 `quote_items_callback`
+- `crates/sl-compiler/src/semantic/macro_lang/builtins.rs`
+  - `builtin_list_foreach` / `builtin_list_map` / `builtin_list_fold` 接受 `CtValue::LazyQuote` 回调
+  - `builtin_keyword_values` 新增（获取 keyword 值列表）
+  - `ct_value_to_string` 处理 `LazyQuote`
+
+### 集成测试
+
+- `70-macro-generate-multiple-scripts-from-list`
+```
+helper.xml:
+  <builtin name="keyword_values"><var name="opts"/></builtin>
+  <builtin name="list_map">
+    <var name="values"/>
+    <quote lazy="true"><text>${_item}</text></quote>
+  </builtin>
+  <builtin name="ast_concat"><var name="text_nodes"/></builtin>
+  <quote><unquote>combined</unquote></quote>
+
+main.xml:
+  <use module="helper" name1="Alice" name2="Bob" name3="Charlie"/>
+
+期望输出：
+  text Alice
+  text Bob
+  text Charlie
+  end
 ```

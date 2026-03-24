@@ -41,9 +41,15 @@ pub enum CtExpr {
     Quote { body: Box<CtExpr> },
     /// Unquote: splice compile-time value into AST
     Unquote { expr: Box<CtExpr> },
-    /// QuoteForms: process raw form items with hygiene/splice (internal bridge)
+    /// QuoteForms: process raw form items with hygiene/splice (internal bridge).
+    /// If `lazy` is true, processing is deferred (returned as CtValue::LazyQuote
+    /// without calling quote_items). Used for list_map/list_fold callbacks where
+    /// ${var} string slots need to resolve against the loop-variable-bound environment.
     /// This is used by the new evaluator to handle XML template quoting.
-    QuoteForms { items: Vec<sl_core::FormItem> },
+    QuoteForms {
+        items: Vec<sl_core::FormItem>,
+        lazy: bool,
+    },
 }
 
 /// A compile-time value.
@@ -64,6 +70,10 @@ pub enum CtValue {
     Ast(Vec<FormItem>),
     /// Caller environment (opaque reference)
     CallerEnv,
+    /// Lazy quote: deferred quote form items that should be processed at use-time.
+    /// This allows list_map/list_fold callbacks to use string interpolation (${var})
+    /// that is resolved when the callback is evaluated (with loop variable bound).
+    LazyQuote(Vec<FormItem>),
 }
 
 impl CtValue {
@@ -78,6 +88,7 @@ impl CtValue {
             CtValue::ModuleRef(_) => "module",
             CtValue::Ast(_) => "ast",
             CtValue::CallerEnv => "caller_env",
+            CtValue::LazyQuote(_) => "lazy_quote",
         }
     }
 
@@ -92,6 +103,7 @@ impl CtValue {
             CtValue::ModuleRef(_) => true,
             CtValue::Ast(items) => !items.is_empty(),
             CtValue::CallerEnv => true,
+            CtValue::LazyQuote(items) => !items.is_empty(),
         }
     }
 }

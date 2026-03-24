@@ -7,7 +7,9 @@ use crate::semantic::env::ExpandEnv;
 use crate::semantic::error_at;
 use crate::semantic::macro_lang::BuiltinRegistry;
 use crate::semantic::macro_lang::convert::convert_macro_body;
-use crate::semantic::macro_lang::eval::{eval_block, macro_value_to_ct_value};
+use crate::semantic::macro_lang::eval::{
+    ct_value_to_macro_value, eval_block, macro_value_to_ct_value, quote_items_callback,
+};
 
 /// Evaluate macro items using the NEW compile-time evaluator (Step 4).
 ///
@@ -41,6 +43,22 @@ pub(crate) fn evaluate_macro_items(
 
     match value {
         crate::semantic::macro_lang::CtValue::Ast(items) => Ok(items),
+        // LazyQuote: macro body used <quote>, process through quote_items_callback.
+        // This handles ${var} string interpolation using the current ct_env values.
+        // Skip syncing ct_env back to runtime for LazyQuote (LazyQuote values cannot be
+        // converted to MacroValue). This is fine since LazyQuote is only produced by
+        // list_map callbacks, which are self-contained.
+        crate::semantic::macro_lang::CtValue::LazyQuote(items) => {
+            // Sync non-LazyQuote ct_env values to runtime for quote_items_callback
+            for (name, cv) in ct_env.all() {
+                if !matches!(cv, crate::semantic::macro_lang::CtValue::LazyQuote(_)) {
+                    runtime
+                        .locals
+                        .insert(name.clone(), ct_value_to_macro_value(cv));
+                }
+            }
+            quote_items_callback(env, &mut runtime, &items)
+        }
         other => Err(ScriptLangError::message(format!(
             "macro body must return AST, got {}",
             other.type_name()
