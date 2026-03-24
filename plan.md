@@ -351,7 +351,7 @@ Status: in_progress
 
 ### Step 4.3: 给 compile_error! 补全 provider / caller 上下文
 
-**目标：** 错误消息同时带 provider 和 caller 信息。
+**Status: completed** (2026-03-24)
 
 前置：Step 4.2 已完成。
 
@@ -926,5 +926,21 @@ Status: pending
 - `builtin_invoke_macro` 创建 synthetic invocation 时使用 dummy meta（`row:0,column:0`），导致远程宏的 `caller_env()` 报告错误位置。修复：通过 `ExpandEnv.caller_invocation_meta` 传递原始 invocation meta
 - `CtValue::Keyword` 用 `Vec<(String, CtValue)>` 存储（保持顺序），而 `MacroValue::Keyword` 用 `BTreeMap<String, MacroValue>`（自动排序）；两者转换时顺序行为不同
 
+### Step 4.3: 给 compile_error! 补全 provider / caller 上下文
+
+**Status: completed** (2026-03-24)
+
+**本次做了什么：**
+- `check_use_conflict`：改用 `error_at(form, ...)` 包装错误，自动附加 `source_name:row:column` 源码位置
+- `builtin_invoke_macro`：在所有四个错误路径（module not known、module not in scope、macro not defined、private macro）附加 `caller_invocation_meta` 中的源码位置
+- `semantic/mod.rs`：`location` 函数加入 re-export，使 `builtins.rs` 可复用位置格式化逻辑
+- 新增集成测试 `61-invalid-use-error-has-provider-and-caller`：helper 尝试注入与 caller 同名公开成员，验证错误包含 provider（`helper`）、caller（`main`）和位置（`main.xml:11:3`）
+- `make gate` 通过（61 个集成测试 + 219 个 compiler 单元测试）
+
+**本次发现的问题、踩的坑：**
+- 测试 53 的 `error.txt` 原期望精确匹配旧错误消息（含 Available modules 列表），新增 `at main.xml:21:3` 后格式变化。修复：简化为只匹配唯一标识 `cannot invoke macro \`missing.mk\``，不依赖完整消息格式
+- `cargo clippy` 发现 `unwrap_or_else(String::new)` 可替换为 `unwrap_or_default()`（`String` 实现了 `Default`）
+- `cargo fmt` 自动将 `use crate::semantic::location` 排序到 `use crate::semantic::expand::*` 之后
+
 **下一步方向：**
-- Step 4.3: 给 compile_error! 补全 provider / caller 上下文（`check_use_conflict` 等错误路径补 source_location）
+- Step 4.4：给嵌套宏失败补 expansion trace（`ExpandEnv` 中引入 `Vec<TraceEntry>` 追踪展开栈）
