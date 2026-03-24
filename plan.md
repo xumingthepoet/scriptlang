@@ -16,7 +16,7 @@
   - module_put 冲突检测 + test 65 通过
 - Step 6: Hygiene 扩展（6.1 ~ 6.4 完成）
 - Step 7: Compile-time language 已能承载下一阶段 narrative DSL 宏库（7.1-7.6 全部完成 2026-03-24）
-- Step 8: Narrative DSL 宏库实现（8.1 进行中）
+- Step 8: Narrative DSL 宏库实现（8.1 完成）
 
 ---
 
@@ -1548,8 +1548,8 @@ Step 7.6 完成。Step 7 完成定义达成：
 - Step 7: Compile-Time Language 提升为可承载 Narrative DSL 宏库的子语言 ✅
 
 **最终状态：**
-- `make gate` 通过：282 compiler 单元测试 + 72 集成测试
-- 覆盖率：90.19%
+- `make gate` 通过：283 compiler 单元测试 + 73 集成测试
+- 覆盖率：89.78%（行覆盖）/ 93.00%（函数覆盖）
 - IMPLEMENTATION.md 已同步
 
 **下一步方向：**
@@ -1572,3 +1572,31 @@ Step 7.6 完成。Step 7 完成定义达成：
 **下一步方向：**
 - Step 8.1：实现 `narrative` provider，包含 `scene`、`say`、`choose`、`goto_scene` 宏
 - 验收：`73-narrative-dsl-scene-and-say` 通过
+
+---
+
+### Step 8.1: 基础叙事 DSL provider（2026-03-25）
+
+**本次做了什么：**
+- 创建 `narrative` provider 模块（`73-narrative-dsl-scene-and-say/xml/narrative.xml`），实现 4 个核心宏：
+  - `scene(name, children)`：展开为 `<script name="${name}">children</script>`
+  - `say(speaker, text)`：展开为 `<text>[${speaker}] ${text}</text>`
+  - `goto_scene(module, scene)`：展开为 `<goto script="@${module}.${scene}"/>`
+  - `__using__`：使用 `caller_module` + `module_put` 存储调用者模块名，供其他宏读取
+- 创建集成测试 `73-narrative-dsl-scene-and-say`：
+  - `main.xml` 演示 `<use module="narrative"/>` + `<script name="main">` + `<goto_scene>` + 场景定义
+  - 场景声明式定义（`<scene>` 宏生成顶层 `<script>`）
+  - 场景间导航（`<goto_scene>` 生成 `<goto script="@main.scene"/>`）
+- `make gate` 通过（283 compiler 单元测试 + 73 集成测试，覆盖率 89.78%）
+- 更新 `IMPLEMENTATION.md` 添加 Step 8 文档
+
+**本次发现的问题、踩的坑：**
+- `<goto>` 不能是 `<module>` 的直接子节点（runtime 不支持）。解决方案：`<goto_scene>` 必须放在 `<script>` 内部；`<scene>` 宏生成顶层 `<script>`（作为 `<module>` 子节点）
+- `goto_scene` 的 `${module}.${scene}` 在 XML 属性中插值工作方式与 text content 相同（`splice_string_slots` 处理两者）
+- 当前没有 string 拼接 builtin（无 `string_concat`/`string_slice`），`goto_scene` 需要显式传递完整 `@module.scene` 字符串
+- `caller_module()` 返回 `macro_env.current_module`（编译期当前模块），在 `__using__` 中调用时正确返回调用者模块名（"main"）
+- `${var}` 在 `<quote>` 的 XML 属性值中作为 splice slot 处理，`splice_string_slots` 会在 quote 展开时从 `macro_env.locals` 查找变量（`<let>` 绑定会同步到 locals）
+
+**下一步方向：**
+- Step 8.2：状态管理宏（`flag`/`set_flag`/`if_flag`）
+- 或 Step 8.3：完整叙事 DSL demo
