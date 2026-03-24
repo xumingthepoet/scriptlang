@@ -430,6 +430,8 @@ Status: pending
 
 ### Step 5.3: 让 module state 支持多类型值
 
+**Status: completed** (2026-03-24)
+
 **目标：** string、int、bool、list、keyword、ast 都能存。
 
 前置：Step 5.2 已完成。
@@ -1008,3 +1010,18 @@ Status: pending
 
 **下一步方向：**
 - Step 5.3：让 module state 支持多类型值（string、int、bool、list、keyword、ast 都能存）
+
+### Step 5.3: 让 module state 支持多类型值（2026-03-24）
+
+**本次做了什么：**
+- Step 5.2 的 `module_get` / `module_put` 实现已经支持所有 `CtValue` 类型（存储时直接使用 `CtValue` 枚举，无类型擦除）
+- 本次为 Step 5.3 补全单元测试：新增 `builtin_module_put_and_get_bool`（验证 Bool）、`builtin_module_put_and_get_keyword`（验证 Keyword，含嵌套 string/int）、`builtin_module_put_and_get_ast`（验证 Ast，含 FormItem）
+- 配合 Step 5.2 验收，Bool / Keyword / Ast 三种类型均通过存→取的往返验证
+
+**本次发现的问题、踩的坑：**
+- `module_put` 的 value 参数类型已经是 `CtValue`（泛型枚举），无需额外扩展；Step 5.3 的主要工作是确认测试覆盖到位
+- `CtValue::Keyword` 实现了 `PartialEq`，可直接用于 `assert_eq!` 比较（含嵌套结构）
+- `CtValue::Ast` 中含 `Vec<FormItem>`，`assert_eq!` 会深度比较，测试通过说明 FormItem 的 equality 比较正常工作
+
+**下一步方向：**
+- Step 5.4：支持 module_update 模式（基于已有值更新，支持 registry 累积）

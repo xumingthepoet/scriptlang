@@ -4732,4 +4732,92 @@ mod ct_lang_tests {
         .expect_err("wrong name type");
         assert!(err.to_string().contains("must be string"));
     }
+
+    // Step 5.3: Multi-type support tests
+
+    #[test]
+    fn builtin_module_put_and_get_bool() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("bool_mod");
+        let mut ct_env = CtEnv::new();
+
+        builtins.get("module_put").unwrap()(
+            &[CtValue::String("flag".to_string()), CtValue::Bool(true)],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("put bool");
+
+        let result = builtins.get("module_get").unwrap()(
+            &[CtValue::String("flag".to_string())],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("get bool");
+        assert_eq!(result, CtValue::Bool(true));
+    }
+
+    #[test]
+    fn builtin_module_put_and_get_keyword() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("kw_mod");
+        let mut ct_env = CtEnv::new();
+
+        let kw = CtValue::Keyword(vec![
+            (
+                String::from("host"),
+                CtValue::String(String::from("localhost")),
+            ),
+            (String::from("port"), CtValue::Int(8080)),
+        ]);
+
+        builtins.get("module_put").unwrap()(
+            &[CtValue::String("config".to_string()), kw.clone()],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("put keyword");
+
+        let result = builtins.get("module_get").unwrap()(
+            &[CtValue::String("config".to_string())],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("get keyword");
+        assert_eq!(result, kw);
+    }
+
+    #[test]
+    fn builtin_module_put_and_get_ast() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = make_module_env("ast_mod");
+        let mut ct_env = CtEnv::new();
+
+        let ast = CtValue::Ast(vec![FormItem::Form(Form {
+            head: "text".to_string(),
+            meta: dummy_form_meta(),
+            fields: vec![],
+        })]);
+
+        builtins.get("module_put").unwrap()(
+            &[CtValue::String("fragment".to_string()), ast.clone()],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("put ast");
+
+        let result = builtins.get("module_get").unwrap()(
+            &[CtValue::String("fragment".to_string())],
+            &empty_macro_env(),
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("get ast");
+        assert_eq!(result, ast);
+    }
 }
