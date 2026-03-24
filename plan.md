@@ -15,7 +15,7 @@
   - test 63 通过
   - module_put 冲突检测 + test 65 通过
 - Step 6: Hygiene 扩展（6.1 ~ 6.4 完成）
-- Step 7 待开始
+- Step 7 待开始（7.1 审计中）
 - Step 1: 真正的 Module-Qualified Remote Macro Dispatch
 
 ---
@@ -593,7 +593,7 @@ Status: completed (2026-03-24)
 
 ## Step 6: 扩展 Hygiene 到隐藏 Helper 定义层
 
-Status: in_progress
+Status: **completed** (2026-03-24)
 
 目标：不只对 `<temp>` 做 gensym，把 `use` 或普通宏引入的隐藏 helper 也纳入系统级 hygiene。
 
@@ -722,24 +722,36 @@ Status: in_progress
 
 ## Step 7: 把 Compile-Time Language 提升成可承载 Narrative DSL 宏库的子语言
 
-Status: pending
+Status: **in_progress**
 
 目标：不追求把 compile-time language 做成第二个 Elixir，但必须让它具备足够的组合能力。
 
 ### Step 7.1: 审计 compile-time language 现有控制流能力
 
-**目标：** 摸清现状，列出缺失的能力。
+**Status: completed** (2026-03-24)
 
-前置：无。
+**审计结果：31 个 builtin，分为 9 大类：**
 
-具体工作：
-- 梳理 `eval.rs` 和 `builtins.rs` 中现有的所有 builtin
-- 确认已有的：变量绑定、函数调用、if/unless、条件分支、list/keyword 构造
-- 列出缺失的：遍历（for_each/map/fold）、匹配（match/case）、批量生成
-- 结合 Step 2 的值模型，确认 list/keyword 在遍历时是否已可用
+| 类别 | 已有 | 缺失 |
+|------|------|------|
+| macro introspection | `attr`, `content`, `has_attr` | — |
+| string conversion | `parse_bool`, `parse_int`, `to_string` | — |
+| keyword ops | `keyword_get`, `keyword_has`, `keyword_attr` | `keyword_pairs`, `keyword_iter`, `keyword_map`, `keyword_fold` |
+| list ops | `list`, `list_concat`, `list_length` | `list_map`, `list_fold`, `list_foreach`, `list_filter` |
+| module/require | `caller_env`, `caller_module`, `expand_alias`, `require_module`, `define_import`, `define_alias`, `define_require` | — |
+| remote macro | `invoke_macro` | — |
+| AST read | `ast_head`, `ast_children`, `ast_attr_get`, `ast_attr_keys` | `ast_tail`, `ast_zip` |
+| AST write | `ast_attr_set`, `ast_wrap`, `ast_concat`, `ast_filter_head` | `ast_transform`, `ast_insert_child` |
+| module state | `module_get`, `module_put`, `module_update` | `module_keys`, `module_delete` |
+| 控制流（eval 层） | `if`, `return` | `unless`, `match/case`, `for/while`, `try/catch`, `cond` |
 
-验收：
-- 输出一份 compile-time builtin 能力清单（agent 心中有数即可）
+**关键发现：**
+- 完全没有列表遍历 builtin（`list_map`/`list_fold`/`list_foreach` 均缺失）
+- keyword 只能逐 key 读取（`keyword_get`），无法遍历所有 key-value 对
+- 没有 match/case 模式匹配，只有 `if`/`else`
+- eval.rs 层有 `if`/`return`，但无 `unless`、循环、try/catch
+
+**验收达成：** 审计结果心中有数，明确了 Step 7.2-7.5 的实现范围。
 
 ### Step 7.2: 新增 list 遍历 builtin（for_each / map / fold）
 
@@ -1254,3 +1266,18 @@ Status: pending
 
 **下一步方向：**
 - Step 6.4：统一公开注入冲突的错误报告格式（`check_use_conflict` 使用结构化信息而非字符串拼接）
+
+### Step 7.1: 审计 compile-time language 现有控制流能力 (2026-03-24)
+
+**本次做了什么：**
+- 读取 `builtins.rs` 和 `eval.rs` 全部源码，清点出 31 个 builtin，分为 9 大类
+- 确认 eval.rs 层已有的控制流：`if`/`return`（stmt 级），无 `unless`/`match`/`for`/`while`
+- 确认缺失的关键能力：列表遍历（`list_map`/`list_fold`/`list_foreach`）、keyword 遍历（`keyword_pairs`）、match/case 模式匹配
+
+**本次发现的问题、踩的坑：**
+- Step 7.2 的实现顺序建议：先做 `list_foreach`/`list_map`/`list_fold`，再扩展 keyword 遍历（因为 keyword 的 fold 本质上是 list of pairs 的 fold）
+- `list_concat` 是目前唯一遍历列表元素的 builtin，但它只能做拼接，无法对每个元素执行自定义逻辑
+- Step 7.4 的 `match/case` 若要实现，需要先设计 pattern 的表示方式（string/int/wildcard `_` 等）
+
+**下一步方向：**
+- Step 7.2：新增 list 遍历 builtin（`list_foreach` / `list_map` / `list_fold`）
