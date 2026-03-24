@@ -14,7 +14,7 @@
   - list / list_concat builtin
   - test 63 通过
   - module_put 冲突检测 + test 65 通过
-- Step 6: Hygiene 扩展（6.1 分析完成，6.2 待实现）
+- Step 6: Hygiene 扩展（6.1 ~ 6.2 完成，6.3 ~ 6.4 待实现）
 - Step 1: 真正的 Module-Qualified Remote Macro Dispatch
 
 ---
