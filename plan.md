@@ -275,11 +275,52 @@ Status: **completed** (2026-03-24)
 
 ## Step 4: 丰富 Caller Env 与错误定位
 
-Status: pending
+Status: in_progress
 
 目标：让宏系统具备更接近 Elixir 的 caller 感知能力；让复杂宏链条里的错误报告可诊断。
 
 ### Step 4.1: 审计现有 caller_env 和错误报告的薄弱点
+
+**Status: completed** (2026-03-24)
+
+**本次审计发现了以下薄弱点：**
+
+**1. `caller_env()` builtin 缺失关键字段（`builtins.rs:615-670`）**
+
+当前暴露：current_module / imports / requires / aliases（aliases 格式为 "key=value" 字符串）
+
+缺失：
+- `file` / `source_file`：虽然 `expand_env.source_name` 存在，但 `MacroEnv` 没有暴露它
+- `line` / `column`：完全没有追踪宏调用的行列位置
+- `macro_name`：在 `macro_env.macro_name` 中存在，但 `caller_env()` keyword 没有暴露
+- `attributes`：在 `macro_env.attributes` 中存在，没有暴露
+
+**2. `ScriptLangError::Message` 只有纯字符串，缺少结构化字段**
+
+位置：`sl-core/src/error.rs:5-14`
+- `Message { message: String }` 是唯一的手写错误变体
+- 没有 `provider_module`、`caller_module`、`source_location` 等结构化字段
+- 错误在传播时（尤其是 `evaluate_macro_items:36-40` 的 `.to_string()` 包装）丢失所有位置信息
+
+**3. 错误报告信息不完整的关键路径**
+
+| 路径 | 当前提供 | 缺失 |
+|------|---------|------|
+| `check_use_conflict`（`module_reducer.rs:297`） | provider_module + caller_module + member_name | source location（行/列/文件） |
+| `invoke_macro` 错误（`builtins.rs:961-1013`） | resolved_module + macro_name + caller_module + available_modules | 目标宏定义位置（行/列） |
+| `builtin_*` 函数错误 | 仅 message 字符串 | 宏名、caller_module、调用栈 |
+| `evaluate_macro_items` 错误包装（`macro_eval.rs:36-40`） | 无 | 任何上下文 |
+
+**4. 无宏展开栈追踪机制**
+
+- 没有 expansion trace 栈（Elixir 有 `Macro.Env` 的 expansion trace）
+- 嵌套宏调用失败时无法看出调用链路
+- `macro_invocation_counters` 只用于 gensym，没有用于 trace
+
+**Step 4.1 验收达成：**
+- 输出了错误报告审计，标记了缺失信息最多的关键路径（P0: `caller_env` 缺 file/line/macro_name；P1: 错误包装丢失位置；P2: 无 expansion trace）
+
+
 
 **目标：** 摸清现状。
 
