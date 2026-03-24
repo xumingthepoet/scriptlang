@@ -227,9 +227,10 @@ fn process_form(
         }
         "const" => {
             let name = required_attr(form, "name")?.to_string();
-            let (_name, form) = process_hidden_helper(form, env, &name)?;
+            let (_name, renamed_form) = process_hidden_helper(form, env, &name)?;
             // expand_const_form handles declare_const (duplicate detection) internally.
-            let expanded = super::declared_types::expand_const_form(&form, env)?;
+            // Use the form returned from process_hidden_helper (may be renamed for hidden helpers).
+            let expanded = super::declared_types::expand_const_form(&renamed_form, env)?;
             Ok(ProcessedItem::Output(vec![FormItem::Form(expanded)]))
         }
         "var" => {
@@ -361,4 +362,169 @@ fn check_use_conflict(env: &ExpandEnv, name: &str, form: &Form) -> Option<Script
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use sl_core::{Form, FormField, FormItem, FormMeta, FormValue, SourcePosition};
+
+    use super::*;
+    use crate::semantic::env::ExpandEnv;
+
+    fn meta() -> FormMeta {
+        FormMeta {
+            source_name: Some("main.xml".to_string()),
+            start: SourcePosition { row: 1, column: 1 },
+            end: SourcePosition { row: 1, column: 20 },
+            start_byte: 0,
+            end_byte: 20,
+        }
+    }
+
+    fn form(head: &str, fields: Vec<FormField>) -> Form {
+        Form {
+            head: head.to_string(),
+            meta: meta(),
+            fields,
+        }
+    }
+
+    fn field(name: &str, value: &str) -> FormField {
+        FormField {
+            name: name.to_string(),
+            value: FormValue::String(value.to_string()),
+        }
+    }
+
+    fn children(items: Vec<FormItem>) -> FormField {
+        FormField {
+            name: "children".to_string(),
+            value: FormValue::Sequence(items),
+        }
+    }
+
+    fn text(value: &str) -> FormItem {
+        FormItem::Text(value.to_string())
+    }
+
+    /// Set up ExpandEnv simulating use-injection context.
+    /// Does NOT pre-seed "cfg"/"init" — the test decides what the caller already has.
+    fn use_injection_env(caller: &str, provider: &str) -> ExpandEnv {
+        let mut env = ExpandEnv::default();
+        env.begin_module(Some(caller.to_string()), Some(format!("{caller}.xml")))
+            .expect("module");
+        // Simulate use injection: helper's __using__ is expanding into caller's context
+        env.use_caller_module = Some(caller.to_string());
+        env.use_provider_module = Some(provider.to_string());
+        env
+    }
+
+    #[test]
+    fn hidden_const_no_conflict_when_caller_has_same_name() {
+        // Caller defines "cfg" (pre-seeded), helper injects hidden "cfg" -> no conflict,
+        // hidden const registered under hygienic name, caller's "cfg" remains untouched.
+        let mut env = use_injection_env("main", "helper");
+        env.declare_const("cfg".to_string(), true); // caller already has "cfg"
+        let const_form = form(
+            "const",
+            vec![
+                field("name", "cfg"),
+                field("type", "string"),
+                field("hidden", "true"),
+                children(vec![text("helper_value")]),
+            ],
+        );
+        let result = process_form(&const_form, &mut env, "main");
+        assert!(
+            result.is_ok(),
+            "hidden const should not conflict with caller member"
+        );
+        // The hidden const should be declared under a hygienic name, not "cfg".
+        let names = env.module.exports.consts.declared_names();
+        let hygienic_name = names
+            .iter()
+            .find(|n| n.starts_with("__h_"))
+            .expect("should have hygienic name");
+        assert!(
+            hygienic_name.contains("cfg"),
+            "hygienic name should contain 'cfg': {}",
+            hygienic_name
+        );
+        // Caller's original "cfg" should still be in exports (untouched).
+        assert!(
+            env.module.exports.consts.contains_declared("cfg"),
+            "caller's 'cfg' should remain untouched"
+        );
+    }
+
+    #[test]
+    fn hidden_function_no_conflict_when_caller_has_same_name() {
+        // Caller defines "init" (pre-seeded), helper injects hidden "init" -> no conflict.
+        let mut env = use_injection_env("main", "helper");
+        env.declare_function("init".to_string(), true); // caller already has "init"
+        let func_form = form(
+            "function",
+            vec![
+                field("name", "init"),
+                field("hidden", "true"),
+                children(vec![]),
+            ],
+        );
+        let result = process_form(&func_form, &mut env, "main");
+        assert!(
+            result.is_ok(),
+            "hidden function should not conflict with caller member"
+        );
+        // The hidden function should be declared under a hygienic name.
+        let names = env.module.exports.functions.declared_names();
+        let hygienic_name = names
+            .iter()
+            .find(|n| n.starts_with("__h_"))
+            .expect("should have hygienic name");
+        assert!(
+            hygienic_name.contains("init"),
+            "hygienic name should contain 'init': {}",
+            hygienic_name
+        );
+        // Caller's original "init" should still be in exports (untouched).
+        assert!(
+            env.module.exports.functions.contains_declared("init"),
+            "caller's 'init' should remain untouched"
+        );
+    }
+
+    #[test]
+    fn hidden_const_registered_under_hygienic_name_when_no_caller_conflict() {
+        // No caller conflict -> hidden const still registered under hygienic name.
+        let mut env = use_injection_env("main", "helper");
+        let const_form = form(
+            "const",
+            vec![
+                field("name", "secret"),
+                field("type", "string"),
+                field("hidden", "true"),
+                children(vec![text("hidden_value")]),
+            ],
+        );
+        let result = process_form(&const_form, &mut env, "main");
+        assert!(result.is_ok(), "hidden const should process cleanly");
+        let names: Vec<_> = env
+            .module
+            .exports
+            .consts
+            .declared_names()
+            .iter()
+            .cloned()
+            .collect();
+        assert!(!names.is_empty(), "should have at least one const");
+        let hygienic = names
+            .iter()
+            .find(|n| n.starts_with("__h_"))
+            .expect("should have hygienic name");
+        assert!(
+            hygienic.contains("helper") && hygienic.contains("secret"),
+            "hygienic name should contain provider and original name: {}",
+            hygienic
+        );
+    }
 }

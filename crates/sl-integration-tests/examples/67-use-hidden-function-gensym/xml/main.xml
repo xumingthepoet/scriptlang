@@ -1,0 +1,14 @@
+<module name="main">
+  <!-- Caller defines its own init function and cfg const.
+       The helper injects hidden definitions with the same names via __using__.
+       With hygienic rename: both coexist, no conflict. -->
+  <function name="init" args="int:x" return_type="int">
+    return x + 1;
+  </function>
+  <const name="cfg" type="string">"caller_value"</const>
+  <use module="helper"/>
+  <script name="main">
+    <text>cfg=${cfg}</text>
+    <end/>
+  </script>
+</module>

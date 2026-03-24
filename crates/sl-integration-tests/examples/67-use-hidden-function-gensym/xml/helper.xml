@@ -1,0 +1,12 @@
+<module name="helper">
+  <!-- Hidden function and const injected into caller's module.
+       With hygienic rename: no conflict, caller's own init/cfg coexist. -->
+  <macro name="__using__" params="keyword:opts">
+    <quote>
+      <function name="init" hidden="true" args="int:x" return_type="int">
+        return x + 100;
+      </function>
+      <const name="cfg" type="string" hidden="true">"helper_secret"</const>
+    </quote>
+  </macro>
+</module>
