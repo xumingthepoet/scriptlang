@@ -1369,3 +1369,32 @@ Status: **in_progress**
 
 **下一步方向：**
 - Step 7.5: 基于 compile-time list 批量生成 script / choice 结构
+
+### Step 7.5 任务分解记录（2026-03-24）
+
+**原来卡在哪个步骤：**
+- Step 7.5: 基于 compile-time list 批量生成 script / choice 结构（连续 2 轮无实质性进展）
+
+**卡点原因分析：**
+1. **改了错误的调用层**：agent 修改了 `eval_expr`（QuoteForms 分支不再 clone macro_env）和 `quote_items_callback`（用 callback form 作为 invocation），但这两个改动的意图不清晰，且没有先确认 `_item` 的实际查找路径。`evaluate_callback` 已经调用了 `sync_ct_env_to_macro_env`（把 `_item` 从 `ct_env` 同步到 `runtime.locals`），agent 的改动并没有针对性地解决这个已知问题，反而引入了副作用。
+2. **同时改 3 个文件形成复杂局面**：builtins.rs（改 list_foreach/map/fold 的回调格式）、eval.rs（改 QuoteForms 分支行为）、tests.rs（适配新格式），多文件联动改动导致调试困难，一处出错全局受影响。
+3. **没有先做最小可验证路径**：Step 7.5 的核心是"list_map 能把 list 元素变成 AST"，但 agent 没有先验证 `evaluate_callback` + `${_item}` 这个已有路径是否能work，就直接上了新格式（List of Ast 回调）的大改动。
+4. **根本问题未定位**：虽然 `evaluate_callback` 里有 `sync_ct_env_to_macro_env`，但 `${_item}` 在 `<text value="${_item}">` 中查找失败的根因仍不明确。可能是：sync 时机不对、sync 到的 runtime 不是最终用于 splice 的那个、或者 callback 的 form items 结构解析有问题。
+
+**分解后的子步骤：**
+
+- **7.5.1** 搭建最小集成测试验证 `list_map` + `${_item}` 能 work（只改 1 个新 integration test 文件，**不碰 builtins.rs/eval.rs**，用现有 builtin 组合）
+  - 验收：test 通过，输出预期结果
+
+- **7.5.2** 如果 7.5.1 失败，定位 `_item` 查找失败的真实原因
+  - 添加调试输出或逐步排查，确认 `_item` 到底在哪一步丢失
+  - 验收：找到根因（0 实现，只有分析记录）
+
+- **7.5.3** 基于 7.5.1 或 7.5.2 的结果，修复发现的问题（只改必要的最小文件）
+  - 验收：test 通过
+
+- **7.5.4** 扩展为完整的 `70-macro-generate-multiple-scripts-from-list`（如果 7.5.1 已通过则扩展测试；如果 7.5.3 修复了问题则完成测试）
+
+- **7.5.5** 运行 make gate + 更新 IMPLEMENTATION.md
+
+**关键改变**：子步骤 7.5.1 **禁止修改** `builtins.rs`、`eval.rs`、`tests.rs`，只创建一个最小的集成测试文件来验证已有能力。这保证了每次只改动 1 个维度（要么是测试文件，要么是修复代码），容易定位问题。
