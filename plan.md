@@ -8,11 +8,12 @@
 - module reducer 已经让宏生成的 module-level form 真正回灌定义期环境
 - `use -> require + __using__` 已经能跑通
 - kernel 控制流宏已经迁移到新参数协议
-- Step 5: Module-Level Compile-Time Accumulation 已完成（5.1 ~ 5.4）
+- Step 5: Module-Level Compile-Time Accumulation 已完成（5.1 ~ 5.5）
   - module state 存储于 ExpandEnv
   - module_get / module_put / module_update builtin
   - list / list_concat builtin
   - test 63 通过
+  - module_put 冲突检测 + test 65 通过
 - Step 1: 真正的 Module-Qualified Remote Macro Dispatch
 
 ---
