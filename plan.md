@@ -565,14 +565,18 @@ Status: completed (2026-03-24)
 
 ### Step 5.5: 处理 module state 冲突
 
-**目标：** 重复注册或类型不匹配时报稳定错误。
+**Status: completed** (2026-03-24)
 
 前置：Step 5.4.4 已完成。
 
+**设计决策**：
+- `module_put(key, value)`：key 已存在时报错误，提示使用 `module_update` 或不同 key 名
+- `module_update(key, new_value)`：始终允许覆盖（专为累积模式设计）
+
 具体工作：
-- 设计 module state 的冲突检测策略（例如：同一 module 同名 key 第二次 put 是否报错）
-- 实现 `65-invalid-module-state-conflict`
-- 明确 module-level state 与局部 `CtEnv` 的边界
+- 修改 `builtin_module_put` 在 key 已存在时返回 `ScriptLangError::Message { message: "module_put() conflict: key `xxx` already exists..." }`
+- 新增单元测试覆盖：冲突检测、module_update 允许覆盖、不同 key 可并存
+- 实现 `65-invalid-module-state-conflict` 集成测试：helper 两次 use 触发冲突错误
 
 验收：
 - `65-invalid-module-state-conflict` 通过
