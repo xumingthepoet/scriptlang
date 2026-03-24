@@ -10,10 +10,11 @@
 - kernel 控制流宏已经迁移到新参数协议
 - Step 5: Module-Level Compile-Time Accumulation 已完成（5.1 ~ 5.5）
   - module state 存储于 ExpandEnv
-  - module_get / module_put / module_update builtin
+  - module_get / module_put（冲突检测）/ module_update builtin
   - list / list_concat builtin
   - test 63 通过
   - module_put 冲突检测 + test 65 通过
+- Step 6: Hygiene 扩展（6.1 分析完成，6.2 待实现）
 - Step 1: 真正的 Module-Qualified Remote Macro Dispatch
 
 ---
@@ -591,13 +592,47 @@ Status: completed (2026-03-24)
 
 ## Step 6: 扩展 Hygiene 到隐藏 Helper 定义层
 
-Status: pending
+Status: in_progress
 
 目标：不只对 `<temp>` 做 gensym，把 `use` 或普通宏引入的隐藏 helper 也纳入系统级 hygiene。
 
 ### Step 6.1: 区分"公开注入"和"隐藏 helper"的当前处理方式
 
-**目标：** 摸清现状。
+**Status: completed** (2026-03-24)
+
+** Hygiene 现状分析结果：**
+
+**公开注入（public injection）路径：**
+- `use` 宏在 `kernel.xml` 中定义，调用 `__using__` 后将展开结果通过 `ProcessedItem::RequeueFromUse` 重新入队
+- `module_reducer.rs` 的 `process_form` 对 script/function/const/var 调用 `check_use_conflict()` 检测冲突
+- 冲突检测有效：公开成员不会覆盖 caller 已有的同名导出
+
+**隐藏 helper（hidden helper）路径：**
+- 目前依赖手动 `__` 前缀命名约定（如 `__helper_internal__`）
+- 实际上 `<script name="__helper_internal__">` 在 reducer 中仍被当作普通 script 处理，会加入 caller 的 exports
+- 污染防护仅靠前缀约定，无系统级机制
+
+**`<temp>` gensym 机制：**
+- `quote.rs` 的 `gensym()` 函数生成 `__macro_{macro_name}_{seed}_{prefix}_{counter}` 格式
+- `<temp name="x">` 在 quote 时被自动重命名
+- seed 由 `expand_env.reserve_macro_invocation_seed()` 分配，模块级隔离
+
+**冲突检测状态：**
+
+| 类别 | 有冲突检测 | 说明 |
+|------|---------|------|
+| 公开成员 (script/function/const/var) | ✅ YES | `check_use_conflict()` |
+| `<temp>` 元素 | ✅ YES | gensym 使其唯一 |
+| 隐藏 helper (`__` 前缀) | ❌ NO | 仅靠手动命名约定 |
+
+**Step 6.2 需要实现的内容：**
+1. 设计隐藏 helper 识别协议（例如 `hidden="true"` 属性标记）
+2. 在 `module_reducer.rs` 的 `process_form` 中，对隐藏 helper 自动 gensym 或加 module 前缀
+3. 通过 `66-use-hidden-script-gensym` 验证
+
+**关键代码位置：**
+- `module_reducer.rs:process_form` - 添加隐藏 helper 重命名逻辑
+- `quote.rs:gensym` - 已有的 gensym 函数可直接复用
 
 具体工作：
 - 找到 `use` 注入成员的所有代码路径
