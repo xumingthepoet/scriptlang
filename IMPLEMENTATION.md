@@ -925,19 +925,22 @@ Provider module 通过 `<macro name="__using__" params="keyword:opts">` 暴露 h
 3. `caller_exports_has(name)` 检查 caller 的导出成员
 4. `check_use_conflict()` 在 reducer 中检测冲突
 
-冲突错误格式：
+冲突错误格式（Step 4.3 新增 source_location）：
 ```
 conflict: `use` from `{provider}` injects public member `{name}` \
-but caller module `{caller}` already has a member with this name
+but caller module `{caller}` already has a member with this name at {source}:{row}:{column}
 ```
 
-#### 错误定位改进
+#### 错误定位改进（Step 4.3）
 
-`invoke_macro` 中的错误现在包含 caller 和 provider 信息：
+`invoke_macro` 中的错误现在包含 caller 和 provider 信息以及调用者源码位置：
 
-```
-error expanding `{macro}` from `{provider}` (called from `{caller}`): {error}
-```
+- "module not known" 错误：`cannot invoke macro `{module}.{macro}`: module `{module}` is not known (called from `{caller}` at {source}:{row}:{column}). Available modules: [...]`
+- "module not in scope" 错误：`cannot invoke macro `{module}.{macro}`: module `{module}` is not in scope (called from `{caller}` at {source}:{row}:{column}). Add <require name="{module}"/> first.`
+- "macro not defined" 错误：`macro `{module}.{macro}` is not defined in module `{module}` (called from `{caller}` at {source}:{row}:{column})`
+- "private macro" 错误：`cannot invoke private macro `{module}.{macro}` from module `{caller}` at {source}:{row}:{column}`
+
+位置信息通过 `ExpandEnv.caller_invocation_meta: Option<FormMeta>` 传递，在宏展开入口由 `expand_macro_hook` 设置。
 
 #### Hygiene 机制
 

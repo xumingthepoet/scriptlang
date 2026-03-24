@@ -1,0 +1,9 @@
+<module name="main">
+  <!-- Caller defines a public script named "shared" BEFORE the use -->
+  <script name="shared">
+    <text>caller's script</text>
+    <end/>
+  </script>
+  <!-- use tries to inject another public script named "shared" - conflict! -->
+  <use module="helper"/>
+</module>

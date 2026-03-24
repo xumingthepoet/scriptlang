@@ -1,1 +1,1 @@
-cannot invoke macro `missing.mk`: module `missing` is not known (called from `main`). Available modules:
+cannot invoke macro `missing.mk`:

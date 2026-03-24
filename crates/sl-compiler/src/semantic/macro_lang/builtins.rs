@@ -7,6 +7,7 @@ use crate::semantic::expand::dispatch::ExpandRuleScope;
 use crate::semantic::expand::macro_env::MacroEnv;
 use crate::semantic::expand::macro_values::MacroValue;
 use crate::semantic::expand::macros::expand_macro_invocation_public;
+use crate::semantic::location;
 use sl_core::{Form, FormField, FormItem, FormMeta, FormValue, ScriptLangError, SourcePosition};
 
 /// Convert a CtValue to a string for serialization in invoke_macro keyword args.
@@ -973,6 +974,13 @@ fn builtin_invoke_macro(
         .clone()
         .unwrap_or_else(|| "<unknown>".to_string());
 
+    // Step 4.3: Compute caller source location for enriched error messages.
+    let caller_location = expand_env
+        .caller_invocation_meta
+        .as_ref()
+        .map(location)
+        .unwrap_or_default();
+
     // Check that the module is registered in the program.
     // Note: module registration happens when a module form is processed by the compiler.
     let module_exists = expand_env
@@ -980,14 +988,20 @@ fn builtin_invoke_macro(
         .module_macros
         .contains_key(&resolved_module);
     if !module_exists {
+        let location_suffix = if caller_location.is_empty() {
+            String::new()
+        } else {
+            format!(" at {}", caller_location)
+        };
         return Err(ScriptLangError::Message {
             message: format!(
                 "cannot invoke macro `{}.{}`: module `{}` is not known \
-                (called from `{}`). Available modules: {:?}",
+                (called from `{}`{}). Available modules: {:?}",
                 resolved_module,
                 macro_name,
                 resolved_module,
                 caller_module,
+                location_suffix,
                 expand_env.program.module_macros.keys().collect::<Vec<_>>()
             ),
         });
@@ -1004,14 +1018,20 @@ fn builtin_invoke_macro(
     let is_required = is_current_module || is_required_in_macro || is_required_in_expand;
 
     if !is_required {
+        let location_suffix = if caller_location.is_empty() {
+            String::new()
+        } else {
+            format!(" at {}", caller_location)
+        };
         return Err(ScriptLangError::Message {
             message: format!(
                 "cannot invoke macro `{}.{}`: module `{}` is not in scope \
-                (called from `{}`). Add `<require name=\"{}\"/>` or use `require_module(\"{}\")` first.",
+                (called from `{}`{}). Add `<require name=\"{}\"/>` or use `require_module(\"{}\")` first.",
                 resolved_module,
                 macro_name,
                 resolved_module,
                 caller_module,
+                location_suffix,
                 resolved_module,
                 resolved_module
             ),
@@ -1027,20 +1047,30 @@ fn builtin_invoke_macro(
         .cloned()
         .ok_or_else(|| {
             // Module exists but doesn't export this macro name
+            let location_suffix = if caller_location.is_empty() {
+                String::new()
+            } else {
+                format!(" at {}", caller_location)
+            };
             ScriptLangError::Message {
                 message: format!(
-                    "macro `{}.{}` is not defined in module `{}` (called from `{}`)",
-                    resolved_module, macro_name, resolved_module, caller_module
+                    "macro `{}.{}` is not defined in module `{}` (called from `{}`{})",
+                    resolved_module, macro_name, resolved_module, caller_module, location_suffix
                 ),
             }
         })?;
 
     // Step 7: Check macro visibility (private macros only visible in defining module)
     if definition.is_private && definition.module_name != caller_module {
+        let location_suffix = if caller_location.is_empty() {
+            String::new()
+        } else {
+            format!(" at {}", caller_location)
+        };
         return Err(ScriptLangError::Message {
             message: format!(
-                "cannot invoke private macro `{}.{}` from module `{}`",
-                definition.module_name, macro_name, caller_module
+                "cannot invoke private macro `{}.{}` from module `{}`{}",
+                definition.module_name, macro_name, caller_module, location_suffix
             ),
         });
     }

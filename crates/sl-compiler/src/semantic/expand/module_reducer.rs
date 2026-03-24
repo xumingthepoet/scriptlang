@@ -294,19 +294,22 @@ pub(crate) fn alias_name(form: &Form) -> Result<String, ScriptLangError> {
 /// Returns Some(error) if a conflict is detected, None otherwise.
 /// This is called when `use` macro tries to inject a public member into the caller.
 #[allow(clippy::collapsible_if)]
-fn check_use_conflict(env: &ExpandEnv, name: &str, _form: &Form) -> Option<ScriptLangError> {
+fn check_use_conflict(env: &ExpandEnv, name: &str, form: &Form) -> Option<ScriptLangError> {
     if let Some(ref caller) = env.use_caller_module {
         if env.caller_exports_has(name) {
-            // Use the tracked provider module, falling back to form source_name or <unknown>
+            // Use the tracked provider module, falling back to <unknown>
             let provider_module = env
                 .use_provider_module
                 .clone()
                 .unwrap_or_else(|| "<unknown>".to_string());
-            return Some(ScriptLangError::message(format!(
-                "conflict: `use` from `{}` injects public member `{}` \
+            return Some(error_at(
+                form,
+                format!(
+                    "conflict: `use` from `{}` injects public member `{}` \
                 but caller module `{}` already has a member with this name",
-                provider_module, name, caller
-            )));
+                    provider_module, name, caller
+                ),
+            ));
         }
     }
     None

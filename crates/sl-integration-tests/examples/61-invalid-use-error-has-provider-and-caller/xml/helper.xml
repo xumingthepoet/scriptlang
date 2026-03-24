@@ -1,0 +1,11 @@
+<module name="helper">
+  <!-- Provider injects a public script named "shared" -->
+  <macro name="__using__" params="keyword:opts">
+    <quote>
+      <script name="shared">
+        <text>injected script</text>
+        <end/>
+      </script>
+    </quote>
+  </macro>
+</module>
