@@ -722,7 +722,7 @@ Status: **completed** (2026-03-24)
 
 ## Step 7: 把 Compile-Time Language 提升成可承载 Narrative DSL 宏库的子语言
 
-Status: **in_progress**
+Status: **in_progress** (Step 7.5 completed 2026-03-24)
 
 目标：不追求把 compile-time language 做成第二个 Elixir，但必须让它具备足够的组合能力。
 
@@ -804,6 +804,8 @@ Status: **in_progress**
 - `71-macro-match-on-compile-time-values` 通过
 
 ### Step 7.5: 基于 compile-time list 批量生成 script / choice 结构
+
+**Status: completed** (2026-03-24)
 
 **目标：** 让宏能把 compile-time list 映射为多个 AST 节点。
 
@@ -1398,3 +1400,30 @@ Status: **in_progress**
 - **7.5.5** 运行 make gate + 更新 IMPLEMENTATION.md
 
 **关键改变**：子步骤 7.5.1 **禁止修改** `builtins.rs`、`eval.rs`、`tests.rs`，只创建一个最小的集成测试文件来验证已有能力。这保证了每次只改动 1 个维度（要么是测试文件，要么是修复代码），容易定位问题。
+
+## 进度记录
+
+### Step 7.5: 基于 compile-time list 批量生成 script/choice 结构（2026-03-24）
+
+**本次做了什么：**
+
+实现了完整的 Step 7.5 集成测试（70-macro-generate-multiple-scripts-from-list），使用 `keyword_values` + `list_map`（带 `<quote lazy="true">` callback）+ `ast_concat` 批量生成 `<text>` 节点。
+
+核心架构改动：
+1. 新增 `CtValue::LazyQuote(Vec<FormItem>)` 变体 — 延迟处理的 quote 片段
+2. `CtExpr::QuoteForms` 新增 `lazy: bool` 字段 — `<quote lazy="true">` XML 属性支持
+3. `eval_expr` 对 lazy 的 QuoteForms 直接返回 LazyQuote（不调用 quote_items）
+4. `builtin_list_map/foreach/fold` 接受 LazyQuote 回调 — 绑定 `_item` 后调用 `quote_items_callback`
+5. `builtin_keyword_values` — 新增 builtin 获取 keyword 值列表
+6. 修复了 5 个相关位置对 LazyQuote 的处理（sync、Let/Set、evaluate_macro_items）
+
+**本次发现的问题、踩的坑：**
+
+1. **根本 bug（第一轮分析）**：`${_item}` 插值在 `<text value="${_item}">` 中查找失败，根因是 `<quote>` 在 `eval_expr` 阶段被 eager 处理（`splice_string_slots` 在 `_item` 绑定之前就执行了）
+2. **修复思路**：`lazy="true"` 属性让 `QuoteForms` 返回 `CtValue::LazyQuote`，`builtin_list_map` 在循环内部绑定 `_item` 后再调用 `quote_items_callback`，此时 splice 才能正确解析 `${_item}`
+3. **关键设计**：LazyQuote 不会被 sync 到 `MacroEnv.locals`（`ct_value_to_macro_value` 对 LazyQuote 是 `unreachable!()`），避免了环境污染
+4. **关联修复**：需要修改 5 个位置的 LazyQuote 处理（`eval_expr`、`eval_stmt`、`sync_ct_env_to_macro_env`、`evaluate_macro_items`、`ct_value_to_string`），缺一不可
+
+**下一步方向：**
+
+Step 7.5 完成。下一步是 Step 7.6（支持组合多个 provider 的宏）或 Step 8（如果计划中有）。
