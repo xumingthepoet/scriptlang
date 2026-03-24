@@ -14,7 +14,8 @@
   - list / list_concat builtin
   - test 63 通过
   - module_put 冲突检测 + test 65 通过
-- Step 6: Hygiene 扩展（6.1 ~ 6.2 完成，6.3 ~ 6.4 待实现）
+- Step 6: Hygiene 扩展（6.1 ~ 6.4 完成）
+- Step 7 待开始
 - Step 1: 真正的 Module-Qualified Remote Macro Dispatch
 
 ---
@@ -704,6 +705,14 @@ Status: in_progress
 验收：
 - `68-invalid-public-inject-conflict-reports-provider` 通过
 - `make gate` 通过
+
+**Status: completed** (2026-03-24)
+
+**实现细节：**
+- **根因**：`use_provider_module` 在 `expand_macro_hook`（macros.rs:95）中被设为原始 module 属性值（如 `"helper"`），此时 alias 解析尚未发生。`check_use_conflict` 收到的是未解析的名字。
+- **修复**：在 `builtin_require_module`（builtins.rs）中，当 `use_caller_module.is_some()`（处于 use 上下文）时，将 `use_provider_module` 更新为 alias 解析后的完整路径 `full_name`。此时 `use` 宏体内 `require_module` 已执行，解析已完成。
+- **副作用**：从 `expand_macro_hook` 中移除了 raw attribute → `use_provider_module` 的赋值（因为会被 `builtin_require_module` 立即覆盖）。
+- 集成测试 68：`main.xml` 有同名 public script，`helper.xml` 的 `__using__` 注入同名 script，期望错误包含 "helper"（resolved provider）、"main"（caller）、"conflict_script"（member）。
 
 **Step 6 完成定义：**
 - "隐藏 helper 靠手写 `__internal__` 命名规约"不再是主方案
