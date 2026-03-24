@@ -80,20 +80,10 @@ pub(super) fn expand_macro_hook(
     let is_use_macro = definition.module_name == "kernel" && form.head == "use";
     if is_use_macro {
         env.push_use_caller();
-        // Extract the target module from the invocation's `module` attribute
-        // and store it as the provider for conflict error reporting.
-        if let Some(module_attr) = form.fields.iter().find_map(|field| {
-            if field.name == "module" {
-                match &field.value {
-                    sl_core::FormValue::String(s) => Some(s.clone()),
-                    _ => None,
-                }
-            } else {
-                None
-            }
-        }) {
-            env.use_provider_module = Some(module_attr);
-        }
+        // NOTE: use_provider_module is NOT set here from the raw attribute.
+        // Step 6.4: It is set by builtin_require_module (in builtins.rs) after
+        // alias resolution, giving the fully qualified provider module name.
+        // This ensures check_use_conflict reports the resolved module path.
     }
     // Step 4.2: Track the invocation source location for caller_env and invoke_macro.
     // This meta is read by builtin_invoke_macro to correctly attribute remote invocations.

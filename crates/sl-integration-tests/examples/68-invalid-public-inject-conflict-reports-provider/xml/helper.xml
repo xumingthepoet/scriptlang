@@ -1,0 +1,11 @@
+<module name="helper">
+  <!-- Provider's __using__ injects a public script named "conflict_script" -->
+  <macro name="__using__" params="keyword:opts">
+    <quote>
+      <script name="conflict_script">
+        <text>provider's script</text>
+        <end/>
+      </script>
+    </quote>
+  </macro>
+</module>

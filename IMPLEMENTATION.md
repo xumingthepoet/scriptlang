@@ -899,9 +899,9 @@ Provider module 通过 `<macro name="__using__" params="keyword:opts">` 暴露 h
 - 所有 59 个集成测试通过
 - `make gate` 通过
 
-## Step 6: Hygiene、冲突检测和错误定位（2026-03-23）
+## Step 6: Hygiene、冲突检测和错误定位（2026-03-24）
 
-完成状态：已完成
+完成状态：已完成（6.1 ~ 6.4）
 
 ### 架构变更
 
@@ -960,6 +960,28 @@ error expanding `inner` from `helper` (called from `main`): macro body must retu
 
 #### Hygiene 机制
 
+##### Step 6.2: 隐藏 script 的 hygienic rename
+
+- `hidden="true"` 属性标记隐藏 helper（script/function/const）
+- `is_hidden(form)` 函数识别隐藏标记
+- `hygienic_hidden_name(env, provider, name)` 生成 hygienic name：`__h_{provider}_{name}_{counter}`
+- `process_hidden_helper()` 在 `use` 注入上下文中对隐藏 helper 自动重命名
+- 隐藏 helper 不进入 `check_use_conflict` 冲突检测（因为名字已被重命名）
+- 集成测试 66: `66-use-hidden-script-gensym`
+
+##### Step 6.3: 隐藏 function 和 const 的 hygienic rename
+
+- 扩展 hygienic rename 到 `<function>` 和 `<const>` 定义
+- 关键 bug fix：`process_form` 中 const 处理使用 `process_hidden_helper` 返回的重命名 form（而非原始 form）
+- 集成测试 67: `67-use-hidden-function-gensym`
+
+##### Step 6.4: 统一公开注入冲突的错误报告格式
+
+- **问题**：`use_provider_module` 在 `expand_macro_hook` 中被设为原始 module 属性值（如 `"helper"`），而非 resolved 路径（如 `"main.helper"`）
+- **修复**：`builtin_require_module` 在 `use` 上下文中（`use_caller_module.is_some()`）将 `use_provider_module` 更新为 alias 解析后的完整路径
+- **效果**：冲突错误消息中 provider module 字段为 resolved name，而非原始属性值
+- 集成测试 68: `68-invalid-public-inject-conflict-reports-provider`
+
 - `<temp>` 元素通过 gensym 自动重命名：`__macro_{macro_name}_{seed}_{prefix}_{counter}`
 - 隐藏的 helper 名不会污染 caller 命名空间
 
@@ -973,20 +995,30 @@ error expanding `inner` from `helper` (called from `main`): macro body must retu
 - `crates/sl-compiler/src/semantic/expand/module_reducer.rs`
   - `ProcessedItem::RequeueFromUse` 变体
   - `check_use_conflict()` 函数
+  - `process_hidden_helper()` 函数（Step 6.2/6.3）
+  - `hygienic_hidden_name()` / `is_hidden()` 函数（Step 6.2）
   - 延迟 pop 机制（在所有 requeued items 处理后）
 - `crates/sl-compiler/src/semantic/expand/macros.rs`
   - `expand_macro_hook` 不再立即 pop（由 reducer 负责）
+  - `use_provider_module` 不再在 hook 中从原始属性设置（由 builtin_require_module 处理，Step 6.4）
 - `crates/sl-compiler/src/semantic/macro_lang/builtins.rs`
   - `invoke_macro` 错误消息包含 caller/provider 上下文
+  - `builtin_require_module` 在 use 上下文中更新 `use_provider_module` 为 resolved name（Step 6.4）
 
 ### 测试状态
 
-- 所有现有测试通过（219 compiler unit tests + 62 integration tests）
-- 新增集成测试 60/61/62
+- 所有现有测试通过（251 compiler unit tests + 68 integration tests）
+- 新增集成测试 60/61/62/63/64/65/66/67/68
   - 60: 验证 `caller_env()` 包含 file/line/column/macro_name
   - 61: 验证 `use` 冲突错误包含 provider 和 caller 信息
   - 62: 验证嵌套宏失败时 expansion trace 显示完整调用链
-- Coverage: 89.99% lines, 93.46% functions
+  - 63: 验证 registry accumulation via `use`
+  - 64: module state read after write
+  - 65: 验证 module_put 冲突检测
+  - 66: 验证 hidden script gensym（无冲突）
+  - 67: 验证 hidden function/const gensym（无冲突）
+  - 68: 验证公开注入冲突错误包含 resolved provider module path
+- Coverage: 90.14% lines, 93.48% functions
 - `make gate` 通过
 
 ## Step 5: Module-Level Compile-Time Accumulation（2026-03-24）

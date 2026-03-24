@@ -791,6 +791,14 @@ fn builtin_require_module(
         .cloned()
         .unwrap_or_else(|| module_ref.clone());
 
+    // Step 6.4: When inside a `use` context, track the resolved provider module name
+    // so that check_use_conflict can report the fully qualified provider module path.
+    // expand_macro_hook sets use_provider_module to the raw attribute value;
+    // here we upgrade it to the resolved name after alias expansion.
+    if expand_env.use_caller_module.is_some() {
+        expand_env.use_provider_module = Some(full_name.clone());
+    }
+
     // Also check expand_env.module.requires for the expanded name (in case already added)
     let already_required = macro_env.requires.contains(&module_ref)
         || macro_env.requires.contains(&full_name)

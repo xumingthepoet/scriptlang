@@ -1,0 +1,10 @@
+<module name="main">
+  <!-- Caller already defines a public script named "conflict_script" -->
+  <script name="conflict_script">
+    <text>caller's script</text>
+    <end/>
+  </script>
+  <!-- use tries to inject a public script with the same name - conflict! -->
+  <!-- Error must report: provider module (helper), caller module (main), member name (conflict_script) -->
+  <use module="helper"/>
+</module>
