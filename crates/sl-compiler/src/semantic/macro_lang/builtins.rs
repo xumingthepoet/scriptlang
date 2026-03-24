@@ -77,6 +77,8 @@ impl BuiltinRegistry {
         // New compile-time utilities
         self.register("keyword_get", builtin_keyword_get);
         self.register("keyword_has", builtin_keyword_has);
+        self.register("keyword_keys", builtin_keyword_keys);
+        self.register("keyword_pairs", builtin_keyword_pairs);
         self.register("list_length", builtin_list_length);
         self.register("to_string", builtin_to_string);
         self.register("keyword_attr", builtin_keyword_attr);
@@ -513,6 +515,75 @@ fn builtin_keyword_has(
     };
 
     Ok(CtValue::Bool(keyword.iter().any(|(k, _)| k == key)))
+}
+
+/// Step 7.3: `keyword_keys(keyword)`: Get all keys from a keyword list.
+fn builtin_keyword_keys(
+    args: &[CtValue],
+    _macro_env: &mut MacroEnv,
+    _ct_env: &mut CtEnv,
+    _expand_env: &mut ExpandEnv,
+    _: &BuiltinRegistry,
+) -> BuiltinResult {
+    if args.len() != 1 {
+        return Err(ScriptLangError::Message {
+            message: "keyword_keys() requires exactly 1 argument".to_string(),
+        });
+    }
+
+    let keyword = match &args[0] {
+        CtValue::Keyword(kv) => kv,
+        other => {
+            return Err(ScriptLangError::Message {
+                message: format!(
+                    "keyword_keys() argument must be keyword, got {}",
+                    other.type_name()
+                ),
+            });
+        }
+    };
+
+    let keys: Vec<CtValue> = keyword
+        .iter()
+        .map(|(k, _)| CtValue::String(k.clone()))
+        .collect();
+
+    Ok(CtValue::List(keys))
+}
+
+/// Step 7.3: `keyword_pairs(keyword)`: Get all key-value pairs from a keyword list.
+/// Returns a list of [key, value] pairs.
+fn builtin_keyword_pairs(
+    args: &[CtValue],
+    _macro_env: &mut MacroEnv,
+    _ct_env: &mut CtEnv,
+    _expand_env: &mut ExpandEnv,
+    _: &BuiltinRegistry,
+) -> BuiltinResult {
+    if args.len() != 1 {
+        return Err(ScriptLangError::Message {
+            message: "keyword_pairs() requires exactly 1 argument".to_string(),
+        });
+    }
+
+    let keyword = match &args[0] {
+        CtValue::Keyword(kv) => kv,
+        other => {
+            return Err(ScriptLangError::Message {
+                message: format!(
+                    "keyword_pairs() argument must be keyword, got {}",
+                    other.type_name()
+                ),
+            });
+        }
+    };
+
+    let pairs: Vec<CtValue> = keyword
+        .iter()
+        .map(|(k, v)| CtValue::List(vec![CtValue::String(k.clone()), v.clone()]))
+        .collect();
+
+    Ok(CtValue::List(pairs))
 }
 
 /// `list_length(list)`: Get the length of a list.

@@ -1378,8 +1378,8 @@ Use module_update() to overwrite, or choose a different key name.
 |------|------|------|
 | macro introspection | `attr`, `content`, `has_attr` | — |
 | string conversion | `parse_bool`, `parse_int`, `to_string` | — |
-| keyword ops | `keyword_get`, `keyword_has`, `keyword_attr` | `keyword_pairs`, `keyword_iter`, `keyword_map`, `keyword_fold` |
-| list ops | `list`, `list_concat`, `list_length` | `list_map`, `list_fold`, `list_foreach`, `list_filter` |
+| keyword ops | `keyword_get`, `keyword_has`, `keyword_attr`, `keyword_keys`, `keyword_pairs` | `keyword_iter`, `keyword_map`, `keyword_fold` |
+| list ops | `list`, `list_concat`, `list_length`, `list_foreach`, `list_map`, `list_fold` | `list_filter` |
 | module/require | `caller_env`, `caller_module`, `expand_alias`, `require_module`, `define_import`, `define_alias`, `define_require` | — |
 | remote macro | `invoke_macro` | — |
 | AST read | `ast_head`, `ast_children`, `ast_attr_get`, `ast_attr_keys` | `ast_tail`, `ast_zip` |

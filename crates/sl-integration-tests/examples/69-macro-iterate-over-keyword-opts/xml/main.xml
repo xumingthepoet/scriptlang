@@ -1,0 +1,31 @@
+<module name="main">
+  <!-- Test Step 7.3: Simple keyword_keys test -->
+
+  <macro name="test_keys" params="keyword:opts">
+    <!-- Get all keys from opts -->
+    <let name="keys" type="ast">
+      <builtin name="keyword_keys">
+        <var name="opts"/>
+      </builtin>
+    </let>
+
+    <!-- Count keys using list_length -->
+    <let name="count" type="int">
+      <builtin name="list_length">
+        <var name="keys"/>
+      </builtin>
+    </let>
+
+    <!-- Return simple text -->
+    <quote>
+      <text>found keys</text>
+    </quote>
+  </macro>
+
+  <script name="main">
+    <!-- Use the macro with 3 keyword opts -->
+    <test_keys a="1" b="2" c="3"/>
+
+    <end/>
+  </script>
+</module>

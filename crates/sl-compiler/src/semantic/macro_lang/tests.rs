@@ -5673,4 +5673,198 @@ mod ct_lang_tests {
         .expect_err("should error on non-list");
         assert!(err.to_string().contains("must be list"));
     }
+
+    // ========== Step 7.3: keyword_keys / keyword_pairs tests ==========
+
+    #[test]
+    fn builtin_keyword_keys_basic() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = ExpandEnv::default();
+        let mut ct_env = CtEnv::new();
+        let mut macro_env = MacroEnv::default();
+
+        let keyword = CtValue::Keyword(vec![
+            ("name".to_string(), CtValue::String("Alice".to_string())),
+            ("age".to_string(), CtValue::Int(30)),
+            ("active".to_string(), CtValue::Bool(true)),
+        ]);
+
+        let result = builtins.get("keyword_keys").unwrap()(
+            &[keyword],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect("keyword_keys should succeed");
+
+        let keys = match result {
+            CtValue::List(items) => items,
+            _ => panic!("expected list, got {:?}", result),
+        };
+
+        assert_eq!(keys.len(), 3);
+        assert!(keys.contains(&CtValue::String("name".to_string())));
+        assert!(keys.contains(&CtValue::String("age".to_string())));
+        assert!(keys.contains(&CtValue::String("active".to_string())));
+    }
+
+    #[test]
+    fn builtin_keyword_keys_empty() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = ExpandEnv::default();
+        let mut ct_env = CtEnv::new();
+        let mut macro_env = MacroEnv::default();
+
+        let keyword = CtValue::Keyword(vec![]);
+
+        let result = builtins.get("keyword_keys").unwrap()(
+            &[keyword],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect("keyword_keys should succeed on empty keyword");
+
+        assert_eq!(result, CtValue::List(vec![]));
+    }
+
+    #[test]
+    fn builtin_keyword_keys_wrong_arg_count_errors() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = ExpandEnv::default();
+        let mut ct_env = CtEnv::new();
+        let mut macro_env = MacroEnv::default();
+
+        let err = builtins.get("keyword_keys").unwrap()(
+            &[],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect_err("should error on 0 args");
+        assert!(err.to_string().contains("requires exactly 1"));
+    }
+
+    #[test]
+    fn builtin_keyword_keys_wrong_type_errors() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = ExpandEnv::default();
+        let mut ct_env = CtEnv::new();
+        let mut macro_env = MacroEnv::default();
+
+        let err = builtins.get("keyword_keys").unwrap()(
+            &[CtValue::String("not a keyword".to_string())],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect_err("should error on non-keyword");
+        assert!(err.to_string().contains("must be keyword"));
+    }
+
+    #[test]
+    fn builtin_keyword_pairs_basic() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = ExpandEnv::default();
+        let mut ct_env = CtEnv::new();
+        let mut macro_env = MacroEnv::default();
+
+        let keyword = CtValue::Keyword(vec![
+            ("name".to_string(), CtValue::String("Alice".to_string())),
+            ("age".to_string(), CtValue::Int(30)),
+        ]);
+
+        let result = builtins.get("keyword_pairs").unwrap()(
+            &[keyword],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect("keyword_pairs should succeed");
+
+        let pairs = match result {
+            CtValue::List(items) => items,
+            _ => panic!("expected list, got {:?}", result),
+        };
+
+        assert_eq!(pairs.len(), 2);
+
+        // Check first pair [key, value]
+        let pair1 = match &pairs[0] {
+            CtValue::List(items) => items.clone(),
+            _ => panic!("expected pair as list"),
+        };
+        assert_eq!(pair1[0], CtValue::String("name".to_string()));
+        assert_eq!(pair1[1], CtValue::String("Alice".to_string()));
+
+        // Check second pair [key, value]
+        let pair2 = match &pairs[1] {
+            CtValue::List(items) => items.clone(),
+            _ => panic!("expected pair as list"),
+        };
+        assert_eq!(pair2[0], CtValue::String("age".to_string()));
+        assert_eq!(pair2[1], CtValue::Int(30));
+    }
+
+    #[test]
+    fn builtin_keyword_pairs_empty() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = ExpandEnv::default();
+        let mut ct_env = CtEnv::new();
+        let mut macro_env = MacroEnv::default();
+
+        let keyword = CtValue::Keyword(vec![]);
+
+        let result = builtins.get("keyword_pairs").unwrap()(
+            &[keyword],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect("keyword_pairs should succeed on empty keyword");
+
+        assert_eq!(result, CtValue::List(vec![]));
+    }
+
+    #[test]
+    fn builtin_keyword_pairs_wrong_arg_count_errors() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = ExpandEnv::default();
+        let mut ct_env = CtEnv::new();
+        let mut macro_env = MacroEnv::default();
+
+        let err = builtins.get("keyword_pairs").unwrap()(
+            &[CtValue::Keyword(vec![]), CtValue::Keyword(vec![])],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect_err("should error on 2 args");
+        assert!(err.to_string().contains("requires exactly 1"));
+    }
+
+    #[test]
+    fn builtin_keyword_pairs_wrong_type_errors() {
+        let builtins = BuiltinRegistry::new();
+        let mut expand_env = ExpandEnv::default();
+        let mut ct_env = CtEnv::new();
+        let mut macro_env = MacroEnv::default();
+
+        let err = builtins.get("keyword_pairs").unwrap()(
+            &[CtValue::List(vec![])],
+            &mut macro_env,
+            &mut ct_env,
+            &mut expand_env,
+            &builtins,
+        )
+        .expect_err("should error on non-keyword");
+        assert!(err.to_string().contains("must be keyword"));
+    }
 }
