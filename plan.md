@@ -1317,3 +1317,27 @@ Status: **in_progress**
 - Step 7.3: 新增 keyword opts 遍历能力（`keyword_keys` / `keyword_pairs`）
 - 实现 `69-macro-iterate-over-keyword-opts` 集成测试
 
+
+### Step 7.3: 新增 keyword opts 遍历能力 (2026-03-24)
+
+**本次做了什么：**
+- 新增 builtin：
+  - `keyword_keys(keyword)` → 返回所有 key 的 list（Vec<String>）
+  - `keyword_pairs(keyword)` → 返回所有 [key, value] pair 的 list（Vec<List>）
+- 写单元测试覆盖正常路径和空 keyword 边界（8 个测试）
+- 创建集成测试 `69-macro-iterate-over-keyword-opts` 验证功能
+- 更新 IMPLEMENTATION.md builtin 审计表格
+
+**本次发现的问题、踩的坑：**
+- 测试 XML 语法需要使用旧的模板宏语法（`<let name="..." type="...">`），而不是新的 compile-time language
+- `<builtin>` 不能嵌套在 `<text>` 内部（MVP 限制）
+- 宏体必须返回 AST，`list_foreach` 返回 Nil 所以不能作为最后的表达式
+- `keyword_keys` / `keyword_pairs` 返回的 list 可以配合 `list_foreach` / `list_map` / `list_fold` 使用
+
+**验收达成：**
+- 所有单元测试通过（14 个 keyword 相关测试）
+- 集成测试 `69-macro-iterate-over-keyword-opts` 通过
+- `make gate` 通过（cargo check / fmt / clippy / test / coverage）
+
+**下一步方向：**
+- Step 7.4: 新增 match / case 风格的 compile-time 匹配分支
