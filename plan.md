@@ -667,6 +667,8 @@ Status: in_progress
 
 ### Step 6.3: 让函数和 const 也支持 hygienic rename
 
+**Status: completed** (2026-03-24)
+
 **目标：** 函数和 const 的隐藏 helper 也不污染 caller。
 
 前置：Step 6.2 已完成。
@@ -677,6 +679,16 @@ Status: in_progress
 
 验收：
 - `67-use-hidden-function-gensym` 通过
+
+**实现细节：**
+
+- **Bug fix**：`module_reducer.rs:231` 的 const 处理原来传了原始 `&form` 给 `expand_const_form`，丢弃了 `process_hidden_helper` 返回的重命名 form。修复：使用 `process_hidden_helper` 返回的 form。
+- `function` 的 hygienic rename 本身已正确（使用重命名后的 name 做 `declare_function`）。
+- 3 个新增单元测试（`module_reducer.rs`）：
+  - `hidden_const_no_conflict_when_caller_has_same_name`：caller 已有 "cfg"，helper 注入 hidden "cfg"，无冲突，hygienic name 包含 "cfg"，caller 版本保持不变
+  - `hidden_function_no_conflict_when_caller_has_same_name`：同上针对 function
+  - `hidden_const_registered_under_hygienic_name_when_no_caller_conflict`：无冲突时 hidden const 仍注册为 hygienic name
+- 集成测试 67：helper 注入 hidden `<function name="init">` 和 `<const name="cfg">`，main 定义同名 function/const，两者共存，输出 `cfg=caller_value`
 
 ### Step 6.4: 统一公开注入冲突的错误报告格式
 
@@ -1215,3 +1227,21 @@ Status: pending
 - **5.4.2**：运行 make gate + 更新 IMPLEMENTATION.md
 
 **关键改变**：每个子步骤增加"显式禁止"条款，规定不得修改哪些文件/添加哪些 builtin。每个步骤限制为"1 个 builtin + 其单元测试"，不允许跨步骤追加。
+
+### Step 6.3: 让函数和 const 也支持 hygienic rename (2026-03-24)
+
+**本次做了什么：**
+- **Bug fix**：`module_reducer.rs:231` 的 const 处理路径丢弃了 `process_hidden_helper` 返回的重命名 form。`process_hidden_helper` 对 hidden 注入返回 `(hygienic_name, renamed_form)`，但原代码用 `&form`（原始 form）调用 `expand_const_form`，导致 hygienic name 丢失。修复：使用 `process_hidden_helper` 返回的 form。
+- `function` 的 hygienic rename 本身已正确（使用重命名后的 name 做 `declare_function`），无需代码修改。
+- 新增 3 个单元测试验证 hidden const/function 的 hygienic rename 行为（无冲突、caller 版本保持不变、hygienic name 格式正确）。
+- 新增集成测试 67：helper 注入 hidden `<function name="init">` 和 `<const name="cfg">`，main 定义同名 function/const，`use` 后两者共存，输出 `text cfg=caller_value`。
+
+**本次发现的问题、踩的坑：**
+- `process_hidden_helper` 对非 hidden 情况返回 `form.clone()`（不是原 `&form`），对 hidden 情况返回重命名后的 form。原代码用 `&form` 而非返回的 form，导致 hidden case 下重命名被丢弃。
+- `BTreeSet::declared_names()` 返回 `BTreeSet<String>` 而非 `Iterator`，需要用 `.iter().find(...)` 而非 `.find(...)`。
+- Rust `assert!` 不支持 `{}` 插值格式（`{name}`），需用 `assert!(condition, "message {}", var)` 格式。
+- 单元测试中的 `ExpandEnv` 模拟 use-injection 上下文：需同时设置 `use_caller_module` 和 `use_provider_module`。
+- 集成测试中 `<const type="string">value</const>` 的值是 Rhai 表达式，`caller_value` 被解析为对 `caller_value` 变量的引用。正确写法：`<const type="string">"caller_value"</const>`（带引号）。
+
+**下一步方向：**
+- Step 6.4：统一公开注入冲突的错误报告格式（`check_use_conflict` 使用结构化信息而非字符串拼接）
