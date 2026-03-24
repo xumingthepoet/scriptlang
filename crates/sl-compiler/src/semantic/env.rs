@@ -68,6 +68,21 @@ pub(crate) struct ExpandEnv {
     /// Set by `expand_macro_hook` before expanding a macro body.
     /// Read by `builtin_invoke_macro` to correctly attribute remote macro invocations.
     pub(crate) caller_invocation_meta: Option<sl_core::FormMeta>,
+    /// Expansion trace stack for debugging nested macro failures (Step 4.4).
+    /// Each entry records a macro invocation in the current expansion chain.
+    /// Only populated when a macro expansion fails (lazy).
+    pub(crate) expansion_trace: Vec<TraceEntry>,
+}
+
+/// A single entry in the macro expansion trace.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct TraceEntry {
+    /// Name of the macro being expanded (e.g. "outer", "inner", "__using__")
+    pub(crate) macro_name: String,
+    /// Module in which the macro is defined
+    pub(crate) module_name: String,
+    /// Human-readable source location (e.g. "main.xml:10:3")
+    pub(crate) location: String,
 }
 
 /// Macro parameter type in the new explicit parameter protocol.
@@ -105,6 +120,8 @@ pub(crate) struct MacroDefinition {
     pub(crate) body: Vec<FormItem>,
     /// Whether the macro is private to its defining module
     pub(crate) is_private: bool,
+    /// Source location of the macro definition (used for expansion trace).
+    pub(crate) meta: sl_core::FormMeta,
 }
 
 impl ExpandEnv {
@@ -298,6 +315,40 @@ impl ExpandEnv {
             }
         }
         false
+    }
+
+    /// Push a trace entry when entering macro expansion.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the stack already has 64 entries (prevents infinite macro loops).
+    pub(crate) fn push_expansion_trace(&mut self, entry: TraceEntry) {
+        assert!(
+            self.expansion_trace.len() < 64,
+            "macro expansion stack overflow (>64 levels)"
+        );
+        self.expansion_trace.push(entry);
+    }
+
+    /// Pop the most recent trace entry when macro expansion completes.
+    pub(crate) fn pop_expansion_trace(&mut self) {
+        self.expansion_trace.pop();
+    }
+
+    /// Format the current expansion trace as a string for error messages.
+    ///
+    /// Returns an empty string if the trace is empty.
+    pub(crate) fn format_expansion_trace(&self) -> String {
+        if self.expansion_trace.is_empty() {
+            return String::new();
+        }
+        let entries = self
+            .expansion_trace
+            .iter()
+            .map(|e| format!("{}.{} at {}", e.module_name, e.macro_name, e.location))
+            .collect::<Vec<_>>()
+            .join(" -> ");
+        format!(" (expansion trace: {entries})")
     }
 }
 

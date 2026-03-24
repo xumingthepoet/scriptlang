@@ -1139,6 +1139,9 @@ fn builtin_invoke_macro(
     // so that caller_env() in the remote macro sees the correct source location.
     // Fall back to dummy meta for nested invoke_macro calls (no caller context).
     let caller_meta = expand_env.caller_invocation_meta.clone();
+    // Step 4.4: Also save the definition meta so we can build the trace entry
+    // for the inner macro even after its trace entry has been popped.
+    let inner_definition_meta = definition.meta.clone();
     let synthetic_invocation_meta = caller_meta.unwrap_or_else(|| FormMeta {
         source_name: Some(format!("{} (via {})", resolved_module, caller_module)),
         start: SourcePosition { row: 0, column: 0 },
@@ -1156,17 +1159,54 @@ fn builtin_invoke_macro(
     // When remote macro expansion fails, error messages will now include
     // both the provider (where the macro is defined) and the caller
     // (where the use/invoke_macro call was made).
+    // Step 4.4: Capture the intermediate trace entries added during macro expansion
+    // (these will be popped before the error propagates, so we capture them now).
+    let trace_before_invoke = expand_env.expansion_trace.len();
     let expanded_items = expand_macro_invocation_public(
         definition,
         &synthetic_invocation,
         expand_env,
         ExpandRuleScope::Statement,
     )
-    .map_err(|e| ScriptLangError::Message {
-        message: format!(
-            "error expanding `{}` from `{}` (called from `{}`): {}",
-            macro_name, resolved_module, caller_module, e
-        ),
+    .map_err(|e| {
+        // Capture intermediate trace entries (added during this invoke) BEFORE they are popped.
+        // When the invoke fails, inner expand_macro_hook pops its entry before this handler runs,
+        // so we save the range [trace_before_invoke..] to get those entries.
+        let intermediate_entries: String = if trace_before_invoke < expand_env.expansion_trace.len()
+        {
+            expand_env.expansion_trace[trace_before_invoke..]
+                .iter()
+                .map(|e| format!("{}.{} at {}", e.module_name, e.macro_name, e.location))
+                .collect::<Vec<_>>()
+                .join(" -> ")
+        } else {
+            // Entries were already popped; reconstruct from saved definition meta.
+            format!(
+                "{}.{} at {}",
+                resolved_module,
+                macro_name,
+                location(&inner_definition_meta)
+            )
+        };
+        // Build the complete trace: intermediate entries (from invoke) + current entries (from outer).
+        let current_trace = expand_env.format_expansion_trace();
+        let complete_trace = crate::semantic::macro_lang::eval::format_full_trace(
+            &intermediate_entries,
+            &current_trace,
+        );
+        let trace_suffix = if complete_trace.is_empty() {
+            String::new()
+        } else {
+            format!(" (expansion trace: {})", complete_trace)
+        };
+
+        // Do NOT call with_expansion_trace here: we already built the complete trace.
+        ScriptLangError::Message {
+            message: format!(
+                "error expanding `{}` from `{}` (called from `{}`): {}{}",
+                macro_name, resolved_module, caller_module, e, trace_suffix
+            ),
+        }
     })?;
 
     Ok(CtValue::Ast(expanded_items))

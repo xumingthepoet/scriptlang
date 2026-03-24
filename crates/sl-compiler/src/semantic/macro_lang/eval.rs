@@ -8,6 +8,23 @@ use crate::semantic::expand::macro_values::MacroValue;
 use crate::semantic::expand::quote::quote_items;
 use sl_core::{Form, FormMeta, ScriptLangError, SourcePosition};
 
+/// Format a complete expansion trace including intermediate entries from a saved snapshot.
+/// Used by invoke_macro to attach the full trace when inner entries were already popped.
+pub fn format_full_trace(intermediate: &str, current: &str) -> String {
+    if intermediate.is_empty() {
+        current.to_string()
+    } else if current.is_empty() {
+        intermediate.to_string()
+    } else {
+        // Strip the " (expansion trace: " prefix from current before concatenating.
+        let current_entries = current
+            .strip_prefix(" (expansion trace: ")
+            .and_then(|s| s.strip_suffix(")"))
+            .unwrap_or(current);
+        format!("{} -> {}", intermediate, current_entries)
+    }
+}
+
 /// Result of evaluation (may return early).
 pub enum EvalResult {
     /// Normal completion with a value

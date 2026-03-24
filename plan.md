@@ -275,7 +275,7 @@ Status: **completed** (2026-03-24)
 
 ## Step 4: 丰富 Caller Env 与错误定位
 
-Status: in_progress
+Status: **completed** (2026-03-24)
 
 目标：让宏系统具备更接近 Elixir 的 caller 感知能力；让复杂宏链条里的错误报告可诊断。
 
@@ -366,6 +366,8 @@ Status: in_progress
 - 现有错误路径的单元测试不回归
 
 ### Step 4.4: 给嵌套宏失败补 expansion trace
+
+**Status: completed** (2026-03-24)
 
 **目标：** 嵌套宏报错时能看出调用链路。
 
@@ -944,3 +946,23 @@ Status: pending
 
 **下一步方向：**
 - Step 4.4：给嵌套宏失败补 expansion trace（`ExpandEnv` 中引入 `Vec<TraceEntry>` 追踪展开栈）
+
+### Step 4.4: 给嵌套宏失败补 expansion trace (2026-03-24)
+
+**本次做了什么：**
+- `ExpandEnv` 新增 `expansion_trace: Vec<TraceEntry>` 和 `TraceEntry` 结构体（macro_name/module_name/location）
+- `MacroDefinition` 新增 `meta: FormMeta` 字段，记录宏定义位置
+- `expand_macro_hook` 在宏展开入口压栈（`push_expansion_trace`）、出口弹栈（`pop_expansion_trace`）
+- `builtin_invoke_macro` 捕获展开前 trace 长度，在错误处理时重建完整调用链（即使内部条目已弹栈）
+- 新增 `format_full_trace()` 函数拼接 intermediate entries 和 current trace
+- 新增 `eval.rs::format_full_trace()` 用于 trace 格式化
+- 新增集成测试 62：验证嵌套宏失败时 trace 显示 `helper.inner at helper.xml:7:3 -> main.outer at main.xml:9:5`
+- 所有 219 compiler 单元测试通过，所有 62 集成测试通过，`make gate` 通过
+
+**本次发现的问题、踩的坑：**
+- `MacroDefinition` 新增 `meta` 字段后，所有测试代码中的 `MacroDefinition { ... }` 初始化都需要补 `meta: Default::default()`；通过给 `FormMeta` 和 `SourcePosition` 添加 `#[derive(Default)]` 解决了问题
+- Clippy `let_and_return` 警告：`let err = ...; err` 在 `.map_err(|e| { ... })?` 闭包中应直接返回表达式，不能用中间变量
+- 测试 62 错误输出行号验证：trace 中的行号是 invocation form 的位置（调用点），而非 definition 行号；`<end/>` 在 main.xml 第 9 行（1-indexed）
+
+**下一步方向：**
+- Step 5: Module-Level Compile-Time Accumulation（`ExpandEnv` 中引入 module-level state 存储）

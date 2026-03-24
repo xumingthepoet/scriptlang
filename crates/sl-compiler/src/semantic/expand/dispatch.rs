@@ -263,6 +263,7 @@ mod tests {
                 name: "hello".to_string(),
                 params: None,
                 body: vec![child(node("quote", vec![], vec![text("hi")]))],
+                meta: Default::default(),
                 is_private: false,
             })
             .expect("register macro");
@@ -311,6 +312,7 @@ mod tests {
                         child(node("text", vec![], vec![text("b")])),
                     ],
                 ))],
+                meta: Default::default(),
                 is_private: false,
             })
             .expect("register multi macro");
@@ -335,6 +337,7 @@ mod tests {
                         vec![child(node("unquote", vec![], vec![text("label")]))],
                     )),
                 ],
+                meta: Default::default(),
                 is_private: false,
             })
             .expect("register string macro");

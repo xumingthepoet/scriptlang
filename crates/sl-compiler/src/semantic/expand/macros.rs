@@ -3,8 +3,8 @@ use sl_core::{Form, FormItem, FormValue, ScriptLangError};
 use super::dispatch::{ExpandRuleScope, expand_generated_items};
 use super::macro_eval::evaluate_macro_items;
 use crate::names::qualified_member_name;
-use crate::semantic::env::{ExpandEnv, MacroDefinition, MacroParam};
-use crate::semantic::{child_forms, error_at, required_attr};
+use crate::semantic::env::{ExpandEnv, MacroDefinition, MacroParam, TraceEntry};
+use crate::semantic::{child_forms, error_at, location, required_attr};
 
 pub(super) fn collect_program_macros(
     forms: &[Form],
@@ -98,7 +98,20 @@ pub(super) fn expand_macro_hook(
     // Step 4.2: Track the invocation source location for caller_env and invoke_macro.
     // This meta is read by builtin_invoke_macro to correctly attribute remote invocations.
     env.caller_invocation_meta = Some(form.meta.clone());
-    expand_macro_invocation(definition, form, env, scope)
+
+    // Step 4.4: Push expansion trace entry before expanding.
+    // The trace is used to provide a call-stack-like view when nested macro expansion fails.
+    // Pop happens AFTER expand_macro_invocation returns (in expand_macro_hook caller),
+    // so that invoke_macro sees the full trace including this macro when reporting errors.
+    let trace_entry = TraceEntry {
+        macro_name: definition.name.clone(),
+        module_name: definition.module_name.clone(),
+        location: location(&form.meta),
+    };
+    env.push_expansion_trace(trace_entry);
+    let result = expand_macro_invocation(definition, form, env, scope);
+    env.pop_expansion_trace();
+    result
 }
 
 fn parse_macro_definition(
@@ -147,6 +160,7 @@ fn parse_macro_definition(
         params,
         body,
         is_private,
+        meta: form.meta.clone(),
     })
 }
 
@@ -220,6 +234,8 @@ fn expand_macro_invocation(
             FormItem::Form(_) => true,
         })
         .collect::<Vec<_>>();
+    // Note: trace entry is popped by expand_macro_hook after this function returns,
+    // so that invoke_macro sees the full trace when reporting errors.
     expand_generated_items(&expanded_items, env, scope)
 }
 
@@ -294,6 +310,7 @@ mod tests {
                 name: name.to_string(),
                 params: None,
                 body,
+                meta: Default::default(),
                 is_private: false,
             })
             .expect("register macro");
@@ -326,6 +343,7 @@ mod tests {
                     vec![],
                     vec![form_item("script", vec![("name", "main")], vec![])],
                 )],
+                meta: Default::default(),
                 is_private: false,
             })
             .expect_err("duplicate macro");

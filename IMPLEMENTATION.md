@@ -662,7 +662,7 @@ Step 2.5 消除了 `CtValue`、`MacroValue`、`quote/unquote` 之间的临时桥
 - Coverage: 90.12% lines, 92.64% functions
 - `make gate` 通过
 
-## Step 4: 远程宏调用和 Caller Env（2026-03-23）
+## Step 4: 远程宏调用和 Caller Env（2026-03-24）
 
 完成状态：已完成
 
@@ -942,6 +942,22 @@ but caller module `{caller}` already has a member with this name at {source}:{ro
 
 位置信息通过 `ExpandEnv.caller_invocation_meta: Option<FormMeta>` 传递，在宏展开入口由 `expand_macro_hook` 设置。
 
+#### Expansion Trace（Step 4.4）
+
+`ExpandEnv` 新增 `expansion_trace: Vec<TraceEntry>` 用于追踪嵌套宏展开链。`TraceEntry` 记录：
+- `macro_name`: 宏名
+- `module_name`: 宏定义所在模块
+- `location`: 源码位置（如 `"main.xml:9:5"`）
+
+每次宏展开入口由 `expand_macro_hook` 压栈，展开完成后弹栈（push/pop 配对）。
+
+当 `invoke_macro` 内部宏展开失败时，错误消息包含完整的展开栈：
+```
+error expanding `inner` from `helper` (called from `main`): macro body must return AST, got string (expansion trace: helper.inner at helper.xml:7:3 -> main.outer at main.xml:9:5)
+```
+
+`MacroDefinition` 新增 `meta: FormMeta` 字段，用于在 trace 中记录宏定义位置。
+
 #### Hygiene 机制
 
 - `<temp>` 元素通过 gensym 自动重命名：`__macro_{macro_name}_{seed}_{prefix}_{counter}`
@@ -950,8 +966,10 @@ but caller module `{caller}` already has a member with this name at {source}:{ro
 ### 代码落点
 
 - `crates/sl-compiler/src/semantic/env.rs`
-  - `use_caller_module` 字段
-  - `push_use_caller()` / `pop_use_caller()` / `caller_exports_has()`
+  - `TraceEntry` 结构体（macro_name, module_name, location）
+  - `ExpandEnv.expansion_trace: Vec<TraceEntry>`
+  - `push_expansion_trace()` / `pop_expansion_trace()` / `format_expansion_trace()`
+  - `MacroDefinition.meta: FormMeta`
 - `crates/sl-compiler/src/semantic/expand/module_reducer.rs`
   - `ProcessedItem::RequeueFromUse` 变体
   - `check_use_conflict()` 函数
@@ -963,12 +981,12 @@ but caller module `{caller}` already has a member with this name at {source}:{ro
 
 ### 测试状态
 
-- 所有现有测试通过（165 compiler unit tests + 7 runtime tests + 17 integration tests）
-- 新增集成测试 45/46/47
-  - 45: 验证 hidden helper 不污染 caller
-  - 46: 验证公开成员冲突检测
-  - 47: 验证 `use` 注入后后续 form 可用
-- Coverage: 90.02% lines, 92.22% functions
+- 所有现有测试通过（219 compiler unit tests + 62 integration tests）
+- 新增集成测试 60/61/62
+  - 60: 验证 `caller_env()` 包含 file/line/column/macro_name
+  - 61: 验证 `use` 冲突错误包含 provider 和 caller 信息
+  - 62: 验证嵌套宏失败时 expansion trace 显示完整调用链
+- Coverage: 89.99% lines, 93.46% functions
 - `make gate` 通过
 
 ## Step 7: 支持 nested module / private 边界上的 `use`（2026-03-23）

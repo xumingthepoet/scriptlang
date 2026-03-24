@@ -1124,6 +1124,7 @@ mod ct_lang_tests {
                     name: "label".to_string(),
                 }]),
                 body: macro_body,
+                meta: Default::default(),
                 is_private: false,
             })
             .expect("register macro");
@@ -3128,6 +3129,7 @@ mod ct_lang_tests {
                     name: "opts".to_string(),
                 }]),
                 body: macro_body,
+                meta: Default::default(),
                 is_private: false,
             })
             .expect("register macro");
@@ -3220,6 +3222,7 @@ mod ct_lang_tests {
                 name: "__using__".to_string(),
                 params: None,
                 body: macro_body,
+                meta: Default::default(),
                 is_private: false,
             })
             .expect("register macro");
@@ -3313,6 +3316,7 @@ mod ct_lang_tests {
                     name: "opts".to_string(),
                 }]),
                 body: macro_body,
+                meta: Default::default(),
                 is_private: false,
             })
             .expect("register macro");
@@ -3913,6 +3917,7 @@ mod ct_lang_tests {
                     name: "opts".to_string(),
                 }]),
                 body: macro_body,
+                meta: Default::default(),
                 is_private: true, // This is a private macro
             })
             .expect("register macro");

@@ -1,0 +1,12 @@
+<module name="helper">
+  <script name="entry">
+    <end/>
+  </script>
+  <!-- inner returns a string via literal (not AST), causing expansion to fail.
+       The error trace should show main.outer -> helper.inner -->
+  <macro name="inner" params="">
+    <return>
+      <literal value="error string"/>
+    </return>
+  </macro>
+</module>

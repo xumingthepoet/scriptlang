@@ -5,7 +5,7 @@ pub struct Form {
     pub fields: Vec<FormField>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct FormMeta {
     pub source_name: Option<String>,
     pub start: SourcePosition,
@@ -14,7 +14,7 @@ pub struct FormMeta {
     pub end_byte: usize,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct SourcePosition {
     pub row: u32,
     pub column: u32,

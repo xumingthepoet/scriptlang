@@ -1,0 +1,1 @@
+error expanding `inner` from `helper` (called from `main`): macro body must return AST, got string (expansion trace: helper.inner at helper.xml:7:3 -> main.outer at main.xml:9:5)

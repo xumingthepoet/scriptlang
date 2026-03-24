@@ -1,0 +1,12 @@
+<module name="main">
+  <require name="helper"/>
+  <!-- outer macro calls helper.inner via invoke_macro. inner returns a string (not AST),
+       causing expansion to fail. The error trace shows both levels. -->
+  <macro name="outer" params="string:module_name,keyword:opts">
+    <invoke_macro module="module_name" macro_name="inner" opts="opts"/>
+  </macro>
+  <script name="main">
+    <outer module_name="helper"/>
+    <end/>
+  </script>
+</module>

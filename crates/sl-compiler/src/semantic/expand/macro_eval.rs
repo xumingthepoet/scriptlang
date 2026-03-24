@@ -33,17 +33,11 @@ pub(crate) fn evaluate_macro_items(
         ct_env.set(name.clone(), macro_value_to_ct_value(mv));
     }
 
-    let result = eval_block(&block, &mut runtime, &mut ct_env, &builtins, env).map_err(
-        |e: ScriptLangError| ScriptLangError::Message {
-            message: e.to_string(),
-        },
-    )?;
+    // Errors propagate without trace from eval_block.
+    // The expansion trace will be added at the top level by invoke_macro (builtins.rs).
+    let result = eval_block(&block, &mut runtime, &mut ct_env, &builtins, env)?;
 
-    let value = result
-        .into_value()
-        .map_err(|e: ScriptLangError| ScriptLangError::Message {
-            message: e.to_string(),
-        })?;
+    let value = result.into_value()?;
 
     match value {
         crate::semantic::macro_lang::CtValue::Ast(items) => Ok(items),
