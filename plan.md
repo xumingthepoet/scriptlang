@@ -15,7 +15,7 @@
   - test 63 通过
   - module_put 冲突检测 + test 65 通过
 - Step 6: Hygiene 扩展（6.1 ~ 6.4 完成）
-- Step 7 待开始（7.1 审计中）
+- Step 7: Compile-time language 已能承载下一阶段 narrative DSL 宏库（7.1-7.6 全部完成 2026-03-24）
 - Step 1: 真正的 Module-Qualified Remote Macro Dispatch
 
 ---
@@ -722,7 +722,7 @@ Status: **completed** (2026-03-24)
 
 ## Step 7: 把 Compile-Time Language 提升成可承载 Narrative DSL 宏库的子语言
 
-Status: **in_progress** (Step 7.5 completed 2026-03-24)
+Status: **已完成** (2026-03-24, Step 7.6 完成)
 
 目标：不追求把 compile-time language 做成第二个 Elixir，但必须让它具备足够的组合能力。
 
@@ -821,6 +821,8 @@ Status: **in_progress** (Step 7.5 completed 2026-03-24)
 
 ### Step 7.6: 支持组合多个 provider 的宏
 
+**Status: completed** (2026-03-24)
+
 **目标：** 一个 provider 的 `__using__` 内部能安全地组合另一个 provider 的宏。
 
 前置：Step 7.5 已完成，Step 1 的 module-qualified dispatch 已完成。
@@ -858,15 +860,15 @@ Status: **in_progress** (Step 7.5 completed 2026-03-24)
 只有当以下条件同时满足，这个阶段才算完成：
 
 - Step 1: 远程宏调用是严格的 module-qualified dispatch ✓
-- Step 2: compile-time value / quote / remote invoke 模型统一
-- Step 3: AST 是一等 compile-time 数据
-- Step 4: caller env 和错误定位足够支撑真实宏库开发
-- Step 5: module-level compile-time accumulation 已可用于 DSL 注册模式
-- Step 6: hygiene 扩展到隐藏 helper 定义层
-- Step 7: compile-time language 已能承载下一阶段 narrative DSL 宏库
-- 所有步骤对应的 examples 和单元测试都已补齐
-- `make gate` 通过
-- `IMPLEMENTATION.md` 已同步到当前真实状态
+- Step 2: compile-time value / quote / remote invoke 模型统一 ✓
+- Step 3: AST 是一等 compile-time 数据 ✓
+- Step 4: caller env 和错误定位足够支撑真实宏库开发 ✓
+- Step 5: module-level compile-time accumulation 已可用于 DSL 注册模式 ✓
+- Step 6: hygiene 扩展到隐藏 helper 定义层 ✓
+- Step 7: compile-time language 已能承载下一阶段 narrative DSL 宏库 ✓（Step 7.1-7.6 全部完成）
+- 所有步骤对应的 examples 和单元测试都已补齐 ✓
+- `make gate` 通过 ✓
+- `IMPLEMENTATION.md` 已同步到当前真实状态 ✓
 
 ---
 
@@ -1427,3 +1429,31 @@ Status: **in_progress** (Step 7.5 completed 2026-03-24)
 **下一步方向：**
 
 Step 7.5 完成。下一步是 Step 7.6（支持组合多个 provider 的宏）或 Step 8（如果计划中有）。
+
+### Step 7.6: 支持组合多个 provider 的宏（2026-03-24）
+
+**本次做了什么：**
+- 实现集成测试 `72-macro-compose-use-provider`：composer.__using__ 中 require_module + invoke_macro 组合 sub.make_text
+- 修改 `parse_module_from_child`（convert.rs）：新增 `"literal"` 分支，`<invoke_macro>` 现在接受 `<literal>` 子元素传递字面量模块名
+- 修复 `parse_module_from_child`：跳过 leading whitespace text node（XML 缩进导致的空文本节点导致 "child must be a form element" 错误）
+- 更新 2 个 compiler 单元测试的错误消息断言（新增 `<literal>` 后的消息变更）
+
+**本次发现的问题、踩的坑：**
+
+1. **`<invoke_macro module="sub">` 被当作变量引用**：当 `module` 属性是字母数字字符串（"sub"）时，`convert_expr_form` 将其当作 `CtExpr::Var { name: "sub" }`，导致 "Undefined variable: sub" 错误。解决：使用 `<literal>` 子元素 `<invoke_macro macro_name="..." opts="..."><literal value="sub"/></invoke_macro>`，触发 `parse_module_from_child` 路径
+
+2. **`<invoke_macro>` 不能作为 `<let>` 的 provider**：`convert_provider_to_expr` 不支持 `"invoke_macro"` 作为 let provider 类型。解决：将 `<invoke_macro>` 放在宏体顶层（`convert_form_to_stmt` 对 `invoke_macro` 直接生成 `Return { expr }` 语句）
+
+3. **`<let>` 只支持特定 provider 类型**：`<let>` 的 provider（子元素）只能是 `caller_module`、`get-attribute`、`keyword_attr`、`content`、`builtin` 等，不支持 `invoke_macro`。因此 `__using__` 中的 `invoke_macro` 必须作为顶层语句而非 let 值
+
+4. **Leading whitespace text node**：`<invoke_macro>` 内部的 XML 缩进产生空白文本节点，`children.first()` 取到 `FormItem::Text("")` 而非 `FormItem::Form(<literal>)`。解决：参考 `child_form_at` 的模式，跳过 `text.trim().is_empty()` 的节点
+
+**下一步方向：**
+
+Step 7.6 完成。Step 7 完成定义达成：
+- list/map/fold/foreach builtin ✅
+- keyword_keys/pairs builtin ✅
+- match/case builtin ✅
+- LazyQuote 批量 AST 生成 ✅
+- Provider 组合（require_module + invoke_macro）✅
+- `make gate` 通过（282 compiler 单元测试 + 72 集成测试，coverage 90.19%）
