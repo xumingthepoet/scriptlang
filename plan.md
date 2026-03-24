@@ -335,6 +335,8 @@ Status: in_progress
 
 ### Step 4.2: 补全 caller_env 的基础字段（module、file、line）
 
+**Status: completed** (2026-03-24)
+
 **目标：** `caller_env()` 至少返回当前模块、源文件、行列。
 
 前置：Step 4.1 已完成。
@@ -905,3 +907,24 @@ Status: pending
 
 **下一步方向：**
 - Step 3.4.4：运行 make gate 并更新 IMPLEMENTATION.md
+
+### Step 4.2: 补全 caller_env 的基础字段（module、file、line）（2026-03-24）
+
+**本次做了什么：**
+- `MacroEnv` 新增 `source_file: Option<String>`、`line: Option<u32>`、`column: Option<u32>` 字段
+- 新增 `MacroEnv::from_invocation_with_invocation()` 接收 `invocation: Option<&Form>` 并从中提取 meta
+- `builtin_caller_env()` 暴露 `macro_name`（修复：原来缺失）、`file`、`line`、`column` 四个新字段
+- `bind_explicit_params` 改用 `from_invocation_with_invocation` 传递 invocation form
+- **Bug fix**：`expand_macro_invocation` 现在正确设置 `runtime.macro_name = definition.name.clone()`（之前 `bind_explicit_params` 传空字符串 `""`）
+- `ExpandEnv` 新增 `caller_invocation_meta: Option<FormMeta>` 字段，由 `expand_macro_hook` 在宏展开入口设置
+- `builtin_invoke_macro` 使用 `caller_invocation_meta` 替代 dummy meta（`row:0,column:0`），使远程宏的 `caller_env()` 能报告正确源码位置
+- 新增单元测试覆盖：字段存在时正确返回、字段为空时不暴露
+- 新增集成测试 60：验证 `__using__` 中 `caller_env()` 端到端输出 `file:main.xml,line:2,column:3,macro_name:__using__`
+
+**本次发现的问题、踩的坑：**
+- `bind_explicit_params` 遗留 bug：传空字符串 `""` 给 `macro_name`，导致 `macro_env.macro_name` 永远为空。修复：在 `expand_macro_invocation` 中显式设置 `runtime.macro_name = definition.name.clone()`
+- `builtin_invoke_macro` 创建 synthetic invocation 时使用 dummy meta（`row:0,column:0`），导致远程宏的 `caller_env()` 报告错误位置。修复：通过 `ExpandEnv.caller_invocation_meta` 传递原始 invocation meta
+- `CtValue::Keyword` 用 `Vec<(String, CtValue)>` 存储（保持顺序），而 `MacroValue::Keyword` 用 `BTreeMap<String, MacroValue>`（自动排序）；两者转换时顺序行为不同
+
+**下一步方向：**
+- Step 4.3: 给 compile_error! 补全 provider / caller 上下文（`check_use_conflict` 等错误路径补 source_location）
