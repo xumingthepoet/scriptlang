@@ -450,13 +450,68 @@ Status: pending
 
 前置：Step 5.3 已完成。
 
+**本次分析（卡点原因）：**
+连续 2 轮无实质性进展的原因：
+1. **范围蔓延**：Step 5.4 原始描述只有 3 行，但 agent 在同一轮内尝试添加 5 个新 builtin（`module_update`/`list_concat`/`module_push`/`module_increment`/`goto_script`）+ 一个超级复杂的集成测试。范围膨胀导致每轮都无法完成任何一个验收标准。
+2. **集成测试 63 变成了"超级测试"**：test 63 实现中加入了 goto script 生成、auto-incrementing script names、AST 属性动态设置等远超 Step 5.4 验收需求的逻辑，变成了同时测试 module state + AST builtins + goto scripting 的综合测试。
+3. **循环依赖**：test 63 需要新 builtin，而这些 builtin 需要 test 63 验证；每一轮都在"实现 builtin 以支撑 test"和"实现 test 以验证 builtin"之间来回切换。
+4. **步骤粒度太大**：Step 5.4 同时包含 builtin 实现 + 集成测试 + gate 验收，应拆成更小步骤。
+
+---
+
+#### Step 5.4.1: 实现 module_update builtin（含单元测试）
+
+**目标：** 提供"读出已有值再写入"的累积原子操作。
+
+前置：Step 5.3 已完成。
+
 具体工作：
-- `module_update(name, fn)` 或等价写法（例如 `module_put(name, fn(module_get(name)))`）
-- 确保多次 `use` 同一 provider 时 registry 累积
-- 验证 `63-module-state-accumulate-via-use` 场景
+- `module_update(name: string, new_value: CtValue) → CtValue`：读取 key 当前值（不存在返回 Nil），写入 `new_value`，返回 `new_value`
+- 遵循 immutability 原则：所有写操作返回新值，原值不变
+- 在 `BuiltinRegistry::register_defaults` 中注册 `module_update`
+- 新增单元测试覆盖：key 不存在时返回 Nil / 写后返回新值 / 参数类型错误
+
+验收：
+- 单元测试 `builtin_module_update_*` 全部通过
+
+---
+
+#### Step 5.4.2: 简化 test 63，只用已有 builtin 演示 registry accumulation
+
+**目标：** 最小化 test 63 的实现复杂度，专注于"多次 use 同一 provider 时 registry 累积"这一核心验收。
+
+前置：Step 5.4.1 已完成。
+
+具体工作：
+- `helper.xml` 的 `__using__` 宏：使用 `module_get("items")` 读取当前列表，`module_put("items", [...])` 写入更新后的列表（**不依赖 `module_push` 等新 builtin**）
+- `main.xml`：两个 `<use module="helper" item="a/b"/>` 调用，验证 registry 累积
+- **测试场景简化**：
+  - 不使用 goto scripting（跳过 `goto_script`、`module_increment` 等 builtin）
+  - 不使用动态 AST 属性设置（跳过 `ast_attr_set` + script name 动态化）
+  - 直接用 `<text>` 输出 registry 内容
+- `helper.xml` 的 `__using__` 返回一个 `<text>` 节点，输出 `registry: [items...]`
+- `main.xml` 最后输出 `<text>end</text>`
+- 期望输出：`registry: [a]` → `registry: [a, b]` → `end`
 
 验收：
 - `63-module-state-accumulate-via-use` 通过
+- 不引入任何超出 Step 5.4 验收需求的 builtin
+
+---
+
+#### Step 5.4.3: 运行 make gate 并更新 IMPLEMENTATION.md
+
+**目标：** 收尾，确认所有验收条件满足。
+
+前置：Step 5.4.2 已完成。
+
+具体工作：
+- `make gate` 确保所有测试通过
+- 同步更新 `IMPLEMENTATION.md` 到当前真实状态
+
+验收：
+- `make gate` 通过
+- `IMPLEMENTATION.md` 已更新
 
 ### Step 5.5: 处理 module state 冲突
 
@@ -1025,3 +1080,19 @@ Status: pending
 
 **下一步方向：**
 - Step 5.4：支持 module_update 模式（基于已有值更新，支持 registry 累积）
+
+### Step 5.4 任务分解记录（2026-03-24）
+
+**原来卡在哪个步骤：**
+- Step 5.4：支持 module_update 模式（基于已有值更新）（连续 2 轮无实质性进展）
+
+**卡点原因分析：**
+1. **范围蔓延（Scope Creep）**：Step 5.4 原始描述只有 3 行，但 agent 在同一轮内尝试添加 5 个新 builtin（`module_update`/`list_concat`/`module_push`/`module_increment`/`goto_script`）+ 一个超级复杂的集成测试。范围膨胀导致每轮都无法完成任何一个验收标准。
+2. **集成测试 63 变成了"超级测试"**：test 63 实现中加入了 goto script 生成、auto-incrementing script names、AST 属性动态设置等远超 Step 5.4 验收需求的逻辑，变成了同时测试 module state + AST builtins + goto scripting 的综合测试。
+3. **循环依赖**：test 63 需要新 builtin，而这些 builtin 需要 test 63 验证；每一轮都在"实现 builtin 以支撑 test"和"实现 test 以验证 builtin"之间来回切换。
+4. **步骤粒度太大**：Step 5.4 同时包含 builtin 实现 + 集成测试 + gate 验收，一轮内做不完。
+
+**分解后的子步骤：**
+- **5.4.1**：实现 `module_update` builtin（含单元测试），只做这一个功能，验收到单元测试通过
+- **5.4.2**：简化 test 63，只用已有 builtin（`module_get`/`module_put`）演示 registry accumulation，不依赖 goto scripting 或 auto-incrementing names
+- **5.4.3**：运行 make gate + 更新 IMPLEMENTATION.md
