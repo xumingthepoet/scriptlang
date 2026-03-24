@@ -632,7 +632,29 @@ fn builtin_caller_env(
         items.push(("current_module".to_string(), CtValue::String(m.clone())));
     }
 
-    // source_file (from expand_env via macro_env source)
+    // macro_name (the name of the macro being expanded)
+    if !macro_env.macro_name.is_empty() {
+        items.push((
+            "macro_name".to_string(),
+            CtValue::String(macro_env.macro_name.clone()),
+        ));
+    }
+
+    // source_file (file where the macro was invoked)
+    if let Some(ref f) = macro_env.source_file {
+        items.push(("file".to_string(), CtValue::String(f.clone())));
+    }
+
+    // line (1-based row where the macro was invoked)
+    if let Some(l) = macro_env.line {
+        items.push(("line".to_string(), CtValue::Int(l as i64)));
+    }
+
+    // column (1-based column where the macro was invoked)
+    if let Some(c) = macro_env.column {
+        items.push(("column".to_string(), CtValue::Int(c as i64)));
+    }
+
     // We expose imports, requires, aliases from macro_env
     items.push((
         "imports".to_string(),
@@ -1083,17 +1105,20 @@ fn builtin_invoke_macro(
     });
 
     // Build synthetic invocation form from args.
-    // The source_name includes both provider and caller for error attribution.
+    // Use the caller invocation meta if available (set by expand_macro_hook),
+    // so that caller_env() in the remote macro sees the correct source location.
+    // Fall back to dummy meta for nested invoke_macro calls (no caller context).
+    let caller_meta = expand_env.caller_invocation_meta.clone();
+    let synthetic_invocation_meta = caller_meta.unwrap_or_else(|| FormMeta {
+        source_name: Some(format!("{} (via {})", resolved_module, caller_module)),
+        start: SourcePosition { row: 0, column: 0 },
+        end: SourcePosition { row: 0, column: 0 },
+        start_byte: 0,
+        end_byte: 0,
+    });
     let synthetic_invocation = Form {
         head: macro_name.clone(),
-        meta: FormMeta {
-            // Provider module for error attribution to provider source
-            source_name: Some(format!("{} (via {})", resolved_module, caller_module)),
-            start: SourcePosition { row: 0, column: 0 },
-            end: SourcePosition { row: 0, column: 0 },
-            start_byte: 0,
-            end_byte: 0,
-        },
+        meta: synthetic_invocation_meta,
         fields: invocation_fields,
     };
 

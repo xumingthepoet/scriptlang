@@ -500,6 +500,9 @@ mod tests {
             locals,
             gensym_seed: 0,
             gensym_counter: 0,
+            source_file: None,
+            line: None,
+            column: None,
         }
     }
 

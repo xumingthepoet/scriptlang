@@ -95,6 +95,9 @@ pub(super) fn expand_macro_hook(
             env.use_provider_module = Some(module_attr);
         }
     }
+    // Step 4.2: Track the invocation source location for caller_env and invoke_macro.
+    // This meta is read by builtin_invoke_macro to correctly attribute remote invocations.
+    env.caller_invocation_meta = Some(form.meta.clone());
     expand_macro_invocation(definition, form, env, scope)
 }
 
@@ -207,7 +210,9 @@ fn expand_macro_invocation(
     scope: ExpandRuleScope,
 ) -> Result<Vec<FormItem>, ScriptLangError> {
     // Use new parameter binder
-    let runtime = super::macro_params::bind_macro_params(&definition, invocation, env)?;
+    let mut runtime = super::macro_params::bind_macro_params(&definition, invocation, env)?;
+    // Set macro_name from definition (bind_explicit_params creates MacroEnv with empty macro_name)
+    runtime.macro_name = definition.name.clone();
     let expanded_items = evaluate_macro_items(&definition.body, invocation, env, runtime)?
         .into_iter()
         .filter(|item| match item {

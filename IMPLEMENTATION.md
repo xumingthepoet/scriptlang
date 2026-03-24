@@ -670,7 +670,7 @@ Step 2.5 消除了 `CtValue`、`MacroValue`、`quote/unquote` 之间的临时桥
 
 #### 新 compile-time builtin 函数（builtins.rs）
 
-- `caller_env()`: 返回包含 current_module, imports, requires, aliases 的 keyword
+- `caller_env()`: 返回包含 current_module, macro_name, file, line, column, imports, requires, aliases 的 keyword（Step 4.2 新增 file/line/column/macro_name）
 - `caller_module()`: 返回当前模块名字符串
 - `expand_alias(module_ref)`: 解析别名或返回原名
 - `require_module(module_ref)`: 添加模块到 requires
@@ -905,6 +905,17 @@ Provider module 通过 `<macro name="__using__" params="keyword:opts">` 暴露 h
 
 ### 架构变更
 
+#### caller_env 源码位置追踪（Step 4.2）
+
+`MacroEnv` 新增三个字段用于追踪宏调用源码位置：
+- `source_file: Option<String>`：宏被调用所在的源文件
+- `line: Option<u32>`：宏被调用所在的行号（1-based）
+- `column: Option<u32>`：宏被调用所在的列号（1-based）
+
+这些字段通过 `MacroEnv::from_invocation_with_invocation()` 从 invocation form 的 `FormMeta` 提取。`builtin_caller_env()` 将这些字段以 keyword 形式暴露给宏作者。
+
+远程宏调用（通过 `invoke_macro`）的源码位置追踪：通过 `ExpandEnv.caller_invocation_meta` 传递原始 invocation 的 `FormMeta`，使 `__using__` 等远程宏的 `caller_env()` 能正确报告调用者源码位置。
+
 #### 公开成员冲突检测
 
 当 `use` 注入公开成员（script/function/const/var）时，检测 caller 是否已有同名成员：
@@ -1080,7 +1091,7 @@ error expanding `{macro}` from `{provider}` (called from `{caller}`): {error}
   - `list_length(list)`: 列表长度
   - `to_string(value)`: 转字符串
   - `parse_bool(value)` / `parse_int(value)`: 类型转换
-  - `caller_env()`: 返回 caller 环境（module/imports/requires/aliases）
+  - `caller_env()`: 返回 caller 环境（current_module/macro_name/file/line/column/imports/requires/aliases）
   - `caller_module()`: 返回当前模块名
   - `expand_alias(module_ref)`: 解析别名
   - `require_module(module_ref)`: 添加 require

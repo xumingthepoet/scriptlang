@@ -78,11 +78,12 @@ fn bind_explicit_params(
     invocation: &Form,
     expand_env: &mut ExpandEnv,
 ) -> Result<MacroEnv, ScriptLangError> {
-    let mut macro_env = MacroEnv::from_invocation(
+    let mut macro_env = MacroEnv::from_invocation_with_invocation(
         expand_env,
         "",                          // Will be set by caller
         invocation_attrs.clone(),    // Keep all attributes for get_attribute()
         invocation_content.to_vec(), // Keep all content for get_content()
+        Some(invocation),            // Pass invocation form for source location tracking
     );
 
     // Track which invocation attrs have been used

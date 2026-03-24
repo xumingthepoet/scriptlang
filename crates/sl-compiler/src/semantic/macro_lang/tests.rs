@@ -725,6 +725,10 @@ mod ct_lang_tests {
     fn builtin_caller_env_returns_current_context() {
         let mut macro_env = MacroEnv {
             current_module: Some("main".to_string()),
+            macro_name: "my_macro".to_string(),
+            source_file: Some("main.xml".to_string()),
+            line: Some(10),
+            column: Some(5),
             ..Default::default()
         };
         macro_env.imports.push("kernel".to_string());
@@ -755,6 +759,49 @@ mod ct_lang_tests {
                 assert!(matches!(map.get("imports"), Some(CtValue::List(_))));
                 assert!(matches!(map.get("requires"), Some(CtValue::List(_))));
                 assert!(matches!(map.get("aliases"), Some(CtValue::List(_))));
+                // New Step 4.2 fields
+                assert!(matches!(
+                    map.get("macro_name"),
+                    Some(CtValue::String(s)) if s == "my_macro"
+                ));
+                assert!(matches!(
+                    map.get("file"),
+                    Some(CtValue::String(s)) if s == "main.xml"
+                ));
+                assert!(matches!(map.get("line"), Some(CtValue::Int(10))));
+                assert!(matches!(map.get("column"), Some(CtValue::Int(5))));
+            }
+            other => panic!("expected keyword, got {}", other.type_name()),
+        }
+
+        // Verify default (no source location)
+        let empty_macro_env = MacroEnv::default();
+        let result = builtins.get("caller_env").expect("caller_env exists")(
+            &[],
+            &empty_macro_env,
+            &mut ct_env,
+            &mut expand_env,
+        )
+        .expect("caller_env should succeed");
+        match result {
+            CtValue::Keyword(items) => {
+                let map: std::collections::BTreeMap<_, _> = items.into_iter().collect();
+                assert!(
+                    !map.contains_key("macro_name"),
+                    "empty macro_name should not be exposed"
+                );
+                assert!(
+                    !map.contains_key("file"),
+                    "source_file should not be exposed when None"
+                );
+                assert!(
+                    !map.contains_key("line"),
+                    "line should not be exposed when None"
+                );
+                assert!(
+                    !map.contains_key("column"),
+                    "column should not be exposed when None"
+                );
             }
             other => panic!("expected keyword, got {}", other.type_name()),
         }

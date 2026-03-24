@@ -1,0 +1,19 @@
+<module name="helper">
+  <!-- Step 4.2: caller_env source location integration test.
+       __using__ calls caller_env() and outputs its content.
+       The keyword includes: current_module, macro_name, file, line, column.
+       file should be main.xml, and macro_name should be "use". -->
+  <macro name="__using__" params="keyword:opts,ast:children">
+    <let name="caller" type="ast">
+      <builtin name="caller_env"/>
+    </let>
+    <!-- Output the caller_env keyword via quote/unquote.
+         MacroValue::Keyword unquotes to a "key1:val1,key2:val2" text representation. -->
+    <quote>
+      <script name="main">
+        <text>caller_env: ${caller}</text>
+        <end/>
+      </script>
+    </quote>
+  </macro>
+</module>

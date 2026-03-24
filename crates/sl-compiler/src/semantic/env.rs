@@ -64,6 +64,10 @@ pub(crate) struct ExpandEnv {
     /// Module name of the provider whose `__using__` is being invoked.
     /// Set when `kernel.use` expands (after resolving the target module).
     pub(crate) use_provider_module: Option<String>,
+    /// Source location of the original invocation form.
+    /// Set by `expand_macro_hook` before expanding a macro body.
+    /// Read by `builtin_invoke_macro` to correctly attribute remote macro invocations.
+    pub(crate) caller_invocation_meta: Option<sl_core::FormMeta>,
 }
 
 /// Macro parameter type in the new explicit parameter protocol.

@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use sl_core::FormItem;
+use sl_core::{Form, FormItem};
 
 use super::macro_values::MacroValue;
 use crate::semantic::env::ExpandEnv;
@@ -17,6 +17,12 @@ pub(crate) struct MacroEnv {
     pub(crate) locals: BTreeMap<String, MacroValue>,
     pub(crate) gensym_seed: usize,
     pub(crate) gensym_counter: usize,
+    /// Source file where this macro was invoked (from invocation form's meta).
+    pub(crate) source_file: Option<String>,
+    /// Row where this macro was invoked (from invocation form's meta).
+    pub(crate) line: Option<u32>,
+    /// Column where this macro was invoked (from invocation form's meta).
+    pub(crate) column: Option<u32>,
 }
 
 impl MacroEnv {
@@ -26,7 +32,30 @@ impl MacroEnv {
         attributes: BTreeMap<String, String>,
         content: Vec<FormItem>,
     ) -> Self {
+        Self::from_invocation_with_invocation(expand_env, macro_name, attributes, content, None)
+    }
+
+    /// Like `from_invocation`, but also extracts source location from the invocation form.
+    pub(crate) fn from_invocation_with_invocation(
+        expand_env: &mut ExpandEnv,
+        macro_name: &str,
+        attributes: BTreeMap<String, String>,
+        content: Vec<FormItem>,
+        invocation: Option<&Form>,
+    ) -> Self {
         let gensym_seed = expand_env.reserve_macro_invocation_seed();
+
+        let (source_file, line, column) = invocation
+            .map(|f| {
+                let meta = &f.meta;
+                (
+                    meta.source_name.clone(),
+                    Some(meta.start.row),
+                    Some(meta.start.column),
+                )
+            })
+            .unwrap_or((None, None, None));
+
         Self {
             current_module: expand_env.module.module_name.clone(),
             imports: expand_env.module.imports.clone(),
@@ -38,6 +67,9 @@ impl MacroEnv {
             locals: BTreeMap::new(),
             gensym_seed,
             gensym_counter: 0,
+            source_file,
+            line,
+            column,
         }
     }
 
@@ -138,6 +170,9 @@ mod tests {
             locals: BTreeMap::new(),
             gensym_seed: 0,
             gensym_counter: 0,
+            source_file: None,
+            line: None,
+            column: None,
         };
 
         assert_eq!(
