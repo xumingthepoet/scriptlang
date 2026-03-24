@@ -1,0 +1,13 @@
+<module name="main">
+  <!-- Test: caller defines "helper", provider injects hidden "helper".
+       With hygienic rename: no conflict, both coexist. -->
+  <script name="helper">
+    <text>caller helper</text>
+    <end/>
+  </script>
+  <use module="helper"/>
+  <script name="main">
+    <goto script="@main.helper"/>
+    <end/>
+  </script>
+</module>

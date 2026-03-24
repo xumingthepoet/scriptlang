@@ -263,3 +263,53 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod hidden_helper_test {
+    #[test]
+    fn test_hidden_helper_no_conflict() {
+        use super::*;
+        use std::collections::BTreeMap;
+        let sources = BTreeMap::from([
+            (
+                "helper.xml".to_string(),
+                r#"
+<module name="helper">
+  <macro name="__using__" params="keyword:opts">
+    <quote>
+      <script name="helper" hidden="true">
+        <text>hidden</text>
+        <end/>
+      </script>
+    </quote>
+  </macro>
+</module>
+"#
+                .to_string(),
+            ),
+            (
+                "main.xml".to_string(),
+                r#"
+<module name="main">
+  <script name="helper">
+    <text>caller</text>
+    <end/>
+  </script>
+  <use module="helper"/>
+  <script name="main">
+    <goto script="@main.helper"/>
+    <end/>
+  </script>
+</module>
+"#
+                .to_string(),
+            ),
+        ]);
+        let engine = start_runtime_session_from_xml_map(&sources, None);
+        match &engine {
+            Ok(_) => println!("OK"),
+            Err(e) => println!("ERROR: {}", e),
+        }
+        engine.expect("engine");
+    }
+}

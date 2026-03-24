@@ -76,6 +76,9 @@ pub(crate) struct ExpandEnv {
     /// Per-module compile-time state. Each module's state is isolated.
     /// Stored in ExpandEnv (not ProgramState) so it doesn't block Eq derive.
     pub(crate) module_level_state: BTreeMap<String, BTreeMap<String, CtValue>>,
+    /// Counter for generating hygienic names for hidden helper injection.
+    /// Each hidden helper gets a unique id via `next_hidden_helper_id()`.
+    pub(crate) hidden_helper_counter: usize,
 }
 
 /// A single entry in the macro expansion trace.
@@ -132,6 +135,12 @@ impl ExpandEnv {
     pub(crate) fn with_phase(mut self, phase: CompilePhase) -> Self {
         self.phase = Some(phase);
         self
+    }
+
+    /// Generate the next unique id for a hidden helper hygienic name.
+    pub(crate) fn next_hidden_helper_id(&mut self) -> usize {
+        self.hidden_helper_counter += 1;
+        self.hidden_helper_counter
     }
 
     pub(crate) fn begin_module(

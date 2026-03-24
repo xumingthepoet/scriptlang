@@ -657,6 +657,14 @@ Status: in_progress
 验收：
 - `66-use-hidden-script-gensym` 通过
 
+**Status: completed** (2026-03-24)
+
+**实现细节：**
+- 识别协议：`hidden="true"` 属性（`is_hidden(form)` 函数，`module_reducer.rs`）
+- hygienic rename：`process_hidden_helper` 在 `use_caller_module` 上下文下自动将隐藏 member 重命名为 `__h_{provider}_{name}_{counter}` 格式
+- `ExpandEnv.hidden_helper_counter` 提供全局唯一计数器
+- 关键 bug 修复：`dispatch.rs` 的 `expand_statement_child` 中，`use` 在 script 体内被当作普通 macro 扩展，产生 `<script>` 加入 statement body → `analyze_stmt` 报错。修复：对该情况返回空 Vec，让 `analyze_stmt` 报 "unsupported statement" 明确错误
+
 ### Step 6.3: 让函数和 const 也支持 hygienic rename
 
 **目标：** 函数和 const 的隐藏 helper 也不污染 caller。

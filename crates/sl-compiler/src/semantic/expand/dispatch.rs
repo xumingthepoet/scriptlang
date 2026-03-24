@@ -101,6 +101,12 @@ fn expand_statement_child(
     env: &mut ExpandEnv,
 ) -> Result<Vec<FormItem>, ScriptLangError> {
     env.enter_statement();
+    // `use` can only be used at module level (it produces module-level definitions like <script>,
+    // not statements). Expanding it inside a script body produces invalid output.
+    // Return empty so analyze_stmt skips it with a clear "unsupported statement" error.
+    if form.head == "use" {
+        return Ok(Vec::new());
+    }
     match form.head.as_str() {
         "temp" => {
             if let Some(name) = attr(form, "name") {

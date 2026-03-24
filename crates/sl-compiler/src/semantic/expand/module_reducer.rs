@@ -4,7 +4,7 @@
 //! in order, allowing macro-generated forms to affect the definition-time
 //! environment for subsequent siblings.
 
-use sl_core::{Form, FormItem, ScriptLangError};
+use sl_core::{Form, FormItem, FormValue, ScriptLangError};
 
 use super::dispatch::{ExpandRuleScope, expand_form_items};
 use crate::names::qualified_member_name;
@@ -104,6 +104,37 @@ fn process_item(
     }
 }
 
+/// Helper for processing a member (script/function/const/var) that may be hidden.
+/// Returns (effective_name, effective_form) after applying hygienic rename if needed.
+/// Skips the use-injection conflict check when hidden (because the name is renamed).
+fn process_hidden_helper(
+    form: &Form,
+    env: &mut ExpandEnv,
+    name: &str,
+) -> Result<(String, Form), ScriptLangError> {
+    let hidden = is_hidden(form)?;
+    let is_use_injection = env.use_caller_module.is_some();
+
+    if hidden && is_use_injection {
+        // Extract provider module name first (before borrowing env mutably)
+        let provider = env
+            .use_provider_module
+            .clone()
+            .unwrap_or_else(|| "<unknown>".to_string());
+        let hygienic = hygienic_hidden_name(env, &provider, name);
+        let renamed = rename_form_name(form.clone(), &hygienic);
+        Ok((hygienic, renamed))
+    } else {
+        // Non-hidden: check use-injection conflict for public members
+        if !is_private(form)?
+            && let Some(err) = check_use_conflict(env, name, form)
+        {
+            return Err(err);
+        }
+        Ok((name.to_string(), form.clone()))
+    }
+}
+
 fn process_form(
     form: &Form,
     env: &mut ExpandEnv,
@@ -169,63 +200,50 @@ fn process_form(
                 .map_err(|message| error_at(form, message))?;
             Ok(ProcessedItem::Output(vec![FormItem::Form(form.clone())]))
         }
-        "const" => {
-            // Check for use-injection conflict before declaring.
-            // expand_const_form handles the actual declaration internally.
-            let name = required_attr(form, "name")?.to_string();
-            let exported = !is_private(form)?;
-            if exported && let Some(err) = check_use_conflict(env, &name, form) {
-                return Err(err);
-            }
-            let expanded = super::declared_types::expand_const_form(form, env)?;
-            Ok(ProcessedItem::Output(vec![FormItem::Form(expanded)]))
-        }
-        "var" => {
-            let name = required_attr(form, "name")?.to_string();
-            let exported = !is_private(form)?;
-            if exported && let Some(err) = check_use_conflict(env, &name, form) {
-                return Err(err);
-            }
-            if !env.declare_var(name.clone(), exported) {
-                let module_name = env.module.module_name.as_deref().unwrap_or("<unknown>");
-                return Err(error_at(
-                    form,
-                    format!("duplicate var declaration `{module_name}.{name}`"),
-                ));
-            }
-            let expanded = expand_form_items(form, env, ExpandRuleScope::ModuleChild)?;
-            Ok(ProcessedItem::Output(expanded))
-        }
         "script" => {
             let name = required_attr(form, "name")?.to_string();
-            let exported = !is_private(form)?;
-            if exported && let Some(err) = check_use_conflict(env, &name, form) {
-                return Err(err);
-            }
-            if !env.declare_script(name.clone(), exported) {
+            let (name, form) = process_hidden_helper(form, env, &name)?;
+            if !env.declare_script(name.clone(), !is_private(&form)?) {
                 let module_name = env.module.module_name.as_deref().unwrap_or("<unknown>");
                 return Err(error_at(
-                    form,
+                    &form,
                     format!("duplicate script declaration `{module_name}.{name}`"),
                 ));
             }
-            let expanded = expand_form_items(form, env, ExpandRuleScope::ModuleChild)?;
+            let expanded = expand_form_items(&form, env, ExpandRuleScope::ModuleChild)?;
             Ok(ProcessedItem::Output(expanded))
         }
         "function" => {
             let name = required_attr(form, "name")?.to_string();
-            let exported = !is_private(form)?;
-            if exported && let Some(err) = check_use_conflict(env, &name, form) {
-                return Err(err);
-            }
-            if !env.declare_function(name.clone(), exported) {
+            let (name, form) = process_hidden_helper(form, env, &name)?;
+            if !env.declare_function(name.clone(), !is_private(&form)?) {
                 let module_name = env.module.module_name.as_deref().unwrap_or("<unknown>");
                 return Err(error_at(
-                    form,
+                    &form,
                     format!("duplicate function declaration `{module_name}.{name}`"),
                 ));
             }
-            Ok(ProcessedItem::Output(vec![FormItem::Form(form.clone())]))
+            Ok(ProcessedItem::Output(vec![FormItem::Form(form)]))
+        }
+        "const" => {
+            let name = required_attr(form, "name")?.to_string();
+            let (_name, form) = process_hidden_helper(form, env, &name)?;
+            // expand_const_form handles declare_const (duplicate detection) internally.
+            let expanded = super::declared_types::expand_const_form(&form, env)?;
+            Ok(ProcessedItem::Output(vec![FormItem::Form(expanded)]))
+        }
+        "var" => {
+            let name = required_attr(form, "name")?.to_string();
+            let (name, form) = process_hidden_helper(form, env, &name)?;
+            if !env.declare_var(name.clone(), !is_private(&form)?) {
+                let module_name = env.module.module_name.as_deref().unwrap_or("<unknown>");
+                return Err(error_at(
+                    &form,
+                    format!("duplicate var declaration `{module_name}.{name}`"),
+                ));
+            }
+            let expanded = expand_form_items(&form, env, ExpandRuleScope::ModuleChild)?;
+            Ok(ProcessedItem::Output(expanded))
         }
         _ => {
             // Check if this is a macro invocation
@@ -272,6 +290,36 @@ pub(crate) fn is_private(form: &Form) -> Result<bool, ScriptLangError> {
             format!("invalid boolean value `{other}` for `private`"),
         )),
     }
+}
+
+/// Check if a form is marked as a hidden helper.
+pub(crate) fn is_hidden(form: &Form) -> Result<bool, ScriptLangError> {
+    match attr(form, "hidden") {
+        None => Ok(false),
+        Some("true") => Ok(true),
+        Some("false") => Ok(false),
+        Some(other) => Err(error_at(
+            form,
+            format!("invalid boolean value `{other}` for `hidden`"),
+        )),
+    }
+}
+
+/// Rename a form's `name` attribute to a hygienic name.
+/// Returns a new Form with the renamed name (does not modify the original).
+fn rename_form_name(form: Form, new_name: &str) -> Form {
+    let mut cloned = form;
+    if let Some(field) = cloned.fields.iter_mut().find(|f| f.name == "name") {
+        field.value = FormValue::String(new_name.to_string());
+    }
+    cloned
+}
+
+/// Generate a hygienic name for a hidden helper being injected via `use`.
+/// Format: __h_{provider}_{original_name}_{counter}
+fn hygienic_hidden_name(env: &mut ExpandEnv, provider_module: &str, original_name: &str) -> String {
+    let counter = env.next_hidden_helper_id();
+    format!("__h_{provider_module}_{original_name}_{counter}")
 }
 
 pub(crate) fn alias_name(form: &Form) -> Result<String, ScriptLangError> {
