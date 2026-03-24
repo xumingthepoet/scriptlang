@@ -16,7 +16,6 @@
   - module_put 冲突检测 + test 65 通过
 - Step 6: Hygiene 扩展（6.1 ~ 6.4 完成）
 - Step 7: Compile-time language 已能承载下一阶段 narrative DSL 宏库（7.1-7.6 全部完成 2026-03-24）
-- Step 1: 真正的 Module-Qualified Remote Macro Dispatch
 
 ---
 
@@ -1457,3 +1456,25 @@ Step 7.6 完成。Step 7 完成定义达成：
 - LazyQuote 批量 AST 生成 ✅
 - Provider 组合（require_module + invoke_macro）✅
 - `make gate` 通过（282 compiler 单元测试 + 72 集成测试，coverage 90.19%）
+
+---
+
+## 阶段完成确认（2026-03-25）
+
+**所有 7 个步骤已全部完成：**
+
+- Step 1: Module-Qualified Remote Macro Dispatch ✅
+- Step 2: 统一 Compile-Time Value / Quote / Remote Invoke 的值模型 ✅
+- Step 3: AST 提升为一等 Compile-Time 数据 ✅
+- Step 4: 丰富 Caller Env 与错误定位 ✅
+- Step 5: Module-Level Compile-Time Accumulation ✅
+- Step 6: 扩展 Hygiene 到隐藏 Helper 定义层 ✅
+- Step 7: Compile-Time Language 提升为可承载 Narrative DSL 宏库的子语言 ✅
+
+**最终状态：**
+- `make gate` 通过：282 compiler 单元测试 + 72 集成测试
+- 覆盖率：90.19%
+- IMPLEMENTATION.md 已同步
+
+**下一步方向：**
+- narrative DSL 宏库的实现（下一阶段计划，待制定）
