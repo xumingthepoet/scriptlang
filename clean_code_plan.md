@@ -158,6 +158,11 @@ sl-repl      → REPL 实现
 - [x] `scope.rs` 的 `const_form` 改用 `form_field`（helpers 中的 `attr` 重命名版本）
 - 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.65%)
 
+### Round 21: 提取 eval_const_form 辅助函数
+- [x] `const_eval.rs`：新增 `eval_const_form` 辅助函数，统一 `<const>` 表单解析逻辑
+- [x] `program.rs`/`scope.rs`：分别简化 `analyze_const` 和 `compute_const` 中的 const 处理
+- 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.66%)
+
 ---
 
 ## 约束条件
@@ -665,6 +670,30 @@ make gate
 - 显式导入优于 glob：`use test_helpers::{analyzed, child, ...};` 比 `use test_helpers::*;` 更安全（避免未来新加 helper 引入冲突）
 
 **下一步方向：**
-- P2: 检查 `scope.rs` 中的 `compute_const` 和 `program.rs` 中的 `analyze_const` 是否有可共享的 const 处理逻辑
+- P2: 继续检查 `expand/mod.rs` 中是否有可提取的重复模式
+- P2: 检查 `dispatch.rs` 中 `is_macro_in_requires` 在 `dispatch_rule` 中的使用是否可以进一步优化
 - P1: 考虑拆分 `expand/program.rs`（666 行）
-- P2: 检查 `scope.rs` 中的 `exports_with`/`program_state` 等 scope 特定 helpers 是否有进一步提取空间
+
+### Round 21 - 提取 eval_const_form 辅助函数 ✅ (2026-03-25)
+
+**本次做了什么：**
+- 在 `const_eval.rs` 新增 `eval_const_form(form, const_env, resolver, remaining_const_names)` 辅助函数（17 行），封装 `<const>` 表单的 name 提取、body_expr、blocked set 构建、declared_type 解析和 `parse_const_value` 调用这 6 行核心逻辑
+- `program.rs`：`analyze_const` 从 14 行简化为单行 `eval_const_form(...)` 委托
+- `scope.rs`：`compute_const` 的 "const" 分支用 `eval_const_form` 替代内联重复代码；移除 `body_expr`/`parse_declared_type`/`parse_const_value` 三个不再直接使用的导入
+- 净减少 8 行（4 个文件共 26 处改动）
+
+**本次发现的问题/踩的坑：**
+
+1. **`scope.rs` 的 `compute_const` 不能完全替换为 `eval_const_form`**：与 `analyze_const` 不同，`compute_const` 的 "const" 分支有缓存命中检查（`const_env.get(&const_name)`）、值缓存（`self.cache_value`）和 `remaining_const_names`/`const_env` 的更新逻辑。这些不在 `eval_const_form` 的职责范围内，因此 `eval_const_form` 只替换了"解析 + 求值"部分，而 cache/更新逻辑保留在分支内。
+
+2. **误删 `parse_declared_type_name` 导入**：清理 `program.rs` 冗余导入时，我移除了 `parse_declared_type_name` 但忘了它仍被 `parse_function_type`（line 199）使用。教训：做"清理未使用导入"时必须先用 `grep` 确认该符号在整个文件中没有任何引用，不能只看新增代码部分。
+
+3. **`const_eval.rs` 中 `eval_const_form` 的作用域问题**：`eval_const_form` 处于 `pub(crate)` 层级，可被 `scope.rs` 和 `program.rs` 通过 `super::` 路径访问；内部依赖的 `parse_declared_type_form` 通过 `super::declared_types::` 导入，避免了循环依赖。
+
+4. **`parse_const_value` 从 `mod.rs` re-export 中移除**：重构后 `parse_const_value` 只在 `const_eval.rs` 内部使用（通过 `eval_const_form`），不再需要从 `mod.rs` 导出。`cargo clippy` 的 unused import 警告帮助发现了这个 dead export。
+
+**对后续有价值的经验：**
+- 当两个函数/分支共享"表单解析 + 求值"逻辑时，提取 helper 函数的边界是：只封装"纯解析/求值"步骤，保留调用方各自的"状态更新/缓存"逻辑
+- 清理导入时要用 `grep` 全文搜索，不能只看新增/修改代码附近——未使用导入的警告有时在编译后期才出现（如 Rust 2024 edition 的 unused import 警告）
+- `pub(crate)` 函数放在哪个文件：放在"核心类型定义所在文件"（如 `const_eval.rs` 定义了 `parse_const_value`）而非"使用方"（如 `program.rs`），这样调用方都通过 `super::` 统一路径访问
+- 增量清理导入的顺序：先确保编译通过，再逐个移除冗余导入，避免一次性删除多个导入导致的"删了有用的"问题
