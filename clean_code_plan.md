@@ -47,7 +47,7 @@ sl-repl      → REPL 实现
 | 项目 | 状态 |
 |------|------|
 | 减少不必要的 `.clone()` 调用 | ✅ Round 6 完成 engine/mod.rs（BTreeMap clone 优化）|
-| 提取重复模式为通用辅助函数 | 🚧 Round 7 完成 convert.rs，Round 10 完成 program.rs，Round 14 完成 alias_name 提取，Round 15 完成 dispatch.rs 函数合并 |
+| 提取重复模式为通用辅助函数 | ✅ Round 7 完成 convert.rs，Round 10 完成 program.rs，Round 14 完成 alias_name 提取，Round 15 完成 dispatch.rs 函数合并，Round 16 完成 expand_temp_form 提取 |
 | 统一错误消息格式 | 🚧 部分完成（invalid_bool_attr_error 辅助函数）|
 | 添加缺失的文档注释 | ✅ Round 13 完成 expand/mod.rs（convert.rs + expand/mod.rs 均已完整）|
 
@@ -127,6 +127,18 @@ sl-repl      → REPL 实现
 ### Round 13: 添加 expand/mod.rs doc 注释
 - [x] `expand/mod.rs`：为 `expand_forms`、`expand_raw_forms`、`expand_form`、`raw_body_text` 添加 doc 注释
 - 状态：**完成** (cargo check + fmt 通过)
+
+### Round 14: 提取 alias_name 重复实现
+- [x] 将 `alias_name` 从 `program.rs`、`module_reducer.rs`、`scope.rs` 三处重复提取到 `imports.rs`，添加 doc，统一导出
+- 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.65%)
+
+### Round 15: 合并 dispatch.rs 重复函数 + 简化 raw_body_text
+- [x] 合并 `expand_sequence_items` 和 `expand_generated_items`；导出 `children_items` 并简化 `raw_body_text`
+- 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.66%)
+
+### Round 16: 提取 expand_temp_form 辅助函数
+- [x] `dispatch.rs`：`expand_module_child` 和 `expand_statement_child` 中 `temp` 分支提取为 `expand_temp_form`
+- 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.67%)
 
 ---
 
@@ -508,8 +520,25 @@ make gate
 - `form.rs` 作为 Form 操作的中心模块，其私有辅助函数（如 `children_items`）在 `expand/` 子模块中往往有重复使用价值，值得按需提升可见性
 - `cargo llvm-cov --workspace` vs `cargo llvm-cov --package sl-core ... sl-runtime`：前者包含 REPL binary（覆盖率很低），后者只测核心库。`make gate` 用后者，与阈值匹配
 
-**下一步方向：**
-- P2: 检查 `expand/mod.rs` 中是否有可提取的重复模式（如 `expand_form` 函数体是否可简化）
-- P2: 检查 `dispatch.rs` 中 `expand_module_child` 和 `expand_statement_child` 是否有合并空间（两者结构相似）
-- P1: 考虑拆分 `expand/program.rs`（671 行）
+### Round 16 - 提取 expand_temp_form 辅助函数 ✅ (2026-03-25)
 
+**本次做了什么：**
+- 在 `dispatch.rs` 中新增 `expand_temp_form` 辅助函数，将 `expand_module_child` 和 `expand_statement_child` 中 `temp` 分支的 5 行代码提取为共享实现
+- `expand_module_child` 和 `expand_statement_child` 的 `temp` case 均改为调用 `expand_temp_form(form, env)`
+- dispatch.rs：净减少 4 行
+
+**本次发现的问题/踩的坑：**
+
+1. **两个函数 `temp` 分支完全相同**：`expand_module_child` 和 `expand_statement_child` 的 `temp` 分支（提取 name 属性、调用 `add_local`、返回 `vec![FormItem::Form(form.clone())]`）实现完全相同，是 copy-paste 重复。提取为独立函数后代码更清晰。
+
+2. **控制流分支不适合合并**：`expand_module_child` 的 `script`/`var` 分支与 `expand_statement_child` 的 `while`/`choice`/`option`/`use` 分支差异较大，不适合强行合并。共享 `temp` 处理是最大公约数。
+
+**对后续有价值的经验：**
+- 当两个函数的 match 分支中有部分完全相同时，提取该分支为共享函数是最小侵入的重构方式，不需要重构整个 match 结构
+- `dispatch.rs` 中 `expand_module_child` 和 `expand_statement_child` 的控制流结构差异较大（不同 scope 处理不同 form 类型），完全合并会损失可读性，共享 `temp` 处理已是最大收益
+- 覆盖率 89.67% 高于阈值 89.45%，安全边际约 0.22pp
+
+**下一步方向：**
+- P2: 检查 expand/mod.rs 中是否有可提取的重复模式（如 expand_form 函数体是否可简化）
+- P2: 检查 dispatch.rs 中其他控制流分支是否有进一步提取空间
+- P1: 考虑拆分 expand/program.rs（671 行）
