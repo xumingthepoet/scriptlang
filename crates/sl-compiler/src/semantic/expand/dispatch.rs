@@ -85,7 +85,6 @@ fn expand_module_child(form: &Form, env: &mut ExpandEnv) -> Result<Vec<FormItem>
             let expanded = rewrite_form_children(form, env, ExpandRuleScope::Statement)?;
             Ok(vec![FormItem::Form(expanded)])
         }
-        "var" => Ok(vec![FormItem::Form(form.clone())]),
         "temp" => expand_temp_form(form, env),
         _ => Ok(vec![FormItem::Form(form.clone())]),
     }
