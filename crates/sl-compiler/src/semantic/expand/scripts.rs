@@ -68,14 +68,8 @@ fn analyze_stmt(
     shadowed_names: &mut BTreeSet<String>,
 ) -> Result<SemanticStmt, ScriptLangError> {
     match form.head.as_str() {
-        "const" => Err(error_at(
-            form,
-            "<const> is only supported as a direct <module> child in MVP",
-        )),
-        "import" => Err(error_at(
-            form,
-            "<import> is only supported as a direct <module> child in MVP",
-        )),
+        "const" => Err(direct_module_child_only(form, "const")),
+        "import" => Err(direct_module_child_only(form, "import")),
         "temp" => Ok(SemanticStmt::Temp {
             name: required_attr(form, "name")?.to_string(),
             declared_type: parse_declared_type_form(form)?,
@@ -200,6 +194,13 @@ fn require_no_children(form: &Form, element: &str) -> Result<(), ScriptLangError
         ));
     }
     Ok(())
+}
+
+fn direct_module_child_only(form: &Form, element: &str) -> ScriptLangError {
+    error_at(
+        form,
+        format!("<{element}> is only supported as a direct <module> child in MVP"),
+    )
 }
 
 fn parse_skip_loop_control_capture_attr(form: &Form) -> Result<bool, ScriptLangError> {
