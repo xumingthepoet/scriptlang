@@ -70,6 +70,14 @@ fn has_builtin_rule(form: &Form, scope: ExpandRuleScope) -> bool {
     }
 }
 
+/// Expand a `<temp>` form: register local variable, return form unchanged.
+fn expand_temp_form(form: &Form, env: &mut ExpandEnv) -> Result<Vec<FormItem>, ScriptLangError> {
+    if let Some(name) = attr(form, "name") {
+        env.add_local(name.to_string());
+    }
+    Ok(vec![FormItem::Form(form.clone())])
+}
+
 fn expand_module_child(form: &Form, env: &mut ExpandEnv) -> Result<Vec<FormItem>, ScriptLangError> {
     match form.head.as_str() {
         "script" => {
@@ -78,16 +86,9 @@ fn expand_module_child(form: &Form, env: &mut ExpandEnv) -> Result<Vec<FormItem>
             Ok(vec![FormItem::Form(expanded)])
         }
         "var" => Ok(vec![FormItem::Form(form.clone())]),
-        "temp" => {
-            if let Some(name) = attr(form, "name") {
-                env.add_local(name.to_string());
-            }
-            Ok(vec![FormItem::Form(form.clone())])
-        }
+        "temp" => expand_temp_form(form, env),
         _ => {
-            // Check if this might be a macro from a required module
             if is_macro_in_requires(form, env) {
-                // Try to expand as macro - will fail with proper error
                 expand_macro_hook(form, env, ExpandRuleScope::ModuleChild)
             } else {
                 Ok(vec![FormItem::Form(form.clone())])
@@ -108,12 +109,7 @@ fn expand_statement_child(
         return Ok(Vec::new());
     }
     match form.head.as_str() {
-        "temp" => {
-            if let Some(name) = attr(form, "name") {
-                env.add_local(name.to_string());
-            }
-            Ok(vec![FormItem::Form(form.clone())])
-        }
+        "temp" => expand_temp_form(form, env),
         "while" | "choice" | "option" => Ok(vec![FormItem::Form(rewrite_form_children(
             form,
             env,
