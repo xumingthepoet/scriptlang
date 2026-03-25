@@ -29,18 +29,18 @@ sl-repl      → REPL 实现
 
 ### 🔴 P0 - 必须处理（影响可维护性）
 
-| 文件 | 行数 | 问题 | 建议 |
-|------|------|------|------|
-| `macro_lang/tests.rs` | 6,171 | 超大测试文件 | 按功能拆分为独立模块 |
-| `builtins.rs` | 2,329 | 单文件承载所有内置函数 | 按类别拆分 |
+| 文件 | 状态 |
+|------|------|
+| `macro_lang/tests.rs` | ✅ Round 1 完成（拆分为 4 个文件）|
+| `builtins.rs` | ✅ Round 2 完成（拆分为 9 个子模块）|
 
 ### 🟡 P1 - 重要（影响可读性）
 
-| 文件 | 行数 | 问题 | 建议 |
-|------|------|------|------|
-| `sl-repl/src/lib.rs` | 1,962 | Session 管理与命令解析混在一起 | 拆分 session/commands/inspector |
-| `const_eval.rs` | 1,112 | 接近 800 上限 | 考虑拆分 parser 逻辑 |
-| `engine/mod.rs` | 1,007 | 运行时引擎主文件 | 检查是否有提取空间 |
+| 文件 | 状态 |
+|------|------|
+| `sl-repl/src/lib.rs` | ✅ Round 3 完成（拆分为 session.rs/commands.rs/lib facade）|
+| `const_eval.rs` | ✅ Round 4 完成（测试移至独立文件，1112→408 行）|
+| `engine/mod.rs` | ⬜ 仍约 1007 行，可后续考虑拆分 |
 
 ### 🟢 P2 - 改进（持续优化）
 
