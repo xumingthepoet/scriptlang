@@ -47,7 +47,7 @@ sl-repl      → REPL 实现
 | 项目 | 状态 |
 |------|------|
 | 减少不必要的 `.clone()` 调用 | ✅ Round 6 完成 engine/mod.rs（BTreeMap clone 优化）|
-| 提取重复模式为通用辅助函数 | 🚧 Round 7 完成 convert.rs（提取 extract_expr_forms）|
+| 提取重复模式为通用辅助函数 | 🚧 Round 7 完成 convert.rs，Round 10 完成 program.rs |
 | 统一错误消息格式 | ⬜ |
 | 添加缺失的文档注释 | 🚧 部分完成（convert.rs 函数已完整，expand/mod.rs 等待补充）|
 
@@ -109,6 +109,10 @@ sl-repl      → REPL 实现
 ### Round 9: 提取 scope.rs 重复模式
 - [x] `expand/scope.rs`：`ScopeResolver` 中提取 `search_imports_reverse` 辅助函数，统一 var/function import 查找逻辑；新增 `resolve_short_function_ref` 测试覆盖 `MemberSearchKind::Function` 分支
 - 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.65%)
+
+### Round 10: 提取 program.rs 重复模式
+- [x] `expand/program.rs`：新增 `parse_function_type` 辅助函数，统一所有 `parse_declared_type_name(..., "function", ...)` 调用；新增 `parse_function_type_from_segment` 处理 `Type:name` 分段解析，消除 `parse_function_args` 中重复的错误消息字符串
+- 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.66%)
 
 ---
 
@@ -362,3 +366,27 @@ make gate
 - P2: 继续在 `expand/mod.rs`（556 行）、`expand/program.rs`（671 行）中寻找可提取的重复模式
 - P1: 后续可考虑拆分 `expand/program.rs`
 - P2: 检查 `scope.rs` 中 `normalize_script_literal` 和 `normalize_function_literal` 是否有进一步提取空间
+
+### Round 10 - 提取 program.rs 重复模式 ✅ (2026-03-25)
+
+**本次做了什么：**
+- 在 `expand/program.rs` 中新增 `parse_function_type(type_name, form)` 辅助函数，将所有 `parse_declared_type_name(..., "function", ...)` 调用统一到一处
+- 新增 `parse_function_type_from_segment(raw, form)` 辅助函数，处理 `Type:name` 分段解析，消除 `parse_function_args` 中重复的 `split_once` + parse + validate 模式
+- `parse_function_args` 从 ~15 行内联代码简化为 3 行调用
+- `program.rs`：净增约 10 行（helpers 比被消除的重复代码略多，但结构更清晰）
+
+**本次发现的问题/踩的坑：**
+
+1. **`parse_function_args` 中 `declared_type` 变量未使用**：将 `parse_function_type_from_segment` 的返回值绑定到 `let (declared_type, name)` 后，compiler 产生 `unused_variables` 警告。`declared_type` 在 `parse_function_args` 中只用于类型验证（不存储），应用 `_` 忽略。
+
+2. **`parse_declared_type_name` 的 `"function"` 字面量重复出现在 3 处**：`analyze_function` 的 `return_type` 解析、`parse_function_args` 的参数类型解析、以及错误消息中都使用了 `"function"` 作为 element name。提取为 `parse_function_type` 后消除了重复。
+
+**对后续有价值的经验：**
+- `parse_declared_type_name(..., "function", ...)` 模式是"对函数参数/返回值类型进行声明式类型解析"的惯用手法，封装为 `parse_function_type` 可以让调用点更简洁，也让类型验证逻辑集中在一处
+- `parse_function_type_from_segment` 将 `Type:name` 分段解析的三个步骤（split、parse、validate）封装为一个函数，避免了 `parse_function_args` 中多个错误处理分支的重复
+- Rust 函数返回 `(DeclaredType, String)` 时，如果某个组件在特定调用点不需要，可以用 `let (_, name)` 解构忽略，避免未使用变量警告
+
+**下一步方向：**
+- P2: 检查 `scope.rs` 中 `normalize_script_literal` 和 `normalize_function_literal` 是否有提取空间（两者结构几乎完全相同，只是 prefix 字符不同）
+- P2: 检查 `expand/mod.rs` 中的 `raw_body_text` 函数是否有可提取的辅助函数
+- P1: 考虑拆分 `expand/program.rs`（671 行，职责较重）
