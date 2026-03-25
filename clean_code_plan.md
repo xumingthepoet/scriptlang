@@ -98,6 +98,10 @@ sl-repl      → REPL 实现
 - [x] `engine/mod.rs`：`build_rhai_engine` 改为接收 `Arc<CompiledArtifact>`，消除 `artifact.functions.clone()` 对 BTreeMap 的昂贵克隆
 - 状态：**完成** (make gate 通过，覆盖率 89.45%)
 
+### Round 7: 提取 convert.rs 重复模式
+- [x] `macro_lang/convert.rs`：提取 `extract_expr_forms` 辅助函数，消除两处完全相同的 filter_map 模式
+- 状态：**完成** (cargo check/test/clippy 全通过)
+
 ---
 
 ## 约束条件
