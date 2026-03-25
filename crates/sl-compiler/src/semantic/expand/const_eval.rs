@@ -1,10 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use sl_core::ScriptLangError;
+use sl_core::{Form, ScriptLangError};
 
+use super::declared_types::parse_declared_type_form as parse_declared_type;
 use super::scope::QualifiedConstLookup;
 use crate::semantic::expr::{is_ident_continue, is_ident_start};
 use crate::semantic::types::DeclaredType;
+use crate::semantic::{body_expr, required_attr};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ConstValue {
@@ -55,6 +57,22 @@ pub(crate) fn parse_const_value<R: ConstLookup>(
         )));
     }
     Ok(value)
+}
+
+/// Evaluate a `<const>` form: extract `name`/`raw_expr`/`declared_type` and resolve its value.
+pub(crate) fn eval_const_form<R: ConstLookup>(
+    form: &Form,
+    const_env: &ConstEnv,
+    resolver: &mut R,
+    remaining_const_names: &BTreeSet<String>,
+) -> Result<(String, ConstValue), ScriptLangError> {
+    let name = required_attr(form, "name")?.to_string();
+    let raw = body_expr(form)?;
+    let mut blocked = remaining_const_names.clone();
+    blocked.remove(&name);
+    let declared_type = parse_declared_type(form)?;
+    let value = parse_const_value(&raw, const_env, resolver, &blocked, Some(&declared_type))?;
+    Ok((name, value))
 }
 
 impl ConstValue {

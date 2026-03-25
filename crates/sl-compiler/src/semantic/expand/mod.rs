@@ -22,7 +22,7 @@ use sl_core::{Form, FormItem, ScriptLangError};
 use super::env::ExpandEnv;
 use super::types::SemanticProgram;
 use crate::semantic::children_items;
-pub(crate) use const_eval::{ConstEnv, ConstLookup, ConstValue, parse_const_value};
+pub(crate) use const_eval::{ConstEnv, ConstLookup, ConstValue, eval_const_form};
 pub(crate) use declared_types::{parse_declared_type_form, parse_declared_type_name};
 pub(crate) use dispatch::{ExpandRuleScope, expand_with_rules};
 pub(crate) use imports::{

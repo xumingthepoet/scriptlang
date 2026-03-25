@@ -4,7 +4,7 @@ use sl_core::{Form, ScriptLangError};
 
 use super::{
     ConstCatalog, ConstEnv, ConstLookup, ConstValue, ModuleCatalog, ModuleScope, ScopeResolver,
-    alias_name, parse_const_value, parse_declared_type_form as parse_declared_type,
+    alias_name, eval_const_form, parse_declared_type_form as parse_declared_type,
     parse_declared_type_name, validate_alias_target, validate_import_target,
     validate_require_target,
 };
@@ -166,13 +166,7 @@ fn analyze_const(
     resolver: &mut impl ConstLookup,
     remaining_const_names: &BTreeSet<String>,
 ) -> Result<(String, ConstValue), ScriptLangError> {
-    let name = required_attr(form, "name")?.to_string();
-    let raw = body_expr(form)?;
-    let mut blocked = remaining_const_names.clone();
-    blocked.remove(&name);
-    let declared_type = parse_declared_type(form)?;
-    let value = parse_const_value(&raw, const_env, resolver, &blocked, Some(&declared_type))?;
-    Ok((name, value))
+    eval_const_form(form, const_env, resolver, remaining_const_names)
 }
 
 fn parse_function_return_type(form: &Form) -> Result<DeclaredType, ScriptLangError> {

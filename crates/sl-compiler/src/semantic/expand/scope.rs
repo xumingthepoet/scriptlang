@@ -2,12 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use sl_core::ScriptLangError;
 
-use super::{
-    ConstEnv, ConstLookup, ConstValue, parse_const_value,
-    parse_declared_type_form as parse_declared_type,
-};
+use super::{ConstEnv, ConstLookup, ConstValue, eval_const_form};
+use crate::semantic::required_attr;
 use crate::semantic::types::{MemberKind, ModulePath, ResolvedRef};
-use crate::semantic::{body_expr, required_attr};
 
 use super::imports::{alias_name, validate_alias_target, validate_import_target};
 use super::modules::{DEFAULT_KERNEL_MODULE, ModuleCatalog};
@@ -228,18 +225,9 @@ impl<'a> ConstCatalog<'a> {
                         continue;
                     }
 
-                    let raw = body_expr(child)?;
-                    let mut blocked = remaining_const_names.clone();
-                    blocked.remove(&const_name);
                     let mut resolver = ScopeResolver::new(self.modules, self, &scope);
-                    let declared_type = parse_declared_type(child)?;
-                    let value = parse_const_value(
-                        &raw,
-                        &const_env,
-                        &mut resolver,
-                        &blocked,
-                        Some(&declared_type),
-                    )?;
+                    let (_, value) =
+                        eval_const_form(child, &const_env, &mut resolver, &remaining_const_names)?;
                     self.cache_value(module_name, &const_name, value.clone());
                     remaining_const_names.remove(&const_name);
                     const_env.insert(const_name.clone(), value.clone());
