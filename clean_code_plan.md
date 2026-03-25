@@ -48,7 +48,7 @@ sl-repl      → REPL 实现
 |------|------|
 | 减少不必要的 `.clone()` 调用 | ✅ Round 6 完成 engine/mod.rs（BTreeMap clone 优化）|
 | 提取重复模式为通用辅助函数 | 🚧 Round 7 完成 convert.rs，Round 10 完成 program.rs |
-| 统一错误消息格式 | ⬜ |
+| 统一错误消息格式 | 🚧 部分完成（invalid_bool_attr_error 辅助函数）|
 | 添加缺失的文档注释 | 🚧 部分完成（convert.rs 函数已完整，expand/mod.rs 等待补充）|
 
 ---
@@ -116,6 +116,12 @@ sl-repl      → REPL 实现
 
 ### Round 11: 提取 scope.rs literal normalization 重复模式
 - [x] `expand/scope.rs`：`ModuleScope::normalize_script_literal` 和 `normalize_function_literal` 合并为 `normalize_literal(prefix, char)` 辅助函数，两方法结构完全相同仅 prefix 字符不同，净减少 6 行
+- 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.65%)
+
+### Round 12: 提取 is_private/is_hidden 重复实现
+- [x] `declared_types.rs`：新增 `invalid_bool_attr_error` 辅助函数，将 `is_private` 改为 `pub(crate)` 并导出；新增 `is_hidden` 使用相同 helper
+- [x] `module_reducer.rs`：移除 `is_private` 和 `is_hidden` 的重复实现，改为从 `declared_types` 导入
+- [x] `module.rs`：测试模块 import 路径从 `module_reducer` 更新为 `declared_types`
 - 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.65%)
 
 ---
@@ -414,6 +420,33 @@ make gate
 - 保留薄 wrapper 方法可以维持 API 兼容性，现有测试无需修改
 
 **下一步方向：**
-- P2: 统一错误消息格式（检查各模块是否有不一致的错误消息格式）
+- P2: 统一错误消息格式（invalid_bool_attr_error 已提取，检查其他重复错误消息）
 - P2: 检查 `expand/mod.rs` 中是否有可提取的重复模式
 - P1: 考虑拆分 `expand/program.rs`（671 行）
+
+### Round 12 - 提取 is_private/is_hidden 重复实现 ✅ (2026-03-25)
+
+**本次做了什么：**
+- 在 `declared_types.rs` 中新增 `invalid_bool_attr_error` 辅助函数，统一布尔属性验证错误消息
+- 将 `is_private` 改为 `pub(crate)` 从 `declared_types.rs` 导出
+- 在 `declared_types.rs` 中新增 `is_hidden`，使用 `invalid_bool_attr_error`
+- 从 `module_reducer.rs` 中移除 `is_private` 和 `is_hidden` 的重复实现（共 24 行），改为从 `declared_types` 导入
+- 更新 `module.rs` 测试模块的 `is_private` import 路径
+- 净减少 8 行
+
+**本次发现的问题/踩的坑：**
+
+1. **修改 import 时遗漏了 `alias_name`**：将 `module.rs` 的 `use module_reducer::{alias_name, is_private}` 改为 `use declared_types::is_private` 时，漏掉了 `alias_name` 的 import。需要单独补一行 `use module_reducer::alias_name;`。
+
+2. **`invalid_bool_attr_error` 的函数签名与 rustfmt**：Rust formatter 将多行函数签名格式化为单行形式（当参数在一定宽度内时）。为符合项目格式规范，应将函数写为单行。
+
+**对后续有价值的经验：**
+- 提取重复 helper 函数时，如果多个文件都有相同实现，优先移到最合理的模块（如 `declared_types.rs` 管理类型相关逻辑）
+- 修改 import 时要注意是否遗漏了其他同时被导入的函数名
+- Rust fmt 会在一定宽度内将多行签名合并为单行，写代码时应注意此格式规则
+
+**下一步方向：**
+- P2: 检查 `expand/mod.rs` 中是否有可提取的重复模式
+- P1: 考虑拆分 `expand/program.rs`（671 行）
+- P2: 继续寻找其他可统一的错误消息（如 `duplicate ... declaration` 系列）
+
