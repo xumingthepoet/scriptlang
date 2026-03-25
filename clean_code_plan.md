@@ -47,7 +47,7 @@ sl-repl      → REPL 实现
 | 项目 | 状态 |
 |------|------|
 | 减少不必要的 `.clone()` 调用 | ✅ Round 6 完成 engine/mod.rs（BTreeMap clone 优化）|
-| 提取重复模式为通用辅助函数 | 🚧 Round 7 完成 convert.rs，Round 10 完成 program.rs |
+| 提取重复模式为通用辅助函数 | 🚧 Round 7 完成 convert.rs，Round 10 完成 program.rs，Round 14 完成 alias_name 提取 |
 | 统一错误消息格式 | 🚧 部分完成（invalid_bool_attr_error 辅助函数）|
 | 添加缺失的文档注释 | ✅ Round 13 完成 expand/mod.rs（convert.rs + expand/mod.rs 均已完整）|
 
@@ -452,5 +452,37 @@ make gate
 **下一步方向：**
 - P1: 考虑拆分 `expand/program.rs`（671 行，职责较重，可参考 Round 2/3 的 facade 模式）
 - P2: 继续统一错误消息（如 `duplicate ... declaration` 系列可考虑提取为 `duplicate_decl_error`）
+
+### Round 14 - 提取 alias_name 重复实现 ✅ (2026-03-25)
+
+**本次做了什么：**
+- 发现 `alias_name` 函数在三个文件中完全重复：`program.rs`、`module_reducer.rs`、`scope.rs` 各有一份
+- 将 `alias_name` 添加到 `imports.rs`（alias 相关验证逻辑的自然归属），添加 doc 注释
+- 从 `mod.rs` re-export `alias_name` 为 `pub(crate)`
+- 从 `program.rs` 删除本地 `alias_name` 定义，改为从 `super`（`imports`）导入
+- 从 `module_reducer.rs` 删除 `pub(crate)` 本地定义，改为从 `super::imports` 导入
+- 从 `scope.rs` 删除本地定义，改为从 `super::imports` 导入；发现 `Form` import 已成冗余（仅 test 模块使用，已用全路径），一并移除
+- `module.rs` 测试模块的 `alias_name` import 路径从 `module_reducer` 更新为 `expand::alias_name`
+- 净减少 22 行（3×12 行重复 - 14 行新 helper - 4 行导入调整）
+
+**本次发现的问题/踩的坑：**
+
+1. **`alias_name` 在三个文件中并不完全相同**：`scope.rs` 版本的 `alias_name` 缺少 `as` 属性空值检查（`if alias_name.is_empty() { return Err(...) }`）且使用 `ScriptLangError::message` 而非 `error_at`。合并时以 `program.rs`/`module_reducer.rs` 版本（含空检查）为规范版本，因为测试覆盖了该分支。
+
+2. **`super` 路径到 `imports` 模块的可见性**：`scope.rs` 和 `module_reducer.rs` 都在 `expand/` 子目录中，`super` 指向 `expand` 模块。`imports.rs` 是 `expand` 的私有子模块，但 `pub(crate)` 函数可从 crate 任意位置访问。通过 `expand/mod.rs` 的 `pub(crate) use imports::{...}` 统一导出后，调用方用 `super::alias_name` 或 `crate::semantic::expand::alias_name` 均可。
+
+3. **`Form` 冗余 import**：`scope.rs` 的 `use sl_core::{Form, ScriptLangError}` 中，`Form` 在移除本地 `alias_name` 后仅被 test 模块通过全路径 `sl_core::Form` 使用，主代码不再需要此导入，移除消除 warning。
+
+4. **Rust fmt 对长 import 行的处理**：`cargo fmt` 将超过一定长度的 import 列表拆分为多行并按字母排序。手动编辑 import 时应让 rustfmt 自动处理格式，避免冲突。
+
+**对后续有价值的经验：**
+- 多模块共享函数时，`imports.rs` 是存放"模块级语义验证 helper"的理想位置（类比 `declared_types.rs` 存放"类型相关 helper"）
+- `pub(crate)` 函数在 `mod.rs` 中 re-export 后，调用方可通过任意合法路径访问，不受 `super` 层级限制
+- 从 `scope.rs` 移除本地 `alias_name` 时顺手清理了冗余 `Form` import，一举两得
+- 用 `cargo fmt --check` 或 `make gate` 的 fmt 步骤前，确保 import 行不太长（rustfmt 会自动拆排）
+
+**下一步方向：**
+- P2: 继续在 `expand/mod.rs`（562 行）中寻找可提取的重复模式（如 `error_at` 调用中有无重复的错误消息字符串）
+- P1: 考虑拆分 `expand/program.rs`（671 行，按 analyze_program/analyze_module/function parsing 职责拆分）
 - P2: engine/mod.rs 拆分（Round 5 跳过，coverage 临界，需单独评估）
 
