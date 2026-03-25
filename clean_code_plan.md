@@ -106,6 +106,10 @@ sl-repl      → REPL 实现
 - [x] 检查 `macro_lang/convert.rs` 函数 doc → **跳过**（所有函数已有完整 doc 注释）
 - 状态：**完成**
 
+### Round 9: 提取 scope.rs 重复模式
+- [x] `expand/scope.rs`：`ScopeResolver` 中提取 `search_imports_reverse` 辅助函数，统一 var/function import 查找逻辑；新增 `resolve_short_function_ref` 测试覆盖 `MemberSearchKind::Function` 分支
+- 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.65%)
+
 ---
 
 ## 约束条件
@@ -328,3 +332,33 @@ make gate
 - P2: 继续在 `eval.rs`、`expand/mod.rs`、`expand/program.rs` 中寻找可提取的重复模式
 - P2: 添加 `convert.rs` 缺失的 doc 注释（convert_form_to_stmt、convert_if_form 等函数）
 - P1: 后续可考虑拆分 `expand/program.rs`（671 行，未拆分）
+
+### Round 9 - 提取 scope.rs 重复模式 ✅ (2026-03-25)
+
+**本次做了什么：**
+- 在 `expand/scope.rs` 中新增 `MemberSearchKind` 枚举（Var / Function 变体）
+- 新增 `search_imports_reverse` 辅助方法：统一处理 "反向遍历 imports 并在 exports 中查找成员" 的逻辑，消除 `resolve_short_var_ref` 和 `resolve_short_function_ref` 中完全相同的 for 循环模式
+- 将两个 resolve 方法重构为：先检查 current_module，再用 helper 处理 imports 分支
+- 净减少约 14 行重复代码
+- 在现有测试中新增 `resolve_short_function_ref` 直接测试用例（pick / choose / missing），确保 `MemberSearchKind::Function` 分支被覆盖
+
+**本次发现的问题/踩的坑：**
+
+1. **`MemberKind` 命名冲突陷阱**：`scope.rs` 已从 `crate::semantic::types` 导入了 `MemberKind` 类型，用于 `ResolvedRef::new`。新增本地枚举时若命名为 `MemberKind` 会产生冲突。解决方案：命名为 `MemberSearchKind` 以避免冲突。
+
+2. **覆盖率临界问题**：baseline 覆盖率 89.48%，引入新代码后若新代码有未覆盖行会导致覆盖率下跌。Round 6 设定的 89.45% 阈值处于临界状态，新增 ~21 行代码（其中 ~5 行未覆盖）导致覆盖率下降 0.05pp。解决：在现有测试中补充 `resolve_short_function_ref` 直接测试用例，覆盖 `MemberSearchKind::Function` 分支。
+
+3. **覆盖率测量噪声**：增量编译时 `llvm-cov` 的 profraw 文件可能交叉污染，导致 TOTAL 行数异常增长（从 ~1455 跳到 ~1850）。解决：每次重新测量覆盖率前必须 `rm -rf target`。
+
+4. **Rust `?` vs `match` 的错误处理差异**：原始内联代码中 `exports(...)` 出错时直接返回错误（`?`）；提取为 helper 后用 `match Ok(e) => e, Err(_) => continue` 处理错误（不返回而是跳过）。这导致新增的 `Err(_)` 分支需要测试覆盖。
+
+**对后续有价值的经验：**
+- Rust 模块内多类型间避免命名冲突：用 `MemberSearchKind` 等明确的前缀/后缀命名
+- 覆盖率处于临界状态时，任何新增代码都需要补充测试覆盖；宁可多写一个测试也不要踩线
+- 提取重复模式的时机：两个方法结构几乎完全相同（仅检查的 member 类型不同）时，即可用 enum + helper 提取公共逻辑
+- 覆盖率下降后的排查：先用 `git stash && rm -rf target && cargo llvm-cov` 建立 baseline，再 stash pop 并重新测量
+
+**下一步方向：**
+- P2: 继续在 `expand/mod.rs`（556 行）、`expand/program.rs`（671 行）中寻找可提取的重复模式
+- P1: 后续可考虑拆分 `expand/program.rs`
+- P2: 检查 `scope.rs` 中 `normalize_script_literal` 和 `normalize_function_literal` 是否有进一步提取空间
