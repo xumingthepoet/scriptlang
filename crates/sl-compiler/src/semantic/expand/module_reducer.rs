@@ -6,6 +6,7 @@
 
 use sl_core::{Form, FormItem, FormValue, ScriptLangError};
 
+use super::declared_types::{is_hidden, is_private};
 use super::dispatch::{ExpandRuleScope, expand_form_items};
 use crate::names::qualified_member_name;
 use crate::semantic::env::ExpandEnv;
@@ -279,31 +280,6 @@ fn expand_nested_module(
     // We use a lazy import to avoid circular dependency
     let _ = super::module::expand_nested_module_form(form, env, Some(parent_module))?;
     Ok(())
-}
-
-pub(crate) fn is_private(form: &Form) -> Result<bool, ScriptLangError> {
-    match attr(form, "private") {
-        None => Ok(false),
-        Some("true") => Ok(true),
-        Some("false") => Ok(false),
-        Some(other) => Err(error_at(
-            form,
-            format!("invalid boolean value `{other}` for `private`"),
-        )),
-    }
-}
-
-/// Check if a form is marked as a hidden helper.
-pub(crate) fn is_hidden(form: &Form) -> Result<bool, ScriptLangError> {
-    match attr(form, "hidden") {
-        None => Ok(false),
-        Some("true") => Ok(true),
-        Some("false") => Ok(false),
-        Some(other) => Err(error_at(
-            form,
-            format!("invalid boolean value `{other}` for `hidden`"),
-        )),
-    }
 }
 
 /// Rename a form's `name` attribute to a hygienic name.

@@ -52,15 +52,30 @@ fn form_error(form: &Form, message: impl Into<String>) -> ScriptLangError {
     error_at(form, message)
 }
 
-fn is_private(form: &Form) -> Result<bool, ScriptLangError> {
+fn invalid_bool_attr_error(form: &Form, attr_name: &str, value: &str) -> ScriptLangError {
+    error_at(
+        form,
+        format!("invalid boolean value `{value}` for `{attr_name}`"),
+    )
+}
+
+/// Check if a form is marked as private.
+pub(crate) fn is_private(form: &Form) -> Result<bool, ScriptLangError> {
     match attr(form, "private") {
         None => Ok(false),
         Some("true") => Ok(true),
         Some("false") => Ok(false),
-        Some(other) => Err(error_at(
-            form,
-            format!("invalid boolean value `{other}` for `private`"),
-        )),
+        Some(other) => Err(invalid_bool_attr_error(form, "private", other)),
+    }
+}
+
+/// Check if a form is marked as hidden.
+pub(crate) fn is_hidden(form: &Form) -> Result<bool, ScriptLangError> {
+    match attr(form, "hidden") {
+        None => Ok(false),
+        Some("true") => Ok(true),
+        Some("false") => Ok(false),
+        Some(other) => Err(invalid_bool_attr_error(form, "hidden", other)),
     }
 }
 
