@@ -191,9 +191,34 @@ fn alias_name(form: &Form) -> Result<String, ScriptLangError> {
 }
 
 fn parse_function_return_type(form: &Form) -> Result<DeclaredType, ScriptLangError> {
-    parse_declared_type_name(attr(form, "return_type"), "function", |message| {
-        error_at(form, message)
-    })
+    parse_function_type(attr(form, "return_type"), form)
+}
+
+/// Parse a declared type for function arguments from a raw `Type:name` segment.
+fn parse_function_type_from_segment(
+    raw: &str,
+    form: &Form,
+) -> Result<(DeclaredType, String), ScriptLangError> {
+    let (declared_type, name) = raw
+        .split_once(':')
+        .ok_or_else(|| error_at(form, format!("invalid function arg declaration `{raw}`")))?;
+    let declared_type = parse_function_type(Some(declared_type.trim()), form)?;
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(error_at(
+            form,
+            format!("invalid function arg declaration `{raw}`"),
+        ));
+    }
+    Ok((declared_type, name.to_string()))
+}
+
+/// Parse a declared type with "function" as the element name for error messages.
+fn parse_function_type(
+    type_name: Option<&str>,
+    form: &Form,
+) -> Result<DeclaredType, ScriptLangError> {
+    parse_declared_type_name(type_name, "function", |message| error_at(form, message))
 }
 
 fn parse_function_args(form: &Form) -> Result<Vec<String>, ScriptLangError> {
@@ -207,26 +232,11 @@ fn parse_function_args(form: &Form) -> Result<Vec<String>, ScriptLangError> {
     let mut names = BTreeSet::new();
     let mut params = Vec::new();
     for segment in raw.split(',').map(str::trim) {
-        let (declared_type, name) = segment.split_once(':').ok_or_else(|| {
-            error_at(
-                form,
-                format!("invalid function arg declaration `{segment}`"),
-            )
-        })?;
-        let name = name.trim();
-        parse_declared_type_name(Some(declared_type.trim()), "function", |message| {
-            error_at(form, message)
-        })?;
-        if name.is_empty() {
-            return Err(error_at(
-                form,
-                format!("invalid function arg declaration `{segment}`"),
-            ));
-        }
-        if !names.insert(name.to_string()) {
+        let (_, name) = parse_function_type_from_segment(segment, form)?;
+        if !names.insert(name.clone()) {
             return Err(error_at(form, format!("duplicate function arg `{name}`")));
         }
-        params.push(name.to_string());
+        params.push(name);
     }
     Ok(params)
 }
