@@ -724,8 +724,26 @@ make gate
 - `Result<Option<T>, E>` 的嵌套是表达"找不到/不存在"与"真正错误"区分的标准 Rust 手法
 - `try_qualified_export` 的设计说明：当两个函数有共享的"验证前置条件"（存在性、可访问性），但不同的"具体操作"和"失败处理"时，用 `FnOnce` 闭包传入是比泛型更轻量的方案
 
+### Round 23 - 检查 scope.rs can_access_module 优化可能性（跳过）✅ (2026-03-25)
+
+**本次做了什么：**
+- 分析了 `can_access_module` 的三条分支（current_module / aliases.values() / imports.iter()）是否有可合并为更清晰单次遍历的可能
+- 尝试将 `.aliases.values().any(|alias| alias.as_str() == module_name)` 替换为 `aliases.get(module_name).is_some_and(...)` 以消除 aliases 迭代
+- 经验证：该优化会改变语义——`.values().any()` 检查所有 alias 的**值**是否等于目标模块，而 `.get(module_name)` 只检查原始输入是否为某个 alias 的**键**。当调用方传入 alias 名称（如 `can_access_module("h")`）时，两者结果不同
+
+**本次发现的问题/踩的坑：**
+
+1. **`can_access_module` 的 aliases 分支无法用 `contains_key` 优化**：`aliases.values().any(...)` 检查的是"是否存在任意 alias 指向目标模块"，而不是"输入本身是否是 alias 的键"。语义要求遍历所有值，无法用单次 O(1) 查找替代 O(n) 遍历。
+
+2. **"检查" ≠ "实现"**：计划中的"检查是否可优化"不等于必须修改代码。分析后确认当前实现是正确的，无法在不改变语义的前提下优化，因此本轮跳过。
+
+**对后续有价值的经验：**
+
+- 分析优化机会时，必须先确认"语义等价"才能动手。我的错误版本改变了语义（从"检查所有 alias 值"变为"检查原始名称是否为 alias 键"），导致测试失败
+- `aliases.values().any(...)` 的语义是"任意 alias 指向 module_name"，这等价于 `aliases.iter().any(|(_, v)| v.as_str() == module_name)`，而不是 `aliases.contains_key(module_name)`
+- 当 plan 说"检查 X 是否可优化"时，分析后若发现无法优化，应如实记录为"跳过"而非强行制造优化
+
 **下一步方向：**
-- P2: 检查 `scope.rs` 中 `resolve_short_const`（`ConstLookup` impl）与 `search_imports_reverse` 是否有可提取的公共模式
-- P2: 检查 `scope.rs` 中 `can_access_module` 的三次迭代（aliases/imports/current）是否可优化为更清晰的单次遍历
-- P1: 考虑拆分 `scope.rs`（863 行，ModuleScope/ConstCatalog/ScopeResolver 三个 impl 分离到不同文件）
-- P2: 检查 `expand/mod.rs`（562 行）的测试块是否有可提取的辅助函数
+- P2: 检查 `resolve_qualified_const`（ConstLookup impl）与 `try_qualified_export`（ScopeResolver impl）是否有可提取的公共 preamble（normalize_module_path / contains / can_access_module / exports）
+- P1: 考虑拆分 `scope.rs`（873 行，ModuleScope / ConstCatalog / ScopeResolver 三个 impl 分离到不同文件）
+- P2: 检查 `expand/mod.rs`（562 行）的测试块是否有可提取的辅助函数（已检查，helpers 均为本地特定，无提取价值）
