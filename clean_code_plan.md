@@ -829,6 +829,40 @@ make gate
 - 子模块间相互引用：`pub(crate)` 可见性允许任何 crate 内部模块访问，无需通过 `super` 链。
 
 **下一步方向：**
-- P1: 考虑拆分 `expand/program.rs`（604 行，按 analyze_program/analyze_module/function parsing 职责拆分）
-- P2: 检查 `expand/mod.rs`（562 行）是否有可提取的重复模式
+- P2: 继续在 `expand/mod.rs`（562 行）中寻找可提取的重复模式
 - P2: 统一错误消息格式
+- P1: 检查 engine/mod.rs 拆分可行性（Round 5 跳过，coverage 临界问题）
+
+### Round 26 - 检查 program.rs 拆分可行性（保留单文件）✅ (2026-03-25)
+
+**本次做了什么：**
+- 尝试将 `program.rs`（604 行）按职责拆分为 `program/` 目录结构：`mod.rs` facade、`program.rs`、`module.rs`、`function.rs`、`tests.rs`
+- 发现 Rust 模块系统的关键限制：当存在 `program/` 目录时，`mod program;` 解析到 `program/` 而非 `program.rs` 文件；`program.rs` 成为 `program::program` 嵌套子模块而非 sibling facade
+- 这导致 `mod.rs` 无法通过 `use program::analyze_program;` 导入（因为 `program` 已是目录模块），形成循环依赖陷阱
+- 回退到单文件方案：`program.rs` 保持原样，测试保留在 `mod tests` 块中
+- `mod.rs`：`mod program;` → `pub(crate) mod program;`（与 re-export 保持一致）
+- `mod.rs`：`imports` re-export 添加 `#[allow(unused_imports)]`（被 `expand/module.rs` test 通过 `crate::semantic::expand::alias_name` 路径使用）
+- `program.rs`：添加模块 doc 注释说明各函数职责；测试中对 `analyze_program` 的调用从 `analyze_program(...)` 改为 `super::analyze_program(...)`（更显式）
+- `make gate` 通过（覆盖率 89.72%，高于 89.45% 阈值）
+
+**本次发现的问题/踩的坑：**
+
+1. **`program/` 目录 vs `program.rs` 文件二选一**：Rust 中 `mod program;` 在同时存在 `program.rs` 和 `program/` 时解析到目录（E0761 错误）。这是 Rust 的硬性规则，无法通过 facade `#[path]` 绕过。
+
+2. **目录 facade 中无法用 `use program::` 访问 sibling 文件**：`program/mod.rs` 中 `use program::analyze_program;` 尝试从目录模块 `program` 导入，但 `program` 是目录而非文件，`analyze_program` 不在 `program/mod.rs` 中。正确方式是通过 `pub(crate) mod program;` 在父模块（`expand/mod.rs`）声明，然后从父模块 re-export。
+
+3. **Rust `use` 导入不自动传递到孙模块**：在 `expand/mod.rs` 中 `use imports::...` 的 items 不自动对 `expand/program/mod.rs` 可见。需要 `pub(crate) use` 或在每个中间层显式 re-export。
+
+4. **`#[cfg(test)]` 在 lib 编译中的作用**：`#[test]` 函数在普通 `cargo build --lib` 时不在 `test` cfg 下，编译器将其视为死代码，导致 unused import 警告。
+
+5. **Rust 2024 edition 的 unused import 警告行为**：`use` 导入但未直接使用的 items 会产生警告（即使是 `pub(crate) use` re-export）。`#[allow(unused_imports)]` 是最干净的解决方案。
+
+**对后续有价值的经验：**
+- `program.rs`（604 行）虽然较长，但 Rust 模块系统的目录优先规则使得有嵌套依赖的单文件拆分不现实。对于单向依赖（父模块 → program.rs）的场景，保持单文件是更务实的选择
+- Rust 模块拆分有两条路：文件即模块（`scope.rs`）或目录 facade（`scope/`）。对于有**单向依赖**且**测试需要访问父模块 items**的场景，单文件更简单
+- 未来如果 `program.rs` 增长到需要拆分，应考虑提取**独立的子模块**（如 `function.rs` 作为独立模块，不嵌套在 `program/` 下）
+
+**下一步方向：**
+- P2: 继续在 `expand/mod.rs`（562 行）中寻找可提取的重复模式
+- P2: 统一错误消息格式
+- P1: 检查 engine/mod.rs 拆分可行性（Round 5 跳过，coverage 临界问题）
