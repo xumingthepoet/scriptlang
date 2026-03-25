@@ -41,6 +41,7 @@ sl-repl      → REPL 实现
 | `sl-repl/src/lib.rs` | ✅ Round 3 完成（拆分为 session.rs/commands.rs/lib facade）|
 | `const_eval.rs` | ✅ Round 4 完成（测试移至独立文件，1112→408 行）|
 | `engine/mod.rs` | ⬜ Round 5 跳过（coverage 临界问题，暂不拆分）|
+| `scope.rs` | ✅ Round 25 完成（拆分为 scope/mod.rs + module_scope.rs + scope_impl.rs）|
 
 ### 🟢 P2 - 改进（持续优化）
 
@@ -173,6 +174,15 @@ sl-repl      → REPL 实现
 
 ### Round 24: 提取 try_lookup_qualified_export 辅助函数 ✅ (2026-03-25)
 - [x] `scope.rs`：新增 `QualifiedExportLookup` 枚举 + `try_lookup_qualified_export` 静态辅助方法，封装 normalize/contains/can_access/exports 四步公共 preamble；`try_qualified_export` 和 `resolve_qualified_const` 均改为调用此 helper
+- 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.72%)
+
+### Round 25: 拆分 scope.rs ✅ (2026-03-25)
+- [x] 将 `scope.rs`（906 行）拆分为目录结构：
+  - `scope/mod.rs`（5 行）：facade，重新导出 `ModuleScope` / `ConstCatalog` / `ScopeResolver` / `QualifiedConstLookup`
+  - `scope/module_scope.rs`（98 行）：`ModuleScope` 结构体定义 + impl
+  - `scope/scope_impl.rs`（815 行）：`ConstCatalog`、`ScopeResolver`、`ConstLookup for ScopeResolver` impl + 测试
+- `scope.rs` 文件删除；`expand/mod.rs` 的 `mod scope;` 现在解析到 `scope/mod.rs`（目录 facade 模式）
+- 外部 API 完全不变：通过 `scope/mod.rs` 的 re-export 保持透明
 - 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.72%)
 
 ---
@@ -781,6 +791,44 @@ make gate
 - 错误类型不同时用 enum 返回值而非 `Result`：`NotAccessible` 用 enum variant 而非 `Err(...)`，因为两个调用方对"不可访问"的处理不同
 
 **下一步方向：**
-- P1: 考虑拆分 `scope.rs`（900+ 行，ModuleScope / ConstCatalog / ScopeResolver 三个 impl 分离到不同文件）
+- P1: 考虑拆分 `expand/program.rs`（604 行，按 analyze_program/analyze_module/function parsing 职责拆分）
 - P2: 检查 `expand/mod.rs`（562 行）是否有可提取的重复模式
 - P2: 统一错误消息格式（如 `duplicate ... declaration` 系列可考虑提取为 `duplicate_decl_error`）
+
+### Round 25 - 拆分 scope.rs ✅ (2026-03-25)
+
+**本次做了什么：**
+- 将 906 行的 `scope.rs` 拆分为目录结构：
+  - `scope/mod.rs`（5 行）：facade，通过 `pub(crate) use` 重新导出 `ModuleScope` / `ConstCatalog` / `ScopeResolver` / `QualifiedConstLookup`
+  - `scope/module_scope.rs`（98 行）：`ModuleScope` 结构体定义（`pub(crate)` 可见）+ 所有 impl 方法
+  - `scope/scope_impl.rs`（815 行）：`ConstCatalog` 结构体 + impl + `ScopeResolver` 结构体 + `impl ScopeResolver` + `impl ConstLookup for ScopeResolver` + 所有测试
+- 原 `scope.rs` 文件删除；`expand/mod.rs` 的 `mod scope;` 声明自动解析到 `scope/mod.rs`（因为 `scope.rs` 文件不存在）
+- `const_eval.rs` 中的 `use super::scope::QualifiedConstLookup;` 自动通过 `scope/mod.rs` facade 解析，无需改动
+- 覆盖率从 89.72% → 89.72%（基本不变）
+
+**本次发现的问题/踩的坑：**
+
+1. **`scope.rs` 与 `scope/` 目录二选一**：Rust 编译器要求 `mod scope;` 解析到的文件/目录是唯一的。若 `scope.rs` 和 `scope/` 同时存在会报 E0761。解决方案：删除 `scope.rs`，让 `mod scope;` 解析到 `scope/mod.rs`。
+
+2. **同一模块的 impl 不能跨文件分离**：Rust 不允许将 `impl T` 块写到 `mod foo` 外部。`ModuleScope` 的 impl 必须在 `module_scope.rs`（定义所在文件），不能写在 `scope_impl.rs`。因此：
+   - `module_scope.rs` 定义 struct 并写 impl（因为 impl 必须与 struct 同文件）
+   - `scope_impl.rs` 导入 `ModuleScope` 用于 `ScopeResolver` 字段类型和 `compute_const` 中的构造
+
+3. **子模块间可见性：`pub(crate)` 打通跨文件访问**：拆分后 `ModuleScope` 的 private 方法（如 `imports()`、`normalize_module_path()`）对 `scope_impl.rs` 不可见。解决：将这些方法改为 `pub(crate)` 可见（`ModuleScope` 本身是 `pub(crate)`）。
+
+4. **子模块间无 `super` 链**：Rust 中同一父模块下的两个子模块（如 `scope/module_scope.rs` 和 `scope/scope_impl.rs`）互为兄弟，代码上不存在 `super` 路径。互相访问只能通过 `pub(crate)` 公开或通过父模块重导出。本例中 `scope_impl.rs` 通过 `use super::module_scope::ModuleScope;` 导入 `ModuleScope` 类型（`pub(crate)` 可见性允许）。
+
+5. **`const_eval.rs` ↔ `scope` 的循环导入问题**：原设计中 `const_eval.rs` 导入 `QualifiedConstLookup`（来自 `scope.rs`），而 `scope_impl.rs` 导入 `ConstLookup`（来自 `const_eval`）。改用目录 facade 后，`const_eval.rs` 的 `use super::scope::QualifiedConstLookup` 自动解析到 `scope/mod.rs`，不产生额外循环。
+
+6. **facade `#[path]` 陷阱**：最初尝试在 `scope.rs`（文件）中用 `#[path = "scope/mod.rs"] mod scope;` 来实现 facade，但 Rust 要求 `scope.rs` 和 `scope/` 目录不能共存（E0761）。直接删除 `scope.rs`、使用目录 facade 是唯一可行方案。
+
+**对后续有价值的经验：**
+- Rust 模块拆分有两条路：文件即模块（`scope.rs`）或目录 facade（`scope/mod.rs`）。Facade 模式通过目录名与 `mod` 声明名相同来解析，不需要额外路径属性。
+- 拆分同一 struct 的 impl 时，**impl 块必须在 struct 定义所在的同一文件**，不能跨文件分离。拆分的边界是**不同的 impl 块归属于不同的 type**。
+- 拆分多个 type 到不同文件的正确方式：每个文件定义自己的 struct + impl，`mod.rs` 通过 re-export 聚合。`const_eval.rs` 和 `builtins.rs` 都用了这个模式。
+- 子模块间相互引用：`pub(crate)` 可见性允许任何 crate 内部模块访问，无需通过 `super` 链。
+
+**下一步方向：**
+- P1: 考虑拆分 `expand/program.rs`（604 行，按 analyze_program/analyze_module/function parsing 职责拆分）
+- P2: 检查 `expand/mod.rs`（562 行）是否有可提取的重复模式
+- P2: 统一错误消息格式
