@@ -112,34 +112,28 @@ impl ModuleScope {
                 .any(|import| import.as_str() == module_name)
     }
 
-    fn normalize_script_literal(&self, raw: &str) -> String {
-        let Some(raw) = raw.strip_prefix('@') else {
+    /// Normalize a literal (script `@...` or function `#...`) by resolving its module path.
+    fn normalize_literal(&self, raw: &str, prefix: char) -> String {
+        let Some(rest) = raw.strip_prefix(prefix) else {
             return raw.to_string();
         };
-        if raw.is_empty() {
-            return "@".to_string();
+        if rest.is_empty() {
+            return format!("{prefix}");
         }
-        if let Some((module_name, script_name)) = raw.rsplit_once('.') {
+        if let Some((module_name, member_name)) = rest.rsplit_once('.') {
             let module_name = self.normalize_module_path(module_name);
-            format!("@{module_name}.{script_name}")
+            format!("{prefix}{module_name}.{member_name}")
         } else {
-            format!("@{raw}")
+            format!("{prefix}{rest}")
         }
     }
 
+    fn normalize_script_literal(&self, raw: &str) -> String {
+        self.normalize_literal(raw, '@')
+    }
+
     fn normalize_function_literal(&self, raw: &str) -> String {
-        let Some(raw) = raw.strip_prefix('#') else {
-            return raw.to_string();
-        };
-        if raw.is_empty() {
-            return "#".to_string();
-        }
-        if let Some((module_name, function_name)) = raw.rsplit_once('.') {
-            let module_name = self.normalize_module_path(module_name);
-            format!("#{module_name}.{function_name}")
-        } else {
-            format!("#{raw}")
-        }
+        self.normalize_literal(raw, '#')
     }
 }
 
