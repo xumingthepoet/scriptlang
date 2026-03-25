@@ -114,6 +114,10 @@ sl-repl      → REPL 实现
 - [x] `expand/program.rs`：新增 `parse_function_type` 辅助函数，统一所有 `parse_declared_type_name(..., "function", ...)` 调用；新增 `parse_function_type_from_segment` 处理 `Type:name` 分段解析，消除 `parse_function_args` 中重复的错误消息字符串
 - 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.66%)
 
+### Round 11: 提取 scope.rs literal normalization 重复模式
+- [x] `expand/scope.rs`：`ModuleScope::normalize_script_literal` 和 `normalize_function_literal` 合并为 `normalize_literal(prefix, char)` 辅助函数，两方法结构完全相同仅 prefix 字符不同，净减少 6 行
+- 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.65%)
+
 ---
 
 ## 约束条件
@@ -390,3 +394,26 @@ make gate
 - P2: 检查 `scope.rs` 中 `normalize_script_literal` 和 `normalize_function_literal` 是否有提取空间（两者结构几乎完全相同，只是 prefix 字符不同）
 - P2: 检查 `expand/mod.rs` 中的 `raw_body_text` 函数是否有可提取的辅助函数
 - P1: 考虑拆分 `expand/program.rs`（671 行，职责较重）
+
+### Round 11 - 提取 scope.rs literal normalization 重复模式 ✅ (2026-03-25)
+
+**本次做了什么：**
+- 在 `expand/scope.rs` 的 `ModuleScope` 中新增 `normalize_literal(raw, prefix)` 辅助函数，将 `normalize_script_literal('@')` 和 `normalize_function_literal('#')` 的共同逻辑统一
+- 两个原方法改为 `self.normalize_literal(raw, '@')` / `self.normalize_literal(raw, '#')` 的薄包装，保留公开 API 不变
+- `scope.rs`：净减少 6 行（13 行新 helper - 19 行旧重复代码）
+
+**本次发现的问题/踩的坑：**
+
+1. **`rest.rsplit_once('.')` 变量重命名问题**：提取 helper 后，局部变量名从 `script_name`/`function_name` 统一为 `member_name`。这在实际行为上没有影响，但提升了代码可读性。
+
+2. **helper 覆盖率自动被现有测试覆盖**：由于两个原有方法都保留为薄 wrapper 调用新 helper，Round 9 中已有的 8 个 `normalize_*_literal` 测试用例自动覆盖新 helper 的所有分支。
+
+**对后续有价值的经验：**
+- 当两个方法只有少量常量不同时，用 `char` 参数比用 enum 更轻量
+- helper 提取后局部变量命名可以更通用（如 `member_name`），提升可读性
+- 保留薄 wrapper 方法可以维持 API 兼容性，现有测试无需修改
+
+**下一步方向：**
+- P2: 统一错误消息格式（检查各模块是否有不一致的错误消息格式）
+- P2: 检查 `expand/mod.rs` 中是否有可提取的重复模式
+- P1: 考虑拆分 `expand/program.rs`（671 行）
