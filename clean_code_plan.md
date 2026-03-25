@@ -6,8 +6,8 @@
 ## 当前代码库状态
 
 ### 统计数据
-- 总 Rust 文件：74 个（原 72 个，+2）
-- >400 行的文件：15 个（原 22 个，-7）
+- 总 Rust 文件：76 个（原 72 个，+4：session.rs / commands.rs / const_eval/tests/mod.rs + lib facade 改造）
+- >400 行的文件：13 个（原 15 个，-2：lib.rs facade 410L，const_eval.rs 408L）
 - >800 行的文件：1 个（原 8 个，-7）
 - 总代码行数：~30,000+
 

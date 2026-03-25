@@ -165,7 +165,8 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
   - [`program.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/program.rs)：program/module 级语义总调度
   - [`scripts.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/scripts.rs)：script body 和 statement lowering
   - [`declared_types.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/declared_types.rs)：声明类型解析与 `<const>` 声明注册
-  - [`const_eval.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/const_eval.rs)：builtin 常量求值与常量替换
+  - [`const_eval.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/const_eval.rs)（~400 行）：builtin 常量求值与常量替换
+    - [`const_eval/tests/mod.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/const_eval/tests/mod.rs)（~700 行）：完整测试套件，通过 `#[path = "const_eval/tests/mod.rs"]` 加载
   - [`module_reducer.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/module_reducer.rs)：**新增（Step 3）** definition-time reducer，实现 module children 的顺序处理
     - `reduce_module_children()`: reducer 入口，处理 `FormItem` 队列
     - `ProcessedItem` 枚举：区分 Output / Requeue / Skip 三种处理结果
