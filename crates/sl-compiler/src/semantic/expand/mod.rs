@@ -15,10 +15,11 @@ pub(crate) mod quote;
 mod scope;
 mod scripts;
 
-use sl_core::{Form, FormItem, FormValue, ScriptLangError};
+use sl_core::{Form, FormItem, ScriptLangError};
 
 use super::env::ExpandEnv;
 use super::types::SemanticProgram;
+use crate::semantic::children_items;
 pub(crate) use const_eval::{ConstEnv, ConstLookup, ConstValue, parse_const_value};
 pub(crate) use declared_types::{parse_declared_type_form, parse_declared_type_name};
 pub(crate) use dispatch::{ExpandRuleScope, expand_with_rules};
@@ -58,22 +59,18 @@ fn expand_form(form: &Form, env: &mut ExpandEnv) -> Result<Form, ScriptLangError
 /// Extract the plain text content from a form's `children` field.
 /// Returns `None` if the children contain any nested forms (non-text items).
 pub(super) fn raw_body_text(form: &Form) -> Option<String> {
+    let Ok(items) = children_items(form) else {
+        return None;
+    };
     let mut buffer = String::new();
     let mut saw_text = false;
-    for field in &form.fields {
-        if let FormValue::Sequence(items) = &field.value {
-            if field.name != "children" {
-                continue;
+    for item in items {
+        match item {
+            FormItem::Text(text) => {
+                buffer.push_str(text);
+                saw_text = true;
             }
-            for item in items {
-                match item {
-                    FormItem::Text(text) => {
-                        buffer.push_str(text);
-                        saw_text = true;
-                    }
-                    FormItem::Form(_) => return None,
-                }
-            }
+            FormItem::Form(_) => return None,
         }
     }
     if saw_text {

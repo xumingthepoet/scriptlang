@@ -93,7 +93,7 @@ pub(crate) fn error_at(form: &Form, message: impl Into<String>) -> ScriptLangErr
     ScriptLangError::message(format!("{} at {}", message.into(), location(&form.meta)))
 }
 
-fn children_items(form: &Form) -> Result<&[FormItem], ScriptLangError> {
+pub(crate) fn children_items(form: &Form) -> Result<&[FormItem], ScriptLangError> {
     match field(form, CHILDREN_FIELD) {
         Some(FormField {
             value: FormValue::Sequence(items),

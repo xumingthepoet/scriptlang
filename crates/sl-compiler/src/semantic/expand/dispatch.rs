@@ -155,6 +155,8 @@ pub(super) fn expand_generated_items(
     Ok(output)
 }
 
+/// Apply `expand_generated_items` to the "children" field of a form, returning a new form.
+/// Fields other than "children" are returned unchanged.
 pub(super) fn rewrite_form_children(
     form: &Form,
     env: &mut ExpandEnv,
@@ -165,7 +167,7 @@ pub(super) fn rewrite_form_children(
         let mapped = match (&field.name[..], &field.value) {
             ("children", FormValue::Sequence(items)) => FormField {
                 name: field.name.clone(),
-                value: FormValue::Sequence(expand_sequence_items(items, env, scope)?),
+                value: FormValue::Sequence(expand_generated_items(items, env, scope)?),
             },
             _ => field.clone(),
         };
@@ -176,21 +178,6 @@ pub(super) fn rewrite_form_children(
         meta: form.meta.clone(),
         fields,
     })
-}
-
-fn expand_sequence_items(
-    items: &[FormItem],
-    env: &mut ExpandEnv,
-    scope: ExpandRuleScope,
-) -> Result<Vec<FormItem>, ScriptLangError> {
-    let mut rewritten = Vec::new();
-    for item in items {
-        match item {
-            FormItem::Text(text) => rewritten.push(FormItem::Text(text.clone())),
-            FormItem::Form(child) => rewritten.extend(expand_form_items(child, env, scope)?),
-        }
-    }
-    Ok(rewritten)
 }
 
 #[cfg(test)]

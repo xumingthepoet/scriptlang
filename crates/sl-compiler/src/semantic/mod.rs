@@ -8,7 +8,7 @@ pub mod types;
 pub(crate) use expand::expand_forms;
 pub(crate) use expr::{ExprAnalysis, analyze_compiled_expr};
 pub(crate) use form::{
-    attr, body_expr, body_template, child_forms, error_at, location, required_attr,
+    attr, body_expr, body_template, child_forms, children_items, error_at, location, required_attr,
 };
 pub use types::{
     SemanticChoiceOption, SemanticModule, SemanticProgram, SemanticScript, SemanticStmt,
