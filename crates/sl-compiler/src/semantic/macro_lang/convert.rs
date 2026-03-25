@@ -365,15 +365,7 @@ fn convert_provider_to_expr(form: &Form, type_name: &str) -> Result<CtExpr, Scri
             }
         }
         "get-content" => {
-            if type_name != "ast" {
-                return Err(error_at(
-                    form,
-                    format!(
-                        "<get-content> provider requires type `ast`, got `{}`",
-                        type_name
-                    ),
-                ));
-            }
+            require_ast_type("get-content", type_name, form)?;
             let head_filter = attr(form, "head");
             let args = if let Some(head) = head_filter {
                 vec![CtExpr::Literal(CtValue::Keyword(vec![(
@@ -390,12 +382,7 @@ fn convert_provider_to_expr(form: &Form, type_name: &str) -> Result<CtExpr, Scri
         }
         "quote" => {
             // <quote> as a provider: extract children and return as QuoteForms (eager)
-            if type_name != "ast" {
-                return Err(error_at(
-                    form,
-                    format!("<quote> provider requires type `ast`, got `{}`", type_name),
-                ));
-            }
+            require_ast_type("quote", type_name, form)?;
             let children = extract_form_children(form)?;
             Ok(CtExpr::QuoteForms {
                 items: children,
@@ -589,4 +576,18 @@ fn single_child_form(form: &Form) -> Result<Form, ScriptLangError> {
         FormItem::Form(child) => Ok(child.clone()),
         FormItem::Text(_) => Err(error_at(form, "expected child form")),
     }
+}
+
+/// Check that a provider requires `ast` declared type, returning an error if not.
+fn require_ast_type(provider: &str, type_name: &str, form: &Form) -> Result<(), ScriptLangError> {
+    if type_name != "ast" {
+        return Err(error_at(
+            form,
+            format!(
+                "<{}> provider requires type `ast`, got `{}`",
+                provider, type_name
+            ),
+        ));
+    }
+    Ok(())
 }
