@@ -108,10 +108,7 @@ fn convert_form_to_stmt(form: &Form) -> Result<CtStmt, ScriptLangError> {
                 },
             })
         }
-        other => Err(error_at(
-            form,
-            format!("unsupported compile-time macro form <{}>", other),
-        )),
+        other => Err(unsupported_form_error(form, "compile-time macro", other)),
     }
 }
 
@@ -381,9 +378,10 @@ fn convert_provider_to_expr(form: &Form, type_name: &str) -> Result<CtExpr, Scri
                 lazy: false,
             })
         }
-        other => Err(error_at(
+        other => Err(unsupported_form_error(
             form,
-            format!("unsupported <{}> provider for macro let", other),
+            "provider for macro let",
+            other,
         )),
     }
 }
@@ -523,10 +521,7 @@ fn convert_expr_form(form: &Form) -> Result<CtExpr, ScriptLangError> {
                 lazy,
             })
         }
-        other => Err(error_at(
-            form,
-            format!("unsupported expression form <{}>", other),
-        )),
+        other => Err(unsupported_form_error(form, "expression", other)),
     }
 }
 
@@ -585,4 +580,9 @@ fn compile_content_call(form: &Form) -> Vec<CtExpr> {
         )]))],
         None => vec![],
     }
+}
+
+/// Build a standardized "unsupported X form" error.
+fn unsupported_form_error(form: &Form, kind: &str, name: &str) -> ScriptLangError {
+    error_at(form, format!("unsupported {} form <{}>", kind, name))
 }
