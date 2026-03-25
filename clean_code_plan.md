@@ -49,7 +49,7 @@ sl-repl      → REPL 实现
 | 减少不必要的 `.clone()` 调用 | ✅ Round 6 完成 engine/mod.rs（BTreeMap clone 优化）|
 | 提取重复模式为通用辅助函数 | 🚧 Round 7 完成 convert.rs，Round 10 完成 program.rs |
 | 统一错误消息格式 | 🚧 部分完成（invalid_bool_attr_error 辅助函数）|
-| 添加缺失的文档注释 | 🚧 部分完成（convert.rs 函数已完整，expand/mod.rs 等待补充）|
+| 添加缺失的文档注释 | ✅ Round 13 完成 expand/mod.rs（convert.rs + expand/mod.rs 均已完整）|
 
 ---
 
@@ -123,6 +123,10 @@ sl-repl      → REPL 实现
 - [x] `module_reducer.rs`：移除 `is_private` 和 `is_hidden` 的重复实现，改为从 `declared_types` 导入
 - [x] `module.rs`：测试模块 import 路径从 `module_reducer` 更新为 `declared_types`
 - 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.65%)
+
+### Round 13: 添加 expand/mod.rs doc 注释
+- [x] `expand/mod.rs`：为 `expand_forms`、`expand_raw_forms`、`expand_form`、`raw_body_text` 添加 doc 注释
+- 状态：**完成** (cargo check + fmt 通过)
 
 ---
 
@@ -446,7 +450,6 @@ make gate
 - Rust fmt 会在一定宽度内将多行签名合并为单行，写代码时应注意此格式规则
 
 **下一步方向：**
-- P2: 检查 `expand/mod.rs` 中是否有可提取的重复模式
 - P1: 考虑拆分 `expand/program.rs`（671 行）
 - P2: 继续寻找其他可统一的错误消息（如 `duplicate ... declaration` 系列）
 
