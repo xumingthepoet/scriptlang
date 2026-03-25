@@ -308,11 +308,16 @@ impl<'a, 'b> ScopeResolver<'a, 'b> {
         Ok(None)
     }
 
-    pub(crate) fn resolve_qualified_var_ref(
+    /// Normalize path, check module is accessible, then call `f` with exports.
+    /// Returns `Ok(None)` if module doesn't exist; `Err` if not accessible; `f`'s `Err` propagates.
+    fn try_qualified_export<F, T>(
         &self,
         module_path: &str,
-        name: &str,
-    ) -> Result<Option<ResolvedRef>, ScriptLangError> {
+        f: F,
+    ) -> Result<Option<T>, ScriptLangError>
+    where
+        F: FnOnce(&crate::semantic::env::ModuleExports, &str) -> Result<Option<T>, ScriptLangError>,
+    {
         let module_path = self.scope.normalize_module_path(module_path);
         if !self.modules.contains(module_path) {
             return Ok(None);
@@ -324,19 +329,31 @@ impl<'a, 'b> ScopeResolver<'a, 'b> {
             )));
         }
         let exports = self.modules.exports(module_path)?;
-        if module_path == self.scope.current_module() {
-            if exports.vars.contains_declared(name) {
-                return Ok(Some(ResolvedRef::new(module_path, name, MemberKind::Var)));
+        f(exports, module_path)
+    }
+
+    pub(crate) fn resolve_qualified_var_ref(
+        &self,
+        module_path: &str,
+        name: &str,
+    ) -> Result<Option<ResolvedRef>, ScriptLangError> {
+        if let Some(exports) = self.try_qualified_export(module_path, |exports, normalized| {
+            if normalized == self.scope.current_module() {
+                Ok(exports
+                    .vars
+                    .contains_declared(name)
+                    .then(|| ResolvedRef::new(normalized, name, MemberKind::Var)))
+            } else if exports.vars.contains_exported(name) {
+                Ok(Some(ResolvedRef::new(normalized, name, MemberKind::Var)))
+            } else {
+                Err(ScriptLangError::message(format!(
+                    "module `{module_path}` does not export var `{name}`"
+                )))
             }
-            return Ok(None);
+        })? {
+            return Ok(Some(exports));
         }
-        if exports.vars.contains_exported(name) {
-            Ok(Some(ResolvedRef::new(module_path, name, MemberKind::Var)))
-        } else {
-            Err(ScriptLangError::message(format!(
-                "module `{module_path}` does not export var `{name}`"
-            )))
-        }
+        Ok(None)
     }
 
     pub(crate) fn resolve_short_function_ref(
@@ -364,30 +381,23 @@ impl<'a, 'b> ScopeResolver<'a, 'b> {
         module_path: &str,
         name: &str,
     ) -> Result<Option<String>, ScriptLangError> {
-        let module_path = self.scope.normalize_module_path(module_path);
-        if !self.modules.contains(module_path) {
-            return Ok(None);
-        }
-        if !self.scope.can_access_module(module_path) {
-            return Err(ScriptLangError::message(format!(
-                "module `{module_path}` is not imported into `{}`",
-                self.scope.current_module()
-            )));
-        }
-        let exports = self.modules.exports(module_path)?;
-        if module_path == self.scope.current_module() {
-            if exports.functions.contains_declared(name) {
-                return Ok(Some(format!("{module_path}.{name}")));
+        if let Some(qualified) = self.try_qualified_export(module_path, |exports, normalized| {
+            if normalized == self.scope.current_module() {
+                Ok(exports
+                    .functions
+                    .contains_declared(name)
+                    .then(|| format!("{normalized}.{name}")))
+            } else if exports.functions.contains_exported(name) {
+                Ok(Some(format!("{normalized}.{name}")))
+            } else {
+                Err(ScriptLangError::message(format!(
+                    "module `{module_path}` does not export function `{name}`"
+                )))
             }
-            return Ok(None);
+        })? {
+            return Ok(Some(qualified));
         }
-        if exports.functions.contains_exported(name) {
-            Ok(Some(format!("{module_path}.{name}")))
-        } else {
-            Err(ScriptLangError::message(format!(
-                "module `{module_path}` does not export function `{name}`"
-            )))
-        }
+        Ok(None)
     }
 }
 
