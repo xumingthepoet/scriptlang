@@ -123,20 +123,11 @@ fn analyze_stmt(
             )?,
         }),
         "break" => {
-            let children = child_forms(form)?;
-            if !children.is_empty() {
-                return Err(error_at(form, "<break> does not support nested statements"));
-            }
+            require_no_children(form, "break")?;
             Ok(SemanticStmt::Break)
         }
         "continue" => {
-            let children = child_forms(form)?;
-            if !children.is_empty() {
-                return Err(error_at(
-                    form,
-                    "<continue> does not support nested statements",
-                ));
-            }
+            require_no_children(form, "continue")?;
             Ok(SemanticStmt::Continue)
         }
         "choice" => {
@@ -199,6 +190,16 @@ fn analyze_stmt(
             format!("unsupported statement <{other}> in MVP"),
         )),
     }
+}
+
+fn require_no_children(form: &Form, element: &str) -> Result<(), ScriptLangError> {
+    if !child_forms(form)?.is_empty() {
+        return Err(error_at(
+            form,
+            format!("<{element}> does not support nested statements"),
+        ));
+    }
+    Ok(())
 }
 
 fn parse_skip_loop_control_capture_attr(form: &Form) -> Result<bool, ScriptLangError> {
