@@ -82,10 +82,12 @@ sl-repl      → REPL 实现
   - `lib.rs`（facade）：用 `#[path]` 声明子模块，re-export 公开 API，保留 13 个集成测试
 - 状态：**完成** (make gate 通过，330 测试全通过，覆盖率 89.78%)
 
-### Round 4: 拆分 P1 超大文件
-- [ ] `engine/mod.rs`（1007 行）：运行时引擎主文件，检查是否有提取空间
+### Round 4: 拆分 const_eval.rs ✅
+- [x] `const_eval.rs`（1112 行）：测试移至独立文件 `const_eval/tests/mod.rs`，本体 1112→408 行
+- 状态：**完成**
 
-### Round 5: 代码质量改进
+### Round 5: 拆分 engine/mod.rs + 代码质量改进
+- [ ] `engine/mod.rs`（1007 行）：运行时引擎主文件，检查是否有提取空间
 - [ ] 检查并优化 clone 调用
 - [ ] 提取重复模式
 - [ ] 统一错误处理
