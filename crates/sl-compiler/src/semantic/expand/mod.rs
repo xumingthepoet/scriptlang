@@ -22,7 +22,9 @@ use super::types::SemanticProgram;
 pub(crate) use const_eval::{ConstEnv, ConstLookup, ConstValue, parse_const_value};
 pub(crate) use declared_types::{parse_declared_type_form, parse_declared_type_name};
 pub(crate) use dispatch::{ExpandRuleScope, expand_with_rules};
-pub(crate) use imports::{validate_alias_target, validate_import_target, validate_require_target};
+pub(crate) use imports::{
+    alias_name, validate_alias_target, validate_import_target, validate_require_target,
+};
 use macros::collect_program_macros;
 use module::expand_module_form;
 pub(crate) use modules::ModuleCatalog;

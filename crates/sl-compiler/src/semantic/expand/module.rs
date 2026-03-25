@@ -85,8 +85,8 @@ mod tests {
     use sl_core::{FormItem, FormMeta, SourcePosition};
 
     use crate::semantic::env::ModuleState;
+    use crate::semantic::expand::alias_name;
     use crate::semantic::expand::declared_types::is_private;
-    use crate::semantic::expand::module_reducer::alias_name;
 
     use super::*;
 

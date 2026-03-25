@@ -4,8 +4,9 @@ use sl_core::{Form, ScriptLangError};
 
 use super::{
     ConstCatalog, ConstEnv, ConstLookup, ConstValue, ModuleCatalog, ModuleScope, ScopeResolver,
-    parse_const_value, parse_declared_type_form as parse_declared_type, parse_declared_type_name,
-    validate_alias_target, validate_import_target, validate_require_target,
+    alias_name, parse_const_value, parse_declared_type_form as parse_declared_type,
+    parse_declared_type_name, validate_alias_target, validate_import_target,
+    validate_require_target,
 };
 use crate::semantic::env::{ModuleState, ProgramState};
 use crate::semantic::types::{
@@ -172,22 +173,6 @@ fn analyze_const(
     let declared_type = parse_declared_type(form)?;
     let value = parse_const_value(&raw, const_env, resolver, &blocked, Some(&declared_type))?;
     Ok((name, value))
-}
-
-fn alias_name(form: &Form) -> Result<String, ScriptLangError> {
-    if let Some(alias_name) = crate::semantic::attr(form, "as") {
-        if alias_name.is_empty() {
-            return Err(error_at(form, "<alias> `as` cannot be empty"));
-        }
-        return Ok(alias_name.to_string());
-    }
-    let module_name = required_attr(form, "name")?;
-    module_name
-        .rsplit('.')
-        .next()
-        .filter(|segment| !segment.is_empty())
-        .map(str::to_string)
-        .ok_or_else(|| error_at(form, "<alias> requires valid `name`"))
 }
 
 fn parse_function_return_type(form: &Form) -> Result<DeclaredType, ScriptLangError> {

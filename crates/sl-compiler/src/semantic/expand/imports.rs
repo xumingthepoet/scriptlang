@@ -1,7 +1,26 @@
 use sl_core::{Form, ScriptLangError};
 
 use super::modules::ModuleCatalog;
-use crate::semantic::error_at;
+use crate::semantic::{attr, error_at, required_attr};
+
+/// Extract the alias name from an `<alias>` form.
+/// Returns the `as` attribute value if present and non-empty; otherwise derives
+/// the name from the last segment of the `name` attribute.
+pub(crate) fn alias_name(form: &Form) -> Result<String, ScriptLangError> {
+    if let Some(alias_name) = attr(form, "as") {
+        if alias_name.is_empty() {
+            return Err(error_at(form, "<alias> `as` cannot be empty"));
+        }
+        return Ok(alias_name.to_string());
+    }
+    let module_name = required_attr(form, "name")?;
+    module_name
+        .rsplit('.')
+        .next()
+        .filter(|segment| !segment.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| error_at(form, "<alias> requires valid `name`"))
+}
 
 fn validate_module_target(
     catalog: &ModuleCatalog<'_>,

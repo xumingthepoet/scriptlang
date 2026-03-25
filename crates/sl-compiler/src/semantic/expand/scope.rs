@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use sl_core::{Form, ScriptLangError};
+use sl_core::ScriptLangError;
 
 use super::{
     ConstEnv, ConstLookup, ConstValue, parse_const_value,
@@ -9,7 +9,7 @@ use super::{
 use crate::semantic::types::{MemberKind, ModulePath, ResolvedRef};
 use crate::semantic::{body_expr, required_attr};
 
-use super::imports::{validate_alias_target, validate_import_target};
+use super::imports::{alias_name, validate_alias_target, validate_import_target};
 use super::modules::{DEFAULT_KERNEL_MODULE, ModuleCatalog};
 
 /// Kinds of module members searched by ScopeResolver.
@@ -466,19 +466,6 @@ impl ConstLookup for ScopeResolver<'_, '_> {
             &self.scope.normalize_function_literal(raw),
         )
     }
-}
-
-fn alias_name(form: &Form) -> Result<String, ScriptLangError> {
-    if let Some(alias_name) = crate::semantic::attr(form, "as") {
-        return Ok(alias_name.to_string());
-    }
-    let module_name = required_attr(form, "name")?;
-    module_name
-        .rsplit('.')
-        .next()
-        .filter(|segment| !segment.is_empty())
-        .map(str::to_string)
-        .ok_or_else(|| ScriptLangError::message("<alias> requires valid `name`"))
 }
 
 #[cfg(test)]

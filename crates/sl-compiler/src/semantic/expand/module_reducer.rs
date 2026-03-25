@@ -8,6 +8,7 @@ use sl_core::{Form, FormItem, FormValue, ScriptLangError};
 
 use super::declared_types::{is_hidden, is_private};
 use super::dispatch::{ExpandRuleScope, expand_form_items};
+use super::imports::alias_name;
 use crate::names::qualified_member_name;
 use crate::semantic::env::ExpandEnv;
 use crate::semantic::{attr, error_at, required_attr};
@@ -297,22 +298,6 @@ fn rename_form_name(form: Form, new_name: &str) -> Form {
 fn hygienic_hidden_name(env: &mut ExpandEnv, provider_module: &str, original_name: &str) -> String {
     let counter = env.next_hidden_helper_id();
     format!("__h_{provider_module}_{original_name}_{counter}")
-}
-
-pub(crate) fn alias_name(form: &Form) -> Result<String, ScriptLangError> {
-    if let Some(alias_name) = attr(form, "as") {
-        if alias_name.is_empty() {
-            return Err(error_at(form, "<alias> `as` cannot be empty"));
-        }
-        return Ok(alias_name.to_string());
-    }
-    let module_name = required_attr(form, "name")?;
-    module_name
-        .rsplit('.')
-        .next()
-        .filter(|segment| !segment.is_empty())
-        .map(str::to_string)
-        .ok_or_else(|| error_at(form, "<alias> requires valid `name`"))
 }
 
 /// Check for use-injection conflict when declaring a public member.
