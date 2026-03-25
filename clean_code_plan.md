@@ -189,6 +189,10 @@ sl-repl      → REPL 实现
 - [x] `macro_lang/convert.rs`：新增 `meaningful_items` 辅助函数，将 `child_form_at`、`parse_module_from_child`、`parse_opts_from_child`、`single_child_form` 四个函数中共用的 filter 表达式统一，消除约 15 行 inline copy-paste
 - 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.98%)
 
+### Round 28: 提取 convert.rs require_ast_type 辅助函数
+- [x] `macro_lang/convert.rs`：新增 `require_ast_type(provider, type_name, form)` 辅助函数，将 `"get-content"` 和 `"quote"` 两个分支共用的 `type_name != "ast"` 检查和错误消息统一
+- 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.79%)
+
 ---
 
 ## 约束条件
@@ -894,4 +898,27 @@ make gate
 **下一步方向：**
 - P2: 继续在 `expand/mod.rs`（实际仅 84 行生产代码，非常精简）中寻找可提取的重复模式
 - P2: 统一错误消息格式（如 `<quote> provider requires type 'ast'` 和 `<get-content> provider requires type 'ast'` 是否可以统一）
+- P1: 检查 engine/mod.rs（sl-runtime，1006 行）拆分可行性（Round 5 跳过，coverage 临界问题）
+
+### Round 28 - 提取 convert.rs require_ast_type 辅助函数 ✅ (2026-03-26)
+
+**本次做了什么：**
+- 在 `macro_lang/convert.rs` 新增 `require_ast_type(provider, type_name, form)` 私有辅助函数，封装 `"ast"` 类型检查逻辑
+- `convert_provider_to_expr` 的 `"get-content"` 和 `"quote"` 两个分支均用 `require_ast_type(...)` 替代原来的 5-7 行 if + return Err 块
+- `convert.rs`：592 → 593 行（+9 行 helper − 8 行消除重复，净增 1 行）；覆盖率 89.79% 高于 89.45% 阈值
+
+**本次发现的问题/踩的坑：**
+
+1. **重复错误消息的最佳提取时机**：两处代码不仅结构相同，`rustfmt` 格式化后的行数也接近（5 行 vs 7 行），说明它们是真正的 copy-paste。提取为 helper 后两个调用点均变为单行 `?`，可读性显著提升。
+
+2. **helper 放在文件末尾辅助函数区域**：`require_ast_type` 放在 `single_child_form` 之后（最后一个辅助函数之后），与 `meaningful_items`、`extract_expr_forms` 等工具函数相邻，保持了良好的代码组织。
+
+**对后续有价值的经验：**
+- 当两个 match 分支出现相同的"检查某个字段值并返回格式化错误"时，提取为 `fn check(field, expected, form)` 是最小侵入方案
+- 错误消息中的 `<{}>` 占位符允许通过参数传入 provider 名称，天然支持提取为泛型 helper
+- `rustfmt` 会自动格式化 helper 内的长 format 字符串（如将单行 format! 拆为多行），添加 helper 时应预判格式化结果
+
+**下一步方向：**
+- P2: 继续在其他模块（`expand/scripts.rs` 的 `<break>`/`<continue>` 嵌套检查、`program.rs` 的 unsupported child/stmt 消息）寻找可统一的错误消息
+- P2: 继续在 `expand/mod.rs`（84 行生产代码）中寻找可提取的重复模式
 - P1: 检查 engine/mod.rs（sl-runtime，1006 行）拆分可行性（Round 5 跳过，coverage 临界问题）
