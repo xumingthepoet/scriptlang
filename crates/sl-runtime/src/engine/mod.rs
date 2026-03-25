@@ -1,14 +1,13 @@
 mod execute;
 mod state;
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use rhai::{AST, Array, Dynamic, Engine as RhaiEngine, EvalAltResult, Scope};
 use sl_core::{
-    CompiledArtifact, CompiledExpr, CompiledFunction, CompiledScript, CompiledText,
-    CompiledTextPart, PendingChoiceOption, PendingChoiceSnapshot, ScriptId, ScriptLangError,
-    Snapshot,
+    CompiledArtifact, CompiledExpr, CompiledScript, CompiledText, CompiledTextPart,
+    PendingChoiceOption, PendingChoiceSnapshot, ScriptId, ScriptLangError, Snapshot,
 };
 
 use self::state::{EngineState, PendingChoiceState};
@@ -27,7 +26,7 @@ impl Engine {
         Self {
             artifact: artifact.clone(),
             state,
-            rhai: build_rhai_engine(Arc::new(artifact.functions.clone())),
+            rhai: build_rhai_engine(Arc::clone(&artifact)),
             ast_cache: HashMap::new(),
         }
     }
@@ -267,22 +266,22 @@ impl Engine {
     }
 }
 
-fn build_rhai_engine(functions: Arc<BTreeMap<String, CompiledFunction>>) -> RhaiEngine {
+fn build_rhai_engine(artifact: Arc<CompiledArtifact>) -> RhaiEngine {
     let mut rhai = RhaiEngine::new();
 
-    let invoke_functions = functions.clone();
+    let invoke_artifact = artifact.clone();
     rhai.register_fn(
         "invoke",
         move |fn_ref: String, args: Array| -> Result<Dynamic, Box<EvalAltResult>> {
-            eval_compiled_function(invoke_functions.clone(), &fn_ref, args)
+            eval_compiled_function(Arc::clone(&invoke_artifact), &fn_ref, args)
         },
     );
 
-    let call_functions = functions;
+    let call_artifact = artifact;
     rhai.register_fn(
         "__sl_call",
         move |fn_ref: String, args: Array| -> Result<Dynamic, Box<EvalAltResult>> {
-            eval_compiled_function(call_functions.clone(), &fn_ref, args)
+            eval_compiled_function(Arc::clone(&call_artifact), &fn_ref, args)
         },
     );
 
@@ -290,11 +289,11 @@ fn build_rhai_engine(functions: Arc<BTreeMap<String, CompiledFunction>>) -> Rhai
 }
 
 fn eval_compiled_function(
-    functions: Arc<BTreeMap<String, CompiledFunction>>,
+    artifact: Arc<CompiledArtifact>,
     fn_ref: &str,
     args: Array,
 ) -> Result<Dynamic, Box<EvalAltResult>> {
-    let function = functions.get(fn_ref).cloned().ok_or_else(|| {
+    let function = artifact.functions.get(fn_ref).cloned().ok_or_else(|| {
         EvalAltResult::ErrorRuntime(
             format!("Invoke target not found `{fn_ref}`").into(),
             rhai::Position::NONE,
@@ -313,7 +312,7 @@ fn eval_compiled_function(
         .into());
     }
 
-    let engine = build_rhai_engine(functions);
+    let engine = build_rhai_engine(artifact);
     let ast = engine.compile(&function.body.source)?;
     let mut scope = Scope::new();
     for (name, value) in function.param_names.iter().zip(args.into_iter()) {
@@ -992,7 +991,7 @@ mod tests {
                 runtime_name: "answer".to_string(),
             }],
         });
-        engine.rhai = build_rhai_engine(Arc::new(engine.artifact.functions.clone()));
+        engine.rhai = build_rhai_engine(Arc::clone(&engine.artifact));
 
         let direct = engine
             .eval_expression(&expr("__sl_call(\"main.run\", [3])", &[]))
