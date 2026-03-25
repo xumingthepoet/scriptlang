@@ -14,6 +14,8 @@ mod program;
 pub(crate) mod quote;
 mod scope;
 mod scripts;
+#[path = "tests/helpers.rs"]
+pub(crate) mod test_helpers;
 
 use sl_core::{Form, FormItem, ScriptLangError};
 

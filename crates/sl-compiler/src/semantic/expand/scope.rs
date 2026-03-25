@@ -472,57 +472,21 @@ impl ConstLookup for ScopeResolver<'_, '_> {
 mod tests {
     use std::collections::BTreeMap;
 
-    use sl_core::{Form, FormField, FormItem, FormMeta, FormValue, SourcePosition};
-
     use super::*;
+    use sl_core::Form;
 
     use crate::semantic::env::{ModuleExports, ModuleState, ProgramState};
+    use crate::semantic::expand::test_helpers::{children, form, form_field, text};
 
     fn const_form(name: &str, value: &str) -> Form {
         form(
             "const",
             vec![
-                attr("name", name),
-                attr("type", "int"),
+                form_field("name", name),
+                form_field("type", "int"),
                 children(vec![text(value)]),
             ],
         )
-    }
-
-    fn meta() -> FormMeta {
-        FormMeta {
-            source_name: Some("main.xml".to_string()),
-            start: SourcePosition { row: 1, column: 1 },
-            end: SourcePosition { row: 1, column: 20 },
-            start_byte: 0,
-            end_byte: 20,
-        }
-    }
-
-    fn form(head: &str, fields: Vec<FormField>) -> sl_core::Form {
-        sl_core::Form {
-            head: head.to_string(),
-            meta: meta(),
-            fields,
-        }
-    }
-
-    fn attr(name: &str, value: &str) -> FormField {
-        FormField {
-            name: name.to_string(),
-            value: FormValue::String(value.to_string()),
-        }
-    }
-
-    fn children(items: Vec<FormItem>) -> FormField {
-        FormField {
-            name: "children".to_string(),
-            value: FormValue::Sequence(items),
-        }
-    }
-
-    fn text(value: &str) -> FormItem {
-        FormItem::Text(value.to_string())
     }
 
     fn module_state_with(
@@ -724,16 +688,16 @@ mod tests {
                         form(
                             "const",
                             vec![
-                                attr("name", "a"),
-                                attr("type", "int"),
+                                form_field("name", "a"),
+                                form_field("type", "int"),
                                 children(vec![text("b")]),
                             ],
                         ),
                         form(
                             "const",
                             vec![
-                                attr("name", "b"),
-                                attr("type", "int"),
+                                form_field("name", "b"),
+                                form_field("type", "int"),
                                 children(vec![text("a")]),
                             ],
                         ),
@@ -809,10 +773,10 @@ mod tests {
         assert_eq!(scope.normalize_function_literal("plain"), "plain");
         assert!(!scope.can_access_module("helper"));
 
-        let alias = form("alias", vec![attr("name", "main.helper")]);
+        let alias = form("alias", vec![form_field("name", "main.helper")]);
         assert_eq!(alias_name(&alias).expect("default alias"), "helper");
 
-        let invalid = form("alias", vec![attr("name", "")]);
+        let invalid = form("alias", vec![form_field("name", "")]);
         assert!(
             alias_name(&invalid)
                 .expect_err("invalid alias target")

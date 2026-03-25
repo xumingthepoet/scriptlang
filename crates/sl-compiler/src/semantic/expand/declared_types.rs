@@ -81,45 +81,17 @@ pub(crate) fn is_hidden(form: &Form) -> Result<bool, ScriptLangError> {
 
 #[cfg(test)]
 mod tests {
-    use sl_core::{FormField, FormItem, FormMeta, FormValue, SourcePosition};
+    use sl_core::{FormField, FormValue};
 
     use super::*;
     use crate::semantic::env::ExpandEnv;
-
-    fn meta() -> FormMeta {
-        FormMeta {
-            source_name: Some("main.xml".to_string()),
-            start: SourcePosition { row: 1, column: 1 },
-            end: SourcePosition { row: 1, column: 20 },
-            start_byte: 0,
-            end_byte: 20,
-        }
-    }
-
-    fn form(head: &str, fields: Vec<FormField>) -> Form {
-        Form {
-            head: head.to_string(),
-            meta: meta(),
-            fields,
-        }
-    }
+    use crate::semantic::expand::test_helpers::{children, form, text};
 
     fn attr(name: &str, value: &str) -> FormField {
         FormField {
             name: name.to_string(),
             value: FormValue::String(value.to_string()),
         }
-    }
-
-    fn children(items: Vec<FormItem>) -> FormField {
-        FormField {
-            name: "children".to_string(),
-            value: FormValue::Sequence(items),
-        }
-    }
-
-    fn text(value: &str) -> FormItem {
-        FormItem::Text(value.to_string())
     }
 
     #[test]

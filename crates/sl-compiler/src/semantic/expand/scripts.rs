@@ -292,66 +292,13 @@ fn rewrite_var_template(
 
 #[cfg(test)]
 mod tests {
-    use sl_core::{Form, FormField, FormItem, FormMeta, FormValue, SourcePosition, TextSegment};
+    use sl_core::TextSegment;
 
     use crate::semantic::env::ExpandEnv;
     use crate::semantic::expand::{analyze_program, expand_raw_forms};
     use crate::semantic::types::{DeclaredType, SemanticStmt};
 
-    fn meta() -> FormMeta {
-        FormMeta {
-            source_name: Some("main.xml".to_string()),
-            start: SourcePosition { row: 1, column: 1 },
-            end: SourcePosition { row: 1, column: 50 },
-            start_byte: 0,
-            end_byte: 50,
-        }
-    }
-
-    fn form(head: &str, fields: Vec<FormField>) -> Form {
-        Form {
-            head: head.to_string(),
-            meta: meta(),
-            fields,
-        }
-    }
-
-    fn attr(name: &str, value: &str) -> FormField {
-        FormField {
-            name: name.to_string(),
-            value: FormValue::String(value.to_string()),
-        }
-    }
-
-    fn children(items: Vec<FormItem>) -> FormField {
-        FormField {
-            name: "children".to_string(),
-            value: FormValue::Sequence(items),
-        }
-    }
-
-    fn node(head: &str, attrs: Vec<(&str, &str)>, items: Vec<FormItem>) -> Form {
-        let mut fields = attrs
-            .into_iter()
-            .map(|(k, v)| attr(k, v))
-            .collect::<Vec<_>>();
-        fields.push(children(items));
-        form(head, fields)
-    }
-
-    fn text(value: &str) -> FormItem {
-        FormItem::Text(value.to_string())
-    }
-
-    fn child(form: Form) -> FormItem {
-        FormItem::Form(form)
-    }
-
-    fn analyzed(forms: Vec<Form>) -> crate::semantic::types::SemanticProgram {
-        let mut env = ExpandEnv::default();
-        let _ = expand_raw_forms(&forms, &mut env).expect("expand");
-        analyze_program(&env.program).expect("analyze")
-    }
+    use crate::semantic::expand::test_helpers::{analyzed, child, node, text};
 
     #[test]
     fn analyze_script_covers_statement_variants_and_special_literals() {

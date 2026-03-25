@@ -228,69 +228,13 @@ fn parse_function_args(form: &Form) -> Result<Vec<String>, ScriptLangError> {
 
 #[cfg(test)]
 mod tests {
-    use sl_core::{Form, FormField, FormItem, FormMeta, FormValue, SourcePosition};
-
     use crate::names::resolved_var_placeholder;
     use crate::semantic::env::ExpandEnv;
     use crate::semantic::expand::expand_raw_forms;
     use crate::semantic::types::{DeclaredType, SemanticStmt};
 
     use super::{ProgramState, analyze_program};
-
-    fn meta() -> FormMeta {
-        FormMeta {
-            source_name: Some("main.xml".to_string()),
-            start: SourcePosition { row: 1, column: 1 },
-            end: SourcePosition { row: 1, column: 50 },
-            start_byte: 0,
-            end_byte: 50,
-        }
-    }
-
-    fn form(head: &str, fields: Vec<FormField>) -> Form {
-        Form {
-            head: head.to_string(),
-            meta: meta(),
-            fields,
-        }
-    }
-
-    fn attr(name: &str, value: &str) -> FormField {
-        FormField {
-            name: name.to_string(),
-            value: FormValue::String(value.to_string()),
-        }
-    }
-
-    fn children(items: Vec<FormItem>) -> FormField {
-        FormField {
-            name: "children".to_string(),
-            value: FormValue::Sequence(items),
-        }
-    }
-
-    fn node(head: &str, attrs: Vec<(&str, &str)>, items: Vec<FormItem>) -> Form {
-        let mut fields = attrs
-            .into_iter()
-            .map(|(k, v)| attr(k, v))
-            .collect::<Vec<_>>();
-        fields.push(children(items));
-        form(head, fields)
-    }
-
-    fn text(text: &str) -> FormItem {
-        FormItem::Text(text.to_string())
-    }
-
-    fn child(form: Form) -> FormItem {
-        FormItem::Form(form)
-    }
-
-    fn analyzed(forms: Vec<Form>) -> super::SemanticProgram {
-        let mut env = ExpandEnv::default();
-        let _ = expand_raw_forms(&forms, &mut env).expect("expand");
-        analyze_program(&env.program).expect("analyze")
-    }
+    use crate::semantic::expand::test_helpers::{analyzed, child, node, text};
 
     #[test]
     fn analyze_forms_tracks_declared_type_and_rewrites_script_literals() {
