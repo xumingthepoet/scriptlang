@@ -155,7 +155,7 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
   - `semantic/macro_lang/` **新增**：真正 compile-time macro language 基础设施（Step 1）
     - `ast.rs`: CtBlock / CtStmt / CtExpr / CtValue 类型定义
     - `eval.rs`: compile-time AST 评估器（eval_block / eval_stmt / eval_expr）
-    - `builtins.rs`: builtin 函数注册表（attr / content / has_attr / parse_bool / parse_int 等）
+    - `builtins.rs` + `builtins/` 子目录: builtin 函数注册表 + 按类别拆分（attr / keyword / scalar / module / ast_read / ast_write / module_data / list）
     - `env.rs`: compile-time 环境（CtEnv）
     - `convert.rs`: 旧 XML macro body 到新 compile-time AST 转换器（已集成，用于 macro_eval）
   - [`macros.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/macros.rs)：macro 定义收集、可见性查找和模板式宏展开
@@ -1223,25 +1223,17 @@ Use module_update() to overwrite, or choose a different key name.
   - `eval_expr()`: 评估表达式
   - `macro_value_to_ct_value()`: MacroValue 到 CtValue 的类型桥接
 
-- [`builtins.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/macro_lang/builtins.rs)
-  - `BuiltinRegistry`: builtin 函数注册表
-  - `attr(name)`: 获取宏属性
-  - `content()` / `content(head=...)`: 获取宏内容
-  - `has_attr(name)`: 检查属性存在
-  - `keyword_get(keyword, key)`: 从 keyword 取值
-  - `keyword_has(keyword, key)`: 检查 keyword 键
-  - `list_length(list)`: 列表长度
-  - `to_string(value)`: 转字符串
-  - `parse_bool(value)` / `parse_int(value)`: 类型转换
-  - `caller_env()`: 返回 caller 环境（current_module/macro_name/file/line/column/imports/requires/aliases）
-  - `caller_module()`: 返回当前模块名
-  - `expand_alias(module_ref)`: 解析别名
-  - `require_module(module_ref)`: 添加 require
-  - `define_import(module_ref)`: 添加 import
-  - `define_alias(module_ref, as)`: 添加 alias
-  - `define_require(module_ref)`: 添加 require
-  - `invoke_macro(module, macro_name, args)`: 远程宏调用
-  - `keyword_attr(name)`: 从 locals 获取 keyword（递归保留嵌套类型）
+- [`builtins.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/macro_lang/builtins.rs) + [`builtins/`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/macro_lang/builtins/) 子目录
+  - `BuiltinRegistry`: builtin 函数注册表（位于 `builtins/builtins_registry.rs`）
+  - 按类别拆分为多个子模块:
+    - `builtins_attr.rs`: attr / content / has_attr
+    - `builtins_keyword.rs`: keyword_get / keyword_attr / keyword_has / keyword_keys / keyword_values / keyword_pairs
+    - `builtins_scalar.rs`: list_length / to_string / parse_bool / parse_int
+    - `builtins_module.rs`: caller_env / caller_module / expand_alias / require_module / define_import / define_alias / define_require / invoke_macro
+    - `builtins_ast_read.rs`: ast_head / ast_children / ast_attr_get / ast_attr_keys
+    - `builtins_ast_write.rs`: ast_attr_set / ast_wrap / ast_concat / ast_filter_head
+    - `builtins_module_data.rs`: module_get / module_put / module_update
+    - `builtins_list.rs`: list / list_concat / list_foreach / list_map / list_fold / match
 
 - [`env.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/macro_lang/env.rs)
   - `CtEnv`: compile-time 环境
