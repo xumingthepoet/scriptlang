@@ -49,7 +49,7 @@ sl-repl      → REPL 实现
 | 减少不必要的 `.clone()` 调用 | ✅ Round 6 完成 engine/mod.rs（BTreeMap clone 优化）|
 | 提取重复模式为通用辅助函数 | 🚧 Round 7 完成 convert.rs（提取 extract_expr_forms）|
 | 统一错误消息格式 | ⬜ |
-| 添加缺失的文档注释 | ⬜ |
+| 添加缺失的文档注释 | 🚧 部分完成（convert.rs 函数已完整，expand/mod.rs 等待补充）|
 
 ---
 
@@ -101,6 +101,10 @@ sl-repl      → REPL 实现
 ### Round 7: 提取 convert.rs 重复模式
 - [x] `macro_lang/convert.rs`：提取 `extract_expr_forms` 辅助函数，消除两处完全相同的 filter_map 模式
 - 状态：**完成** (cargo check/test/clippy 全通过)
+
+### Round 8: 检查 convert.rs doc 注释（跳过）
+- [x] 检查 `macro_lang/convert.rs` 函数 doc → **跳过**（所有函数已有完整 doc 注释）
+- 状态：**完成**
 
 ---
 
