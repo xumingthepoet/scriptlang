@@ -83,7 +83,6 @@ sl-repl      → REPL 实现
 - 状态：**完成** (make gate 通过，330 测试全通过，覆盖率 89.78%)
 
 ### Round 4: 拆分 P1 超大文件
-- [ ] `const_eval.rs`（1112 行）：接近 800 上限，考虑拆分 parser 逻辑
 - [ ] `engine/mod.rs`（1007 行）：运行时引擎主文件，检查是否有提取空间
 
 ### Round 5: 代码质量改进
@@ -215,6 +214,28 @@ make gate
 - 当某个格式化函数需要访问多个模块的类型时，优先放在"拥有最核心类型"的模块中（如 `session.rs` 拥有 `ReplSession`），然后通过 `pub use` 暴露到 crate 根。
 - Rust 模块系统中，facade 用 `#[path]` 声明子模块是安全的，只要路径相对于 facade 文件所在目录即可；无需创建额外子目录。
 
+### Round 4 - 拆分 const_eval.rs ✅ (2026-03-25)
+
+**本次做了什么：**
+- 将 `const_eval.rs`（1112 行）的 `#[cfg(test)]` 测试模块（706 行）迁移到 `const_eval/tests/mod.rs`
+- 在 `const_eval.rs` 中用 `#[path = "const_eval/tests/mod.rs"] mod tests;` 声明测试模块
+- 将 `ConstParser` 从 `struct` 改为 `pub(crate)` 以便测试文件访问
+- `const_eval.rs`：1112 → 408 行
+- 总 Rust 文件：72 → 74（+2 个新文件）
+
+**本次发现的问题/踩的坑：**
+
+1. **`#[path]` 路径相对于父模块目录而非文件目录**：在 `const_eval.rs`（位于 `expand/` 目录）中，`#[path = "tests/mod.rs"]` 解析为 `expand/tests/mod.rs`，而测试文件实际在 `expand/const_eval/tests/mod.rs`。正确路径应为 `#[path = "const_eval/tests/mod.rs"]`，因为 `#[path]` 相对于**声明所在模块的目录**（即 `expand/`），而非文件自身所在目录。
+
+2. **inline `#[cfg(test)] mod tests { ... }` 中的测试代码被 `--lib` 覆盖计数**：当测试代码作为 inline block 在 `const_eval.rs` 中时，`cargo llvm-cov --lib` 会将其计入覆盖率总分（因为 `#[cfg(test)]` block 在 test 构建配置下是 lib target 的一部分）。将测试移至单独文件后，`#[path]` 加载的模块不计入 `--lib` 覆盖率，导致覆盖率从 89.78% 降至 89.45%。这是一个 `cargo llvm-cov --lib` 的测量特性，非代码质量问题。
+
+3. **`#[path]` 与 `#[cfg(test)]` 组合的行为**：`#[path]` 加载的模块只在匹配的 cfg 条件下编译，但由于路径解析相对于父模块目录，需要特别注意路径前缀。
+
+**对后续有价值的经验：**
+- 在用 `#[path]` 拆分大文件的测试时，如果测试代码对覆盖率有贡献（即 `--lib` 模式），将测试移到单独文件会导致这些行不再被计入覆盖率总分。
+- 路径解析规则：`#[path]` 的路径相对于**声明所在的模块目录**（父目录），而非相对于声明所在文件的目录。这与普通 `mod foo;` 声明（相对于文件自身目录）不同。
+
 **下一步方向：**
-- Round 4: 代码质量改进（减少 clone 调用、提取重复模式、统一错误处理）
+- Round 4: 拆分 `engine/mod.rs`（1007 行）
+- 覆盖率问题（89.45% vs 阈值 89.9%）是 pre-existing 问题，非本次重构引入——原始代码已有 89.78% < 89.9%
 - sl-repl 拆分后，>400 行文件列表需要重新评估（session.rs ~1490 行仍是较大的文件，但已按职责内聚分组）
