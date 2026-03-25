@@ -193,6 +193,10 @@ sl-repl      → REPL 实现
 - [x] `macro_lang/convert.rs`：新增 `require_ast_type(provider, type_name, form)` 辅助函数，将 `"get-content"` 和 `"quote"` 两个分支共用的 `type_name != "ast"` 检查和错误消息统一
 - 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.79%)
 
+### Round 32: 提取 convert.rs compile_content_call 辅助函数
+- [x] `macro_lang/convert.rs`：`convert_provider_to_expr` 和 `convert_expr_form` 两处 `"get-content"` 分支中完全相同的 7 行 `head_filter → args` 逻辑提取为 `compile_content_call(form) -> Vec<CtExpr>` 辅助函数，消除约 14 行重复
+- 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.87%)
+
 ---
 
 ## 约束条件
@@ -995,4 +999,25 @@ make gate
 **下一步方向：**
 - P2: 检查 `convert.rs` 中是否还有类似可提取的 bool 属性检查模式
 - P2: 统一错误消息格式（如 `<quote>` / `<get-content>` 以外的 provider 错误消息）
+- P1: 检查 engine/mod.rs（sl-runtime，1006+ 行）拆分可行性（Round 5 跳过，coverage 临界问题）
+
+### Round 32 - 提取 compile_content_call 辅助函数 ✅ (2026-03-26)
+
+**本次做了什么：**
+- `macro_lang/convert.rs`：新增 `compile_content_call(form: &Form) -> Vec<CtExpr>` 辅助函数，将 `attr(form, "head")` → `Some(head)` → keyword args 或 `None` → `vec![]` 的 7 行逻辑提取为共享实现
+- `convert_provider_to_expr` 和 `convert_expr_form` 两处 `"get-content"` 分支均改为单行 `compile_content_call(form)` 调用，消除约 14 行重复（两处各 7 行完全相同）
+
+**本次发现的问题/踩的坑：**
+
+1. **`get-content` head-filter args 完全跨函数重复**：`convert_provider_to_expr` 和 `convert_expr_form` 两个不同函数中，`<get-content>` 的 `head` 属性处理逻辑完全一致（`attr(form, "head")` → match → args），这是典型的跨函数 DRY 机会。之前的 Round 7（extract_expr_forms）和 Round 27（meaningful_items）已经处理过该文件内的其他重复，但遗漏了这一处。
+
+2. **`CtValue` 已在 use 语句中**：提取 helper 时所有类型（`CtExpr`, `CtValue`, `attr` 等）均已导入，无需额外引入依赖。
+
+**对后续有价值的经验：**
+- 跨函数重复比同一函数内重复更容易遗漏——建议每轮都搜索"完全相同的 5+ 行代码块"模式，用 `git grep -B2 -A5 "exact_pattern"` 快速定位
+- `convert.rs` 在 Round 7、27、28、32 中持续产出可提取模式，仍可能存在遗漏；建议用专门的 code duplication 检测工具（如 `cargo +nightly udeps` 或 semgrep）做系统性扫描
+
+**下一步方向：**
+- P2: 统一 `convert.rs` 中三个 "unsupported" 错误消息格式（`"unsupported compile-time macro form"`, `"unsupported <{}> provider"`, `"unsupported expression form"`）为统一模板
+- P2: 检查 `scripts.rs` 中 5-tuple 参数模式（Round 31 已分析，建议跳过）
 - P1: 检查 engine/mod.rs（sl-runtime，1006+ 行）拆分可行性（Round 5 跳过，coverage 临界问题）
