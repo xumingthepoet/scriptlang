@@ -48,7 +48,7 @@ sl-repl      → REPL 实现
 | 项目 | 状态 |
 |------|------|
 | 减少不必要的 `.clone()` 调用 | ✅ Round 6 完成 engine/mod.rs（BTreeMap clone 优化）|
-| 提取重复模式为通用辅助函数 | ✅ Round 7 完成 convert.rs，Round 10 完成 program.rs，Round 14 完成 alias_name 提取，Round 15 完成 dispatch.rs 函数合并，Round 16 完成 expand_temp_form 提取，Round 19 完成 rewrite_expr_pipeline，Round 21 完成 eval_const_form，Round 22 完成 try_qualified_export，Round 24 完成 try_lookup_qualified_export，Round 27 完成 meaningful_items，Round 28 完成 require_ast_type，Round 29 完成 require_no_children，Round 32 完成 compile_content_call，Round 34 完成 rewrite_text_source，Round 35 完成 direct_module_child_only，Round 36 完成 declare_member，Round 37 完成 expect_module_ref |
+| 提取重复模式为通用辅助函数 | ✅ Round 7 完成 convert.rs，Round 10 完成 program.rs，Round 14 完成 alias_name 提取，Round 15 完成 dispatch.rs 函数合并，Round 16 完成 expand_temp_form 提取，Round 19 完成 rewrite_expr_pipeline，Round 21 完成 eval_const_form，Round 22 完成 try_qualified_export，Round 24 完成 try_lookup_qualified_export，Round 27 完成 meaningful_items，Round 28 完成 require_ast_type，Round 29 完成 require_no_children，Round 32 完成 compile_content_call，Round 34 完成 rewrite_text_source，Round 35 完成 direct_module_child_only，Round 36 完成 declare_member，Round 37 完成 expect_module_ref，Round 38 完成 next_slot |
 | 统一错误消息格式 | 🚧 部分完成（invalid_bool_attr_error + parse_bool_attr，Round 30 完成 bool 属性；Round 33 完成 convert.rs unsupported form 系列；Round 36 完成 module_reducer.rs duplicate declaration 系列）|
 | 添加缺失的文档注释 | ✅ Round 13 完成 expand/mod.rs（convert.rs + expand/mod.rs 均已完整）|
 
@@ -1161,5 +1161,31 @@ make gate
 - P1: 检查 engine/mod.rs（sl-runtime，1006+ 行）拆分可行性（Round 5 跳过，coverage 临界问题）
 - P2: 检查 `expand/mod.rs` facade 中是否有其他可提取的重复模式
 - P2: 检查 `scripts.rs` 中是否还有其他重复模式（如 `rewrite_expr_pipeline` 的 with_vars 参数是否值得拆分）
+
+### Round 38 - 提取 quote.rs next_slot 辅助函数 ✅ (2026-03-26)
+
+**本次做了什么：**
+- `quote.rs`：新增 `next_slot(source, cursor) -> Option<(&str, after_brace, dollar_start)>` 私有辅助函数，将 `${...}` 解析循环提取为独立函数
+- `splice_expr_slots` 和 `splice_string_slots` 两个函数均用 `next_slot` 替代各自的重复循环体
+- 消除约 20 行重复代码（两个函数各约 10 行相同循环结构）
+- `make gate` 通过（覆盖率 89.89% > 89.45% 阈值）
+
+**本次发现的问题/踩的坑：**
+
+1. **`next_slot` 返回值设计**：最初设计返回 `(key, after_brace)` 两位组，但在 `splice_expr_slots` 中需要 `dollar_start` 来正确计算"slot 前的文本"。由于 `key` 是经过 `.trim()` 的，其长度可能短于原始 `${...}` 中的内容，导致 `end - key.len() - 3` 无法正确恢复 `${` 位置。解决方案：返回 `(key, after_brace, dollar_start)` 三元组，由调用方同时获得 slot 内容和新 cursor 位置。
+
+2. **Rust lifetime elision**：原 `fn next_slot<'s>(source: &'s str, ...)` 中的显式生命周期 `'s` 被 clippy 标记为 needless——Rust 能自动推断返回的 `&str` 借用自 `source`，无需显式标注。
+
+3. **Clippy doc_lazy_continuation 规则**：doc 注释中列表 (`/// -`) 后的非列表行需要缩进或用空行分隔为独立段落。`/// Returns `None`...` 被 clippy 识别为列表延续，需要 `///` 后加空行变成独立段落。
+
+**对后续有价值的经验：**
+- 当提取 helper 后发现"不够用"（需要额外信息）时，重新设计返回值而非用借来的临时变量计算——本轮从 2-tuple 升级为 3-tuple 是正确决策
+- 跨函数提取时，helper 的签名应以最广泛的调用方需求为准，而非最保守的需求
+- doc 注释中的列表 (`/// -`) 后面如果还有内容，必须用空行分隔为独立段落，或统一缩进
+
+**下一步方向：**
+- P1: 检查 engine/mod.rs（sl-runtime，1006+ 行）拆分可行性（Round 5 跳过，coverage 临界问题）
+- P2: 检查 `const_eval.rs` 中 `check_declared_type` 7 个类型匹配分支是否有提取空间（7 个几乎完全相同的 `if !matches!` 分支）
+- P2: 检查 `quote.rs` 中 `macro_value_to_form_item` 和 `macro_value_to_form_item_solo` 是否可以合并或提取共享逻辑
 
 
