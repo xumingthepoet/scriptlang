@@ -965,3 +965,34 @@ make gate
 - P2: 检查 `scripts.rs` 中 5-tuple 参数模式是否有提取空间（多个调用点共用相同的 `(const_env, resolver, remaining_const, shadowed)` 参数组）
 - P2: 检查 `expand/mod.rs`（84 行生产代码）中是否有局部可提取的辅助函数
 - P1: 检查 engine/mod.rs（sl-runtime，1006+ 行）拆分可行性（Round 5 跳过，coverage 临界问题）
+
+### Round 31 - 提取 parse_bool_attr 复用 + 分析 5-tuple 参数模式 ✅ (2026-03-26)
+
+**本次做了什么：**
+- `declared_types.rs`：`parse_bool_attr` 从 private 提升为 `pub(crate)`，使其他模块可复用
+- `scripts.rs`：将 `parse_skip_loop_control_capture_attr`（8 行 3-case match）替换为 `parse_bool_attr(form, "__sl_skip_loop_control_capture")` 单行调用
+- `scripts.rs`：净减少 7 行，消除 6 行重复 match 块
+- `make gate` 通过（覆盖率 89.82% > 89.45% 阈值）
+
+**本次发现的问题/踩的坑：**
+
+1. **`RewriteCtx` bundling 方案在 Rust 中的局限性**：尝试将 `(const_env, resolver, remaining_const_names, shadowed_names)` 4 参数提取为 `RewriteCtx` struct，但遇到多个 Rust 生命周期和借用规则挑战：
+   - `ScopeResolver<'a, 'b>` 不能 clone，无法直接存入 context
+   - `RefCell<ScopeResolver>` 需要实现 `ConstLookup` trait 才能用于 rewrite 函数（需要修改 scope_impl.rs）
+   - `RewriteCtx` 若持有引用（`&'a ConstEnv` 等），则需要在 `analyze_script` 调用点构造时处理与原变量的生命周期冲突
+   - `program.rs` 中的调用点需要在函数返回后保留 `ScopeResolver`，但 context 需要拥有它，造成矛盾
+   - **结论：该模式技术上可提取，但需要大量 RefCell + trait impl + 模块间协调，实现成本远超收益**
+
+2. **`parse_bool_attr` 复用的最佳时机**：Round 30 已提取了 `parse_bool_attr` 作为通用辅助函数，Round 31 发现 `scripts.rs` 中有完全相同的模式（`__sl_skip_loop_control_capture` 属性），直接复用而不需要额外提取
+
+3. **Rust 导入顺序规则**：`use super::declared_types::parse_bool_attr;` 应作为独立 `use` 语句放在 `use super::{...}` 块之前，符合 Rust 格式化规范（外部路径优先于路径块）
+
+**对后续有价值的经验：**
+- **bundling 多个带可变引用的参数到 struct 时，Rust 的借用规则会产生系统性障碍**：当参数中包含 `&mut T`（如 `ScopeResolver`）时，简单地将引用 bundling 到 struct 会导致双重可变借用冲突、`'static` 限制、无法 clone 等问题。此类重构需要深入理解 Rust 生命周期系统，不适合在本轮处理
+- **已提取的通用辅助函数应尽早 pub(crate)**：Round 30 提取 `parse_bool_attr` 时设为 private，但 Round 31 发现它适用于多处。将 helper 设为 `pub(crate)` 可以让后续 round 直接复用，无需修改可见性
+- **复用已有 helper 的成本远低于提取新 helper**：本次复用避免了引入新的 `RefCell` 复杂度，是最小的增量改进
+
+**下一步方向：**
+- P2: 检查 `convert.rs` 中是否还有类似可提取的 bool 属性检查模式
+- P2: 统一错误消息格式（如 `<quote>` / `<get-content>` 以外的 provider 错误消息）
+- P1: 检查 engine/mod.rs（sl-runtime，1006+ 行）拆分可行性（Round 5 跳过，coverage 临界问题）

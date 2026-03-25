@@ -366,15 +366,7 @@ fn convert_provider_to_expr(form: &Form, type_name: &str) -> Result<CtExpr, Scri
         }
         "get-content" => {
             require_ast_type("get-content", type_name, form)?;
-            let head_filter = attr(form, "head");
-            let args = if let Some(head) = head_filter {
-                vec![CtExpr::Literal(CtValue::Keyword(vec![(
-                    "head".to_string(),
-                    CtValue::String(head.to_string()),
-                )]))]
-            } else {
-                vec![]
-            };
+            let args = compile_content_call(form);
             Ok(CtExpr::BuiltinCall {
                 name: "content".to_string(),
                 args,
@@ -414,15 +406,7 @@ fn convert_expr_form(form: &Form) -> Result<CtExpr, ScriptLangError> {
             })
         }
         "get-content" => {
-            let head_filter = attr(form, "head");
-            let args = if let Some(head) = head_filter {
-                vec![CtExpr::Literal(CtValue::Keyword(vec![(
-                    "head".to_string(),
-                    CtValue::String(head.to_string()),
-                )]))]
-            } else {
-                vec![]
-            };
+            let args = compile_content_call(form);
             Ok(CtExpr::BuiltinCall {
                 name: "content".to_string(),
                 args,
@@ -590,4 +574,15 @@ fn require_ast_type(provider: &str, type_name: &str, form: &Form) -> Result<(), 
         ));
     }
     Ok(())
+}
+
+/// Build the args vector for a `content()` builtin call from the optional `head` attribute.
+fn compile_content_call(form: &Form) -> Vec<CtExpr> {
+    match attr(form, "head") {
+        Some(head) => vec![CtExpr::Literal(CtValue::Keyword(vec![(
+            "head".to_string(),
+            CtValue::String(head.to_string()),
+        )]))],
+        None => vec![],
+    }
 }
