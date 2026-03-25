@@ -416,6 +416,14 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
 - `<end>` 会真实结束 REPL
 - `<goto>` 如果跳到别的 script，则沿着目标 script 跑到真实 `End`；由于 `goto` 已放弃当前 session script 上下文，所以目标 script 结束时 REPL 也结束
 
+当前 `sl-repl` crate 文件结构：
+
+- `session.rs`（~1490 行）：`ReplSession` 结构体 + 所有方法 + inspector 格式化函数
+- `commands.rs`（~120 行）：公开类型（`InspectTarget` / `LoadResult` / `SubmissionResult` 等）、命令解析和结果格式化
+- `lib.rs`（facade）：用 `#[path]` 声明子模块，统一 re-export 公开 API；13 个集成测试也放在这里
+
+`lib.rs` 原来是 1962 行的单文件，按职责拆分后外部调用者接口不变。
+
 当前 `sl-repl` crate 还带一个 binary，支持三种入口模式：
 
 - 交互模式

@@ -6,7 +6,7 @@
 ## 当前代码库状态
 
 ### 统计数据
-- 总 Rust 文件：72 个
+- 总 Rust 文件：74 个（原 72 个，+2）
 - >400 行的文件：15 个（原 22 个，-7）
 - >800 行的文件：1 个（原 8 个，-7）
 - 总代码行数：~30,000+
@@ -76,10 +76,11 @@ sl-repl      → REPL 实现
 - `builtins.rs` 改为 facade，声明模块树并 re-export BuiltinRegistry + BuiltinResult
 
 ### Round 3: 拆分 REPL
-- [ ] 将 `sl-repl/src/lib.rs` 拆分为：
-  - `session.rs` - ReplSession 结构和方法
-  - `commands.rs` - 命令处理
-  - `inspector.rs` - 状态检查工具
+- [x] 将 `sl-repl/src/lib.rs`（1962行）拆分为：
+  - `session.rs`（~1490 行）：`ReplSession` 结构体 + 所有方法 + inspector 格式化函数
+  - `commands.rs`（~120 行）：公开类型、命令解析和结果格式化
+  - `lib.rs`（facade）：用 `#[path]` 声明子模块，re-export 公开 API，保留 13 个集成测试
+- 状态：**完成** (make gate 通过，330 测试全通过，覆盖率 89.78%)
 
 ### Round 4: 代码质量改进
 - [ ] 检查并优化 clone 调用
@@ -183,5 +184,33 @@ make gate
 - 拆分时保持一个"facade"文件作为入口，声明所有子模块并只暴露必要的公开 API，可以让外部调用者无感知变化。
 
 **下一步方向：**
-- Round 3: 拆分 `sl-repl/src/lib.rs`（1962 行，按 session/commands/inspector 拆分）
+- Round 3: 拆分 `sl-repl/src/lib.rs`（1962 行，按 session/commands 拆分）
 - Round 2 完成后，>800 行文件从 8 个减少到 1 个，可维护性显著提升
+
+### Round 3 - 拆分 sl-repl/src/lib.rs ✅ (2026-03-25)
+
+**本次做了什么：**
+- 将 1962 行的 `sl-repl/src/lib.rs` 拆分为 3 个文件：
+  - `session.rs`（~1490 行）：`ReplSession` 结构体 + 所有方法（submit/choose/inspect/eval_command 等）+ inspector 格式化函数（format_forms/format_semantic_program/format_artifact 等）+ 所有私有辅助函数
+  - `commands.rs`（~120 行）：公开类型（`InspectTarget` / `LoadResult` / `SubmissionResult` / `ExecutionResult` / `ExecutionState`）+ 命令解析工具（`split_command` / `help_text`）+ 结果格式化（`format_load_result` / `format_submission_result` / `format_execution_result`）
+  - `lib.rs`（facade，410 行）：用 `#[path = "session.rs"] mod session;` 和 `#[path = "commands.rs"] mod commands;` 声明子模块，re-export `ReplSession` 和所有公开类型；13 个集成测试保留在 `#[cfg(test)] mod tests` 中
+- 原始 `lib.rs`（1962 行）内容已迁移，外部调用者接口完全不变
+
+**本次发现的问题/踩的坑：**
+
+1. **`#[path]` 在 facade 中的声明顺序问题**：在 `lib.rs` 中用 `#[path]` 声明子模块时，`mod foo;` 声明的路径是相对于**声明所在文件**（即 `lib.rs`）的目录。`#[path = "session.rs"]` 会指向 `crates/sl-repl/src/session.rs`（正确）。
+
+2. **`format_option_string` 函数在多模块间的复制**：该辅助函数被 `format_execution_result`（commands.rs）和 `format_semantic_stmt`/`format_artifact`（session.rs）两处调用。由于它依赖的 `ExecutionState` 和 `SemanticStmt` 分别在两个模块定义，不能提取到共享位置。解决方案：在每个模块中各保留一份独立的实现。
+
+3. **内部类型跨模块可见性**：`PersistedTemp`、`BuildOutput`、`PendingExecution` 等是 session.rs 的私有类型，不需要暴露到 crate 外部。但 `format_execution_result` 等公开格式化函数需要访问这些类型的字段（通过 `ReplSession` 的公开方法间接获得），因此这些格式化函数应放在 `session.rs` 中而非 `commands.rs`。
+
+4. **`#[path]` 声明与 `pub use` 的组合**：facade 中的 `pub use session::ReplSession;` 和 `pub use commands::ExecutionResult;` 可以正常工作，因为 `session` 和 `commands` 模块在 facade 中是私有的（`mod` 而非 `pub mod`），但它们的内容通过 `pub use` 重新导出后对外部可见。
+
+**对后续有价值的经验：**
+- 拆分混合职责模块时，关键是识别"谁需要知道谁"：session.rs 的方法调用 commands.rs 的工具函数，commands.rs 不需要反向依赖 session 内部。
+- 当某个格式化函数需要访问多个模块的类型时，优先放在"拥有最核心类型"的模块中（如 `session.rs` 拥有 `ReplSession`），然后通过 `pub use` 暴露到 crate 根。
+- Rust 模块系统中，facade 用 `#[path]` 声明子模块是安全的，只要路径相对于 facade 文件所在目录即可；无需创建额外子目录。
+
+**下一步方向：**
+- Round 4: 代码质量改进（减少 clone 调用、提取重复模式、统一错误处理）
+- sl-repl 拆分后，>400 行文件列表需要重新评估（session.rs ~1490 行仍是较大的文件，但已按职责内聚分组）
