@@ -185,6 +185,10 @@ sl-repl      → REPL 实现
 - 外部 API 完全不变：通过 `scope/mod.rs` 的 re-export 保持透明
 - 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.72%)
 
+### Round 27: 提取 convert.rs meaningful_items 辅助函数
+- [x] `macro_lang/convert.rs`：新增 `meaningful_items` 辅助函数，将 `child_form_at`、`parse_module_from_child`、`parse_opts_from_child`、`single_child_form` 四个函数中共用的 filter 表达式统一，消除约 15 行 inline copy-paste
+- 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.98%)
+
 ---
 
 ## 约束条件
@@ -866,3 +870,28 @@ make gate
 - P2: 继续在 `expand/mod.rs`（562 行）中寻找可提取的重复模式
 - P2: 统一错误消息格式
 - P1: 检查 engine/mod.rs 拆分可行性（Round 5 跳过，coverage 临界问题）
+
+### Round 27 - 提取 convert.rs meaningful_items 辅助函数 ✅ (2026-03-26)
+
+**本次做了什么：**
+- 在 `macro_lang/convert.rs` 新增 `meaningful_items(items: &[FormItem]) -> Vec<&FormItem>` 私有辅助函数，统一"过滤空白文本节点"逻辑
+- `child_form_at`、`parse_module_from_child`、`parse_opts_from_child`、`single_child_form` 四个函数均使用完全相同的 filter 表达式（过滤 `Text(text)` if `text.trim().is_empty()`），现统一调用 `meaningful_items`
+- `convert.rs`：594 → 592 行（净减少 2 行，消除 15 行 inline copy-paste，+6 行 helper）
+
+**本次发现的问题/踩的坑：**
+
+1. **`parse_opts_from_child` 原本就有 text-filter 逻辑**：使用 `meaningful_items` 后，原本分散的 filter 逻辑统一到一处，消除了不一致。
+
+2. **helper 位于辅助函数区域的时机选择**：`meaningful_items` 放在 `extract_form_children` 之后（两者都是处理 Form children 的工具），保持了良好的代码组织结构。
+
+3. **提取时机：多处完全相同的 filter 表达式**：`child_form_at`、`parse_module_from_child`、`single_child_form` 三处的 filter 表达式完全相同，是提取 helper 的最佳时机。
+
+**对后续有价值的经验：**
+- 识别重复 filter 表达式：遍历 `Vec<FormItem>` 并跳过空白文本的模式在 AST 处理代码中非常常见，提取为 `meaningful_items` 后多个函数都变得更清晰
+- `meaningful_items` 返回 `Vec<&FormItem>`（引用而非克隆），对调用方更高效
+- 当一个 filter 表达式在三个以上地方出现时，提取 helper 的收益明显
+
+**下一步方向：**
+- P2: 继续在 `expand/mod.rs`（实际仅 84 行生产代码，非常精简）中寻找可提取的重复模式
+- P2: 统一错误消息格式（如 `<quote> provider requires type 'ast'` 和 `<get-content> provider requires type 'ast'` 是否可以统一）
+- P1: 检查 engine/mod.rs（sl-runtime，1006 行）拆分可行性（Round 5 跳过，coverage 临界问题）
