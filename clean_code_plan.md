@@ -1071,5 +1071,31 @@ make gate
 
 **下一步方向：**
 - P1: 检查 engine/mod.rs（sl-runtime，1006+ 行）拆分可行性（Round 5 跳过，coverage 临界问题）
-- P2: 检查 `scripts.rs` 中是否还有其他可提取的重复模式（如 `<const>` 和 `<import>` 的 "only supported as direct <module> child" 消息是否值得提取为常量）
 - P2: 检查 `expand/mod.rs` facade 中是否有其他可提取的重复模式
+- P2: 检查 `scripts.rs` 中是否还有其他重复模式
+
+### Round 35 - 提取 scripts.rs direct_module_child_only 辅助函数 ✅ (2026-03-26)
+
+**本次做了什么：**
+- `scripts.rs`：新增 `direct_module_child_only(form, element) -> ScriptLangError` 私有辅助函数，统一 `<const>` 和 `<import>` 的错误消息
+- `analyze_stmt` 的 `"const"` 和 `"import"` 两个 match 分支均替换为 `Err(direct_module_child_only(form, element))`，消除了 8 行重复代码
+- `make gate` 通过（覆盖率 89.84% > 89.45% 阈值）
+
+**本次发现的问题/踩的坑：**
+
+1. **`format!` 字符串长度导致 rustfmt 自动拆分**：`format!("<{element}> is only supported as a direct <module> child in MVP")` 超过了 rustfmt 的默认行宽限制，rustfmt 将 `error_at(form, format!(...))` 自动拆分为多行格式。需要预判这一行为，提前写成 rustfmt 期望的多行格式。
+
+2. **`scripts.rs` 中的"值不值得提取"判断**：Round 34 的"下一步方向"提到 `<const>`/`<import>` 消息是否值得提取为常量。经分析，两个 match arm 各有 3 行（`Err(error_at(...))`），重复 6 行。提取为辅助函数后 match body 减少 6 行，helper 增加 5 行，净减少 1 行，但消除了重复并提升了可读性，属于值得提取的最小重复。
+
+3. **辅助函数返回类型的选择**：`fn(...) -> ScriptLangError` 比 `fn(...) -> Result<..., ScriptLangError>` 更简洁，因为两个调用点都直接 `Err(...)` 包装返回值，无需 `?` 操作符。
+
+**对后续有价值的经验：**
+- **3 行代码块重复也值得提取**：当重复出现在 match 分支中时，即使重复代码只有 3 行（而非 5-10 行），提取为 helper 仍然值得，因为 match arm 通常应该只做模式匹配和分发，不应包含长逻辑
+- **`rustfmt` 对 `error_at` + `format!` 的拆分规则**：当 `error_at(form, format!(...))` 超过行宽时，rustfmt 会将三个参数各占一行，提前预判这一格式可避免二次迭代
+- **helper 函数返回值类型决定调用方写法**：`-> ScriptLangError` 的 helper 要求调用方写 `Err(helper(...))`；若改为 `-> Result<..., ScriptLangError>` 则调用方写 `helper(...)?`，两种风格各有适用场景
+
+**下一步方向：**
+- P1: 检查 engine/mod.rs（sl-runtime，1006+ 行）拆分可行性（Round 5 跳过，coverage 临界问题）
+- P2: 检查 `expand/mod.rs` facade 中是否有其他可提取的重复模式
+- P2: 检查 `scripts.rs` 中是否还有其他重复模式（如 `rewrite_expr_pipeline` 的 with_vars 参数是否值得拆分）
+
