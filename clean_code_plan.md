@@ -47,7 +47,7 @@ sl-repl      → REPL 实现
 | 项目 | 状态 |
 |------|------|
 | 减少不必要的 `.clone()` 调用 | ✅ Round 6 完成 engine/mod.rs（BTreeMap clone 优化）|
-| 提取重复模式为通用辅助函数 | ✅ Round 7 完成 convert.rs，Round 10 完成 program.rs，Round 14 完成 alias_name 提取，Round 15 完成 dispatch.rs 函数合并，Round 16 完成 expand_temp_form 提取 |
+| 提取重复模式为通用辅助函数 | ✅ Round 7 完成 convert.rs，Round 10 完成 program.rs，Round 14 完成 alias_name 提取，Round 15 完成 dispatch.rs 函数合并，Round 16 完成 expand_temp_form 提取，Round 19 完成 rewrite_expr_pipeline，Round 21 完成 eval_const_form，Round 22 完成 try_qualified_export |
 | 统一错误消息格式 | 🚧 部分完成（invalid_bool_attr_error 辅助函数）|
 | 添加缺失的文档注释 | ✅ Round 13 完成 expand/mod.rs（convert.rs + expand/mod.rs 均已完整）|
 
@@ -162,6 +162,10 @@ sl-repl      → REPL 实现
 - [x] `const_eval.rs`：新增 `eval_const_form` 辅助函数，统一 `<const>` 表单解析逻辑
 - [x] `program.rs`/`scope.rs`：分别简化 `analyze_const` 和 `compute_const` 中的 const 处理
 - 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.66%)
+
+### Round 22: 提取 try_qualified_export 辅助函数 ✅
+- [x] `scope.rs`：新增 `try_qualified_export` 闭包辅助方法，将 `resolve_qualified_var_ref` 和 `resolve_qualified_function_ref` 共享的 ~9 行 preamble（normalize_module_path、contains、can_access_module、exports 调用）统一；两个原函数改为闭包调用 + 结果解包，净减少约 4 行
+- 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.72%)
 
 ---
 
@@ -697,3 +701,31 @@ make gate
 - 清理导入时要用 `grep` 全文搜索，不能只看新增/修改代码附近——未使用导入的警告有时在编译后期才出现（如 Rust 2024 edition 的 unused import 警告）
 - `pub(crate)` 函数放在哪个文件：放在"核心类型定义所在文件"（如 `const_eval.rs` 定义了 `parse_const_value`）而非"使用方"（如 `program.rs`），这样调用方都通过 `super::` 统一路径访问
 - 增量清理导入的顺序：先确保编译通过，再逐个移除冗余导入，避免一次性删除多个导入导致的"删了有用的"问题
+
+### Round 22 - 提取 try_qualified_export 辅助函数 ✅ (2026-03-25)
+
+**本次做了什么：**
+- 在 `scope.rs` 的 `ScopeResolver` 中新增 `try_qualified_export` 闭包 helper（返回 `Result<Option<T>, ScriptLangError>`），封装 `resolve_qualified_var_ref` 和 `resolve_qualified_function_ref` 共享的 preamble：路径规范化、模块存在性检查、可访问性检查、exports 获取
+- `resolve_qualified_var_ref` 和 `resolve_qualified_function_ref` 改为调用 `try_qualified_export` 并解包结果
+- `scope.rs`：863 → 869 行（+6 行：helper 比消除的重复多一点，但结构更清晰）
+
+**本次发现的问题/踩的坑：**
+
+1. **`Result<T>` vs `Result<Option<T>>` 的语义选择陷阱**：最初让 helper 返回 `Result<T>`（`Err` 表示任意错误），导致"模块不存在"返回 `Err`，但测试期望 `Ok(None)`。教训：Rust 中 `Result<T>` 的 `Err` 是"真正错误"（如模块存在但不可访问），`Ok(None)` 是"找不到"的正常返回。需要 `Result<Option<T>, ...>` 才能区分这两种情况。
+
+2. **闭包捕获 `module_path` 的生命周期问题**：在闭包内部无法直接修改外部变量，但闭包可以读取外部变量（`module_path`）。`Err` 消息中使用 `module_path`（原始值，非规范化后的 `normalized`）是正确的——用户看到的是原始输入路径，而非规范化后的路径。
+
+3. **rustfmt 对长方法链的处理**：`.then(|| ...)` 链超过一定长度时 rustfmt 会要求拆分。`.contains_declared(name).then(|| ResolvedRef::new(...))` 被格式化为多行，手动编写时应预判格式。
+
+4. **三种返回情况的语义区分**：`Ok(None)` = 模块不存在；`Err` = 模块存在但不可访问（无 import）或项不存在（对于非当前模块）；`Ok(Some(...))` = 找到。用闭包的 `Result<Option<T>, ScriptLangError>` 返回值可以干净地表达这三种情况。
+
+**对后续有价值的经验：**
+- 当两个函数的"不一致分支"（`contains_declared` vs `contains_exported`）和不一致返回（当前模块→`Ok(None)`，其他→`Err`）时，用闭包返回值处理比直接统一更灵活
+- `Result<Option<T>, E>` 的嵌套是表达"找不到/不存在"与"真正错误"区分的标准 Rust 手法
+- `try_qualified_export` 的设计说明：当两个函数有共享的"验证前置条件"（存在性、可访问性），但不同的"具体操作"和"失败处理"时，用 `FnOnce` 闭包传入是比泛型更轻量的方案
+
+**下一步方向：**
+- P2: 检查 `scope.rs` 中 `resolve_short_const`（`ConstLookup` impl）与 `search_imports_reverse` 是否有可提取的公共模式
+- P2: 检查 `scope.rs` 中 `can_access_module` 的三次迭代（aliases/imports/current）是否可优化为更清晰的单次遍历
+- P1: 考虑拆分 `scope.rs`（863 行，ModuleScope/ConstCatalog/ScopeResolver 三个 impl 分离到不同文件）
+- P2: 检查 `expand/mod.rs`（562 行）的测试块是否有可提取的辅助函数
