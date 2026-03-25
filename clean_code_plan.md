@@ -47,7 +47,7 @@ sl-repl      → REPL 实现
 | 项目 | 状态 |
 |------|------|
 | 减少不必要的 `.clone()` 调用 | ✅ Round 6 完成 engine/mod.rs（BTreeMap clone 优化）|
-| 提取重复模式为通用辅助函数 | 🚧 Round 7 完成 convert.rs，Round 10 完成 program.rs，Round 14 完成 alias_name 提取 |
+| 提取重复模式为通用辅助函数 | 🚧 Round 7 完成 convert.rs，Round 10 完成 program.rs，Round 14 完成 alias_name 提取，Round 15 完成 dispatch.rs 函数合并 |
 | 统一错误消息格式 | 🚧 部分完成（invalid_bool_attr_error 辅助函数）|
 | 添加缺失的文档注释 | ✅ Round 13 完成 expand/mod.rs（convert.rs + expand/mod.rs 均已完整）|
 
@@ -485,4 +485,31 @@ make gate
 - P2: 继续在 `expand/mod.rs`（562 行）中寻找可提取的重复模式（如 `error_at` 调用中有无重复的错误消息字符串）
 - P1: 考虑拆分 `expand/program.rs`（671 行，按 analyze_program/analyze_module/function parsing 职责拆分）
 - P2: engine/mod.rs 拆分（Round 5 跳过，coverage 临界，需单独评估）
+
+### Round 15 - 合并 dispatch.rs 重复函数 + 简化 raw_body_text ✅ (2026-03-25)
+
+**本次做了什么：**
+- 合并 `expand_sequence_items` 和 `expand_generated_items`：两个函数逻辑完全相同（遍历 `FormItem` Vec，对 Text clone、对 Form 递归扩展），删除 `expand_sequence_items`，保留 `expand_generated_items`，更新 `rewrite_form_children` 调用点
+- 将 `children_items` 从 `form.rs` 的私有函数改为 `pub(crate)` 并从 `semantic/mod.rs` 导出
+- 简化 `expand/mod.rs` 的 `raw_body_text`：用 `children_items` 辅助函数替代手动的 `for field in &form.fields` + `if field.name == "children"` 迭代，移除冗余的 `FormValue` import
+- dispatch.rs：净减少 16 行（删除了 `expand_sequence_items` 的重复实现），rewrite_form_children 新增 doc 注释
+- expand/mod.rs：净减少 4 行
+
+**本次发现的问题/踩的坑：**
+
+1. **`expand_sequence_items` 和 `expand_generated_items` 完全相同但分散在两个位置**：`expand_generated_items` 是 `pub(super)` 用于 `macros.rs` 调用，`expand_sequence_items` 是 private 用于 `rewrite_form_children`。两者签名和实现完全相同，合并后消除了 copy-paste。
+
+2. **`children_items` 私有但值得导出**：`form.rs` 中的 `children_items` 是私有辅助函数（获取 "children" field 的 Sequence），`raw_body_text` 和 `child_forms` 都在重复它的工作。将其导出为 `pub(crate)` 后，`raw_body_text` 的实现从 18 行手写迭代简化为 6 行。
+
+3. **`make gate` 的覆盖率阈值针对 4 个特定包**：覆盖率阈值 `--fail-under-lines 89.45` 是对 sl-core/sl-parser/sl-compiler/sl-runtime 四个包的总覆盖率，不是整个 workspace 的覆盖率。REPL 的 main binary 不计入。
+
+**对后续有价值的经验：**
+- 两个函数签名和实现完全相同时，即使一个是 `pub(super)` 另一个是 private，也可以合并：保留公开的签名，将私有调用点指向同一个实现
+- `form.rs` 作为 Form 操作的中心模块，其私有辅助函数（如 `children_items`）在 `expand/` 子模块中往往有重复使用价值，值得按需提升可见性
+- `cargo llvm-cov --workspace` vs `cargo llvm-cov --package sl-core ... sl-runtime`：前者包含 REPL binary（覆盖率很低），后者只测核心库。`make gate` 用后者，与阈值匹配
+
+**下一步方向：**
+- P2: 检查 `expand/mod.rs` 中是否有可提取的重复模式（如 `expand_form` 函数体是否可简化）
+- P2: 检查 `dispatch.rs` 中 `expand_module_child` 和 `expand_statement_child` 是否有合并空间（两者结构相似）
+- P1: 考虑拆分 `expand/program.rs`（671 行）
 
