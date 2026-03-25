@@ -49,7 +49,7 @@ sl-repl      → REPL 实现
 |------|------|
 | 减少不必要的 `.clone()` 调用 | ✅ Round 6 完成 engine/mod.rs（BTreeMap clone 优化）|
 | 提取重复模式为通用辅助函数 | ✅ Round 7 完成 convert.rs，Round 10 完成 program.rs，Round 14 完成 alias_name 提取，Round 15 完成 dispatch.rs 函数合并，Round 16 完成 expand_temp_form 提取，Round 19 完成 rewrite_expr_pipeline，Round 21 完成 eval_const_form，Round 22 完成 try_qualified_export，Round 24 完成 try_lookup_qualified_export |
-| 统一错误消息格式 | 🚧 部分完成（invalid_bool_attr_error + parse_bool_attr 辅助函数，Round 30 完成 bool 属性相关）|
+| 统一错误消息格式 | 🚧 部分完成（invalid_bool_attr_error + parse_bool_attr，Round 30 完成 bool 属性；Round 33 完成 convert.rs unsupported form 系列）|
 | 添加缺失的文档注释 | ✅ Round 13 完成 expand/mod.rs（convert.rs + expand/mod.rs 均已完整）|
 
 ---
