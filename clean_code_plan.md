@@ -40,7 +40,7 @@ sl-repl      → REPL 实现
 |------|------|
 | `sl-repl/src/lib.rs` | ✅ Round 3 完成（拆分为 session.rs/commands.rs/lib facade）|
 | `const_eval.rs` | ✅ Round 4 完成（测试移至独立文件，1112→408 行）|
-| `engine/mod.rs` | ⬜ 仍约 1007 行，可后续考虑拆分 |
+| `engine/mod.rs` | ⬜ Round 5 跳过（coverage 临界问题，暂不拆分）|
 
 ### 🟢 P2 - 改进（持续优化）
 
@@ -450,6 +450,7 @@ make gate
 - Rust fmt 会在一定宽度内将多行签名合并为单行，写代码时应注意此格式规则
 
 **下一步方向：**
-- P1: 考虑拆分 `expand/program.rs`（671 行）
-- P2: 继续寻找其他可统一的错误消息（如 `duplicate ... declaration` 系列）
+- P1: 考虑拆分 `expand/program.rs`（671 行，职责较重，可参考 Round 2/3 的 facade 模式）
+- P2: 继续统一错误消息（如 `duplicate ... declaration` 系列可考虑提取为 `duplicate_decl_error`）
+- P2: engine/mod.rs 拆分（Round 5 跳过，coverage 临界，需单独评估）
 
