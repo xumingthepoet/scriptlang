@@ -49,7 +49,7 @@ sl-repl      → REPL 实现
 |------|------|
 | 减少不必要的 `.clone()` 调用 | ✅ Round 6 完成 engine/mod.rs（BTreeMap clone 优化）|
 | 提取重复模式为通用辅助函数 | ✅ Round 7 完成 convert.rs，Round 10 完成 program.rs，Round 14 完成 alias_name 提取，Round 15 完成 dispatch.rs 函数合并，Round 16 完成 expand_temp_form 提取，Round 19 完成 rewrite_expr_pipeline，Round 21 完成 eval_const_form，Round 22 完成 try_qualified_export，Round 24 完成 try_lookup_qualified_export |
-| 统一错误消息格式 | 🚧 部分完成（invalid_bool_attr_error 辅助函数）|
+| 统一错误消息格式 | 🚧 部分完成（invalid_bool_attr_error + parse_bool_attr 辅助函数，Round 30 完成 bool 属性相关）|
 | 添加缺失的文档注释 | ✅ Round 13 完成 expand/mod.rs（convert.rs + expand/mod.rs 均已完整）|
 
 ---
@@ -940,5 +940,28 @@ make gate
 
 **下一步方向：**
 - P2: 检查 `program.rs` 中是否有类似的可提取模式（如 `parse_function_type` 系列函数的重复 type-name 传递）
+- P2: 检查 `expand/mod.rs`（84 行生产代码）中是否有局部可提取的辅助函数
+- P1: 检查 engine/mod.rs（sl-runtime，1006+ 行）拆分可行性（Round 5 跳过，coverage 临界问题）
+
+### Round 30 - 提取 parse_bool_attr + 消除重复错误消息 ✅ (2026-03-26)
+
+**本次做了什么：**
+- `declared_types.rs`：新增 `parse_bool_attr(form, attr_name) -> Result<bool, ScriptLangError>` 辅助函数，将 `is_private` 和 `is_hidden` 中完全相同的 match 逻辑（`None → false`，`Some("true") → true`，`Some("false") → false`，`Some(other) → Err`）提取为共享实现；两个原函数改为单行薄包装 `parse_bool_attr(form, "private")` / `parse_bool_attr(form, "hidden")`
+- `program.rs`：`parse_function_type_from_segment` 中 `"invalid function arg declaration \`{raw}\`"` 错误消息在 lines 188 和 194 两处出现，现改为 `let raw_err = || format!(...);` 闭包，在两处复用
+- `declared_types.rs`：净减少 6 行（20 行消除 − 14 行 helper）；`program.rs`：净减少 3 行（8 行消除 − 5 行闭包）
+
+**本次发现的问题/踩的坑：**
+
+1. **`is_private`/`is_hidden` 完全相同但"只是参数不同"**：两个函数连 match 分支顺序都完全相同（None → false → true → false → Err），是典型的"提取 helper"案例。这次提取比 Round 12 的 `invalid_bool_attr_error` 更彻底——不仅提取了 error helper，还提取了核心逻辑本身。
+
+2. **`let binding` 闭包 vs 重复 `format!` 调用**：当同一字符串字面量出现在函数内多个位置时，用 `let msg = || format!(...);` 闭包比直接内联 `format!` 更 DRY，且闭包惰性求值（只在调用时执行）。
+
+**对后续有价值的经验：**
+- 当两个函数只有"一个字符串参数"不同时，`fn helper(attr_name)` 提取比 `bool` 参数更清晰——`is_private` → `parse_bool_attr(form, "private")` 的语义非常自然
+- 提取 helper 后，薄包装函数的 doc 注释应保留原函数级别的说明，帮助阅读者理解公开 API 的语义
+- 错误消息字符串重复是潜在的代码质量问题：若需要修改消息内容，两处都需要同步修改，容易遗漏
+
+**下一步方向：**
+- P2: 检查 `scripts.rs` 中 5-tuple 参数模式是否有提取空间（多个调用点共用相同的 `(const_env, resolver, remaining_const, shadowed)` 参数组）
 - P2: 检查 `expand/mod.rs`（84 行生产代码）中是否有局部可提取的辅助函数
 - P1: 检查 engine/mod.rs（sl-runtime，1006+ 行）拆分可行性（Round 5 跳过，coverage 临界问题）
