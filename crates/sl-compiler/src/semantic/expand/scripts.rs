@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 
 use sl_core::{Form, ScriptLangError, TextTemplate};
 
+use super::declared_types::parse_bool_attr;
 use super::{
     ConstCatalog, ConstEnv, ModuleCatalog, ModuleScope, ScopeResolver, parse_declared_type_form,
 };
@@ -203,15 +204,7 @@ fn require_no_children(form: &Form, element: &str) -> Result<(), ScriptLangError
 }
 
 fn parse_skip_loop_control_capture_attr(form: &Form) -> Result<bool, ScriptLangError> {
-    match attr(form, "__sl_skip_loop_control_capture") {
-        None => Ok(false),
-        Some("true") => Ok(true),
-        Some("false") => Ok(false),
-        Some(other) => Err(error_at(
-            form,
-            format!("invalid boolean value `{other}` for `__sl_skip_loop_control_capture`"),
-        )),
-    }
+    parse_bool_attr(form, "__sl_skip_loop_control_capture")
 }
 
 fn rewrite_expr_pipeline(

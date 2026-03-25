@@ -61,7 +61,7 @@ fn invalid_bool_attr_error(form: &Form, attr_name: &str, value: &str) -> ScriptL
 
 /// Parse a boolean attribute, returning Ok(false) for absent/empty, Ok(true) for "true",
 /// Err for any other non-empty value.
-fn parse_bool_attr(form: &Form, attr_name: &str) -> Result<bool, ScriptLangError> {
+pub(crate) fn parse_bool_attr(form: &Form, attr_name: &str) -> Result<bool, ScriptLangError> {
     match attr(form, attr_name) {
         None => Ok(false),
         Some("true") => Ok(true),
