@@ -12,6 +12,13 @@ use crate::semantic::{body_expr, required_attr};
 use super::imports::{validate_alias_target, validate_import_target};
 use super::modules::{DEFAULT_KERNEL_MODULE, ModuleCatalog};
 
+/// Kinds of module members searched by ScopeResolver.
+#[derive(Clone, Copy)]
+enum MemberSearchKind {
+    Var,
+    Function,
+}
+
 pub(crate) enum QualifiedConstLookup {
     Value(ConstValue),
     HiddenModule,
@@ -267,6 +274,30 @@ impl<'a, 'b> ScopeResolver<'a, 'b> {
         }
     }
 
+    /// Search imported modules (in reverse order) for a member matching `kind` and `name`.
+    /// Returns the import path and resolved name if found.
+    fn search_imports_reverse(
+        &self,
+        kind: MemberSearchKind,
+        name: &str,
+    ) -> Option<(String, String)> {
+        for import in self.scope.imports().iter().rev() {
+            let import_path = import.as_str();
+            let exports = match self.modules.exports(import_path) {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+            let found = match kind {
+                MemberSearchKind::Var => exports.vars.contains_exported(name),
+                MemberSearchKind::Function => exports.functions.contains_exported(name),
+            };
+            if found {
+                return Some((import_path.to_string(), name.to_string()));
+            }
+        }
+        None
+    }
+
     pub(crate) fn resolve_short_var_ref(
         &self,
         name: &str,
@@ -283,19 +314,14 @@ impl<'a, 'b> ScopeResolver<'a, 'b> {
                 MemberKind::Var,
             )));
         }
-        for import in self.scope.imports().iter().rev() {
-            if self
-                .modules
-                .exports(import.as_str())?
-                .vars
-                .contains_exported(name)
-            {
-                return Ok(Some(ResolvedRef::new(
-                    import.as_str(),
-                    name,
-                    MemberKind::Var,
-                )));
-            }
+        if let Some((module_path, var_name)) =
+            self.search_imports_reverse(MemberSearchKind::Var, name)
+        {
+            return Ok(Some(ResolvedRef::new(
+                &module_path,
+                &var_name,
+                MemberKind::Var,
+            )));
         }
         Ok(None)
     }
@@ -343,15 +369,10 @@ impl<'a, 'b> ScopeResolver<'a, 'b> {
         {
             return Ok(Some(format!("{}.{}", self.scope.current_module(), name)));
         }
-        for import in self.scope.imports().iter().rev() {
-            if self
-                .modules
-                .exports(import.as_str())?
-                .functions
-                .contains_exported(name)
-            {
-                return Ok(Some(format!("{}.{}", import.as_str(), name)));
-            }
+        if let Some((module_path, fn_name)) =
+            self.search_imports_reverse(MemberSearchKind::Function, name)
+        {
+            return Ok(Some(format!("{module_path}.{fn_name}")));
         }
         Ok(None)
     }
@@ -687,6 +708,26 @@ mod tests {
                 .resolve_function_literal("#h.pick")
                 .expect("function alias literal"),
             "helper.pick"
+        );
+
+        // Verify search_imports_reverse covers the Function branch via resolve_short_function_ref.
+        assert_eq!(
+            resolver
+                .resolve_short_function_ref("pick")
+                .expect("short function from import"),
+            Some("helper.pick".to_string())
+        );
+        assert_eq!(
+            resolver
+                .resolve_short_function_ref("choose")
+                .expect("short function from self"),
+            Some("main.choose".to_string())
+        );
+        assert_eq!(
+            resolver
+                .resolve_short_function_ref("missing")
+                .expect("missing function"),
+            None
         );
     }
 
