@@ -1021,3 +1021,28 @@ make gate
 - P2: 统一 `convert.rs` 中三个 "unsupported" 错误消息格式（`"unsupported compile-time macro form"`, `"unsupported <{}> provider"`, `"unsupported expression form"`）为统一模板
 - P2: 检查 `scripts.rs` 中 5-tuple 参数模式（Round 31 已分析，建议跳过）
 - P1: 检查 engine/mod.rs（sl-runtime，1006+ 行）拆分可行性（Round 5 跳过，coverage 临界问题）
+
+### Round 33 - 统一 convert.rs 三个 unsupported 错误消息 ✅ (2026-03-26)
+
+**本次做了什么：**
+- `convert.rs`：新增 `unsupported_form_error(form, kind, name)` 私有辅助函数，统一 `"unsupported {} form <{}>"` 格式
+- `convert_macro_form` 的 `other` 分支：`"unsupported compile-time macro form <{}>"` → `unsupported_form_error(form, "compile-time macro", other)`
+- `convert_let_provider` 的 `other` 分支：`"unsupported <{}> provider for macro let"` → `unsupported_form_error(form, "provider for macro let", other)`
+- `convert_expr_form` 的 `other` 分支：`"unsupported expression form <{}>"` → `unsupported_form_error(form, "expression", other)`
+- `make gate` 通过（覆盖率 89.83% > 89.45% 阈值）
+
+**本次发现的问题/踩的坑：**
+
+1. **`rustfmt` 对长行参数列表的自动拆分**：`rustfmt` 会将超过行宽限制的多参数函数调用拆分为多行（每个参数一行），因此 "provider for macro let" 这类长字符串参数需要预判格式化结果，提前写成多行格式避免格式检查失败。
+
+2. **字符串字面量中的空格与可读性**：`"provider for macro let"` 中有空格，作为 `kind` 参数传入后生成的 "unsupported provider for macro let form <{}>" 仍然语义正确，但比 "compile-time macro" 等单色词可读性略低。
+
+**对后续有价值的经验：**
+- 提取统一错误格式 helper 时，预判 `rustfmt` 行为可避免二次修复
+- `"unsupported {} form <{}>"` 模板中 `{kind}` 可以包含空格，生成的错误消息语义仍然清晰
+- 本次统一的三条消息分别来自不同函数（`convert_macro_form`、`convert_let_provider`、`convert_expr_form`），属于跨函数重复错误格式化，是典型的 DRY 优化场景
+
+**下一步方向：**
+- P2: 检查 `scripts.rs` 中是否还有未统一的错误消息格式
+- P1: 检查 engine/mod.rs（sl-runtime，1006+ 行）拆分可行性（Round 5 跳过，coverage 临界问题）
+- P2: 检查 expand/mod.rs 中是否有其他可提取的重复模式
