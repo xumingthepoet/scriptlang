@@ -243,6 +243,17 @@ impl<'a> ConstCatalog<'a> {
     }
 }
 
+/// Result of normalizing a module path and checking basic preconditions.
+/// Used by try_qualified_export and resolve_qualified_const to share preamble logic.
+enum QualifiedExportLookup<'a> {
+    NotFound,
+    NotAccessible,
+    Found {
+        normalized: &'a str,
+        exports: &'a crate::semantic::env::ModuleExports,
+    },
+}
+
 impl<'a, 'b> ScopeResolver<'a, 'b> {
     pub(crate) fn new(
         modules: &'a ModuleCatalog<'a>,
@@ -308,6 +319,27 @@ impl<'a, 'b> ScopeResolver<'a, 'b> {
         Ok(None)
     }
 
+    // Normalize path, check module exists and is accessible, then return exports.
+    // Shared by try_qualified_export and resolve_qualified_const.
+    fn try_lookup_qualified_export<'c>(
+        modules: &'c ModuleCatalog<'c>,
+        scope: &'c ModuleScope,
+        module_path: &'c str,
+    ) -> Result<QualifiedExportLookup<'c>, ScriptLangError> {
+        let normalized = scope.normalize_module_path(module_path);
+        if !modules.contains(normalized) {
+            return Ok(QualifiedExportLookup::NotFound);
+        }
+        if !scope.can_access_module(normalized) {
+            return Ok(QualifiedExportLookup::NotAccessible);
+        }
+        let exports = modules.exports(normalized)?;
+        Ok(QualifiedExportLookup::Found {
+            normalized,
+            exports,
+        })
+    }
+
     /// Normalize path, check module is accessible, then call `f` with exports.
     /// Returns `Ok(None)` if module doesn't exist; `Err` if not accessible; `f`'s `Err` propagates.
     fn try_qualified_export<F, T>(
@@ -318,18 +350,17 @@ impl<'a, 'b> ScopeResolver<'a, 'b> {
     where
         F: FnOnce(&crate::semantic::env::ModuleExports, &str) -> Result<Option<T>, ScriptLangError>,
     {
-        let module_path = self.scope.normalize_module_path(module_path);
-        if !self.modules.contains(module_path) {
-            return Ok(None);
-        }
-        if !self.scope.can_access_module(module_path) {
-            return Err(ScriptLangError::message(format!(
+        match Self::try_lookup_qualified_export(self.modules, self.scope, module_path)? {
+            QualifiedExportLookup::NotFound => Ok(None),
+            QualifiedExportLookup::NotAccessible => Err(ScriptLangError::message(format!(
                 "module `{module_path}` is not imported into `{}`",
                 self.scope.current_module()
-            )));
+            ))),
+            QualifiedExportLookup::Found {
+                normalized,
+                exports,
+            } => f(exports, normalized),
         }
-        let exports = self.modules.exports(module_path)?;
-        f(exports, module_path)
     }
 
     pub(crate) fn resolve_qualified_var_ref(
@@ -428,27 +459,29 @@ impl ConstLookup for ScopeResolver<'_, '_> {
         module_path: &str,
         name: &str,
     ) -> Result<QualifiedConstLookup, ScriptLangError> {
-        let module_path = self.scope.normalize_module_path(module_path);
-        if !self.modules.contains(module_path) {
-            return Ok(QualifiedConstLookup::NotModulePath);
+        let lookup = Self::try_lookup_qualified_export(self.modules, self.scope, module_path)?;
+        match lookup {
+            QualifiedExportLookup::NotFound => Ok(QualifiedConstLookup::NotModulePath),
+            QualifiedExportLookup::NotAccessible => Ok(QualifiedConstLookup::HiddenModule),
+            QualifiedExportLookup::Found {
+                normalized,
+                exports,
+            } => {
+                let is_visible = if normalized == self.scope.current_module() {
+                    exports.consts.contains_declared(name)
+                } else {
+                    exports.consts.contains_exported(name)
+                };
+                if !is_visible {
+                    return Ok(QualifiedConstLookup::UnknownConst);
+                }
+                let value = self
+                    .const_catalog
+                    .resolve_const(normalized, name)?
+                    .expect("checked exports before resolving");
+                Ok(QualifiedConstLookup::Value(value))
+            }
         }
-        if !self.scope.can_access_module(module_path) {
-            return Ok(QualifiedConstLookup::HiddenModule);
-        }
-        let exports = self.modules.exports(module_path)?;
-        let is_visible = if module_path == self.scope.current_module() {
-            exports.consts.contains_declared(name)
-        } else {
-            exports.consts.contains_exported(name)
-        };
-        if !is_visible {
-            return Ok(QualifiedConstLookup::UnknownConst);
-        }
-        let value = self
-            .const_catalog
-            .resolve_const(module_path, name)?
-            .expect("checked exports before resolving");
-        Ok(QualifiedConstLookup::Value(value))
     }
 
     fn resolve_script_literal(&mut self, raw: &str) -> Result<String, ScriptLangError> {
