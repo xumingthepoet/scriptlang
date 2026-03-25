@@ -44,10 +44,12 @@ sl-repl      → REPL 实现
 
 ### 🟢 P2 - 改进（持续优化）
 
-- 减少不必要的 `.clone()` 调用
-- 提取重复模式为通用辅助函数
-- 统一错误消息格式
-- 添加缺失的文档注释
+| 项目 | 状态 |
+|------|------|
+| 减少不必要的 `.clone()` 调用 | 🚧 Round 6 完成 engine/mod.rs（BTreeMap clone 优化）|
+| 提取重复模式为通用辅助函数 | ⬜ |
+| 统一错误消息格式 | ⬜ |
+| 添加缺失的文档注释 | ⬜ |
 
 ---
 
@@ -86,11 +88,15 @@ sl-repl      → REPL 实现
 - [x] `const_eval.rs`（1112 行）：测试移至独立文件 `const_eval/tests/mod.rs`，本体 1112→408 行
 - 状态：**完成**
 
-### Round 5: 尝试拆分 engine/mod.rs + 代码质量改进（跳过）
+### Round 5: 尝试拆分 engine/mod.rs（跳过）
 - [ ] `engine/mod.rs`（1007 行）：运行时引擎主文件，尝试提取空间 → **跳过**（见进度记录）
 - [ ] 检查并优化 clone 调用
 - [ ] 提取重复模式
 - [ ] 统一错误处理
+
+### Round 6: 消除 engine clone 调用
+- [x] `engine/mod.rs`：`build_rhai_engine` 改为接收 `Arc<CompiledArtifact>`，消除 `artifact.functions.clone()` 对 BTreeMap 的昂贵克隆
+- 状态：**完成** (make gate 通过，覆盖率 89.45%)
 
 ---
 
@@ -267,7 +273,29 @@ make gate
 - 覆盖率阈值设置建议：对于 engine/mod.rs 这样的混合文件，阈值应单独设定或在测试设计上考虑 cfg 排除
 - `engine/mod.rs`（1007 行）比 `const_eval.rs`（1112 行）更适合保持原样的原因：const_eval 的测试可以完全独立（无内部依赖），而 engine 测试依赖大量 `pub(crate)` 内部类型，无法迁移到外部 integration test
 
+### Round 6 - 消除 engine/mod.rs 中不必要的 BTreeMap clone ✅ (2026-03-25)
+
+**本次做了什么：**
+- 将 `build_rhai_engine` 的签名从 `Arc<BTreeMap<String, CompiledFunction>>` 改为 `Arc<CompiledArtifact>`
+- 在 `Engine::new` 中，将 `Arc::new(artifact.functions.clone())` 改为 `Arc::clone(&artifact)`
+- 将 `eval_compiled_function` 参数类型同步更新为 `Arc<CompiledArtifact>`，内部通过 `artifact.functions` 访问
+- 从非测试代码的顶层导入中移除不再需要的 `BTreeMap` 和 `CompiledFunction`
+- 同步更新测试中对 `build_rhai_engine` 的调用
+
+**本次发现的问题/踩的坑：**
+
+1. **增量编译导致覆盖率测量漂移**：未执行 `rm -rf target` 时，多次 stash/pop 后覆盖率报告的 TOTAL 行数会异常增长（从 ~1455 跳到 ~1850），导致覆盖率从 89.45% 跌至 87.49%。这是 llvm-cov 的 profraw 文件与增量编译产物交叉污染所致。解决：每次对比 baseline 前必须 `rm -rf target`。
+
+2. **`make gate` 的覆盖率阈值正好 89.45%**：覆盖率与阈值相等时会通过（`fail-under-lines 89.45` 的逻辑是"低于"才失败）。覆盖率处于临界状态，每次重构都存在风险，需要注意不要引入新的未覆盖行。
+
+3. **`git stash` 对编译产物的影响**：`git stash` 保存 working directory 状态但不影响已编译的目标文件。Stash 前后的 coverage 测量可能受到增量编译缓存的影响，最好在 stash 后 `rm -rf target` 再测量。
+
+**对后续有价值的经验：**
+- `Arc<CompiledArtifact>` 代替 `Arc<BTreeMap>` 传递：只需复制 Arc 指针（O(1)），而不是克隆整个 BTreeMap（O(n)）。这是典型的"用共享代替复制"优化模式。
+- `Arc::clone(&shared)` vs `Arc::new(value.clone())`：前者只增加引用计数，后者复制了内部数据。对于包含大量数据的容器（BTreeMap、Vec 等），两者性能差异显著。
+- `make gate` 覆盖率阈值 89.45% 处于临界状态，后续任何增加未覆盖行的改动都可能触发失败。Engine 模块的改动需要特别注意覆盖率的维持。
+
 **下一步方向：**
-- 跳过 engine/mod.rs 拆分，继续 P2 优化项（减少 clone 调用、提取重复模式、统一错误处理）
-- engine/mod.rs（1007 行）仅略超 800 行阈值，可接受作为现状
-- 后续如需进一步拆分，可考虑将 Engine impl 拆为多文件（每个 impl 方法组一个文件），但需要处理 `pub(crate)` 可见性和循环依赖问题
+- P2: 减少 `execute.rs` 中 `BuildChoice` 的 `rendered_prompt` 冗余 clone（但这需要改类型，收益有限）
+- P2: 继续在其他模块寻找可消除的 clone 调用（eval.rs、convert.rs 等）
+- P2: 统一错误消息格式、提取重复模式
