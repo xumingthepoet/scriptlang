@@ -144,8 +144,8 @@ fn analyze_stmt(
                     ));
                 }
                 options.push(SemanticChoiceOption {
-                    text: rewrite_var_template(
-                        parse_text_template(required_attr(option, "text")?)?,
+                    text: rewrite_text_source(
+                        required_attr(option, "text")?,
                         const_env,
                         resolver,
                         remaining_const_names,
@@ -162,10 +162,9 @@ fn analyze_stmt(
             }
             Ok(SemanticStmt::Choice {
                 prompt: attr(form, "text")
-                    .map(parse_text_template)
-                    .map(|template| {
-                        rewrite_var_template(
-                            template?,
+                    .map(|src| {
+                        rewrite_text_source(
+                            src,
                             const_env,
                             resolver,
                             remaining_const_names,
@@ -282,6 +281,23 @@ fn rewrite_var_template(
     )?;
     let rewritten = rewrite_template_special_literals(rewritten, resolver)?;
     rewrite_template_with_vars(rewritten, resolver, shadowed_names)
+}
+
+/// Parse a text template from `source` and rewrite its variables.
+fn rewrite_text_source(
+    source: &str,
+    const_env: &ConstEnv,
+    resolver: &mut ScopeResolver<'_, '_>,
+    remaining_const_names: &BTreeSet<String>,
+    shadowed_names: &BTreeSet<String>,
+) -> Result<TextTemplate, ScriptLangError> {
+    rewrite_var_template(
+        parse_text_template(source)?,
+        const_env,
+        resolver,
+        remaining_const_names,
+        shadowed_names,
+    )
 }
 
 #[cfg(test)]
