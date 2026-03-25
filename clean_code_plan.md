@@ -542,3 +542,31 @@ make gate
 - P2: 检查 expand/mod.rs 中是否有可提取的重复模式（如 expand_form 函数体是否可简化）
 - P2: 检查 dispatch.rs 中其他控制流分支是否有进一步提取空间
 - P1: 考虑拆分 expand/program.rs（671 行）
+
+### Round 17 - 移除 expand_module_child 中的冗余 is_macro_in_requires 检查 ✅ (2026-03-25)
+
+**本次做了什么：**
+- 分析了 `dispatch_rule` 与 `expand_module_child` 之间的控制流关系
+- 发现 `expand_module_child` 的 `_` 分支中的 `is_macro_in_requires` 检查是**不可能被执行到的死代码**：
+  - 如果 `is_macro_in_requires` 返回 true → `dispatch_rule` 已经把表单路由到 `MacroHook`，`expand_module_child` 根本不会被调用
+  - 如果 `is_macro_in_requires` 返回 false → `dispatch_rule` 的 `else` 分支（`Builtin`）会走 `_` 分支，`is_macro_in_requires` 在此处再次返回 false，`else` 分支的 clone 行为与直接走 `_` 完全相同
+- 移除该冗余检查，`_` 分支简化为 `Ok(vec![FormItem::Form(form.clone())])`
+- dispatch.rs：净减少 6 行
+
+**本次发现的问题/踩的坑：**
+
+1. **控制流分支覆盖分析是发现死代码的关键**：仅通过静态分析函数内部逻辑无法发现这个冗余——必须结合调用方（`expand_form_items`）的 dispatch 逻辑，理解"哪个分支何时被调用"才能判断。单独看 `expand_module_child`，`is_macro_in_requires` 看起来完全合理。
+
+2. **`dispatch_rule` 的设计**：函数通过 `has_builtin_rule` → `MacroHook` → `Builtin` 的优先级顺序进行路由，使得 `is_macro_in_requires` 在 `dispatch_rule` 层面已经是完整的宏检查入口，`expand_module_child` 无需重复。
+
+3. **`is_macro_in_requires` 仍然在 `dispatch_rule` 中使用**：`is_macro_in_requires` 函数本身仍然被 `dispatch_rule` 调用（用于检查"表单在某个已加载模块中定义但不在当前 import 范围"的情况），只是不再在 `expand_module_child` 中被重复调用。
+
+**对后续有价值的经验：**
+- 分析 match 分支冗余时，不能只盯着函数内部——要结合**调用点的 dispatch 逻辑**判断某个分支是否真的可能到达
+- 当某个检查在"调用链上游"（`dispatch_rule`）已经做过后，在"下游"（`expand_module_child`）的重复检查就变成了死代码
+- 控制流分析要找"路由点"：`dispatch_rule` 是路由入口，其返回值决定了后续的处理路径；在路由点下游重复路由逻辑是常见冗余模式
+
+**下一步方向：**
+- P2: 继续检查 `expand/mod.rs` 中是否有可提取的重复模式
+- P2: 检查 `dispatch.rs` 中 `is_macro_in_requires` 在 `dispatch_rule` 中的使用是否可以进一步优化
+- P1: 考虑拆分 `expand/program.rs`（671 行）
