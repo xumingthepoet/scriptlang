@@ -87,13 +87,7 @@ fn expand_module_child(form: &Form, env: &mut ExpandEnv) -> Result<Vec<FormItem>
         }
         "var" => Ok(vec![FormItem::Form(form.clone())]),
         "temp" => expand_temp_form(form, env),
-        _ => {
-            if is_macro_in_requires(form, env) {
-                expand_macro_hook(form, env, ExpandRuleScope::ModuleChild)
-            } else {
-                Ok(vec![FormItem::Form(form.clone())])
-            }
-        }
+        _ => Ok(vec![FormItem::Form(form.clone())]),
     }
 }
 
