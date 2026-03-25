@@ -86,8 +86,8 @@ sl-repl      → REPL 实现
 - [x] `const_eval.rs`（1112 行）：测试移至独立文件 `const_eval/tests/mod.rs`，本体 1112→408 行
 - 状态：**完成**
 
-### Round 5: 拆分 engine/mod.rs + 代码质量改进
-- [ ] `engine/mod.rs`（1007 行）：运行时引擎主文件，检查是否有提取空间
+### Round 5: 尝试拆分 engine/mod.rs + 代码质量改进（跳过）
+- [ ] `engine/mod.rs`（1007 行）：运行时引擎主文件，尝试提取空间 → **跳过**（见进度记录）
 - [ ] 检查并优化 clone 调用
 - [ ] 提取重复模式
 - [ ] 统一错误处理
@@ -241,3 +241,33 @@ make gate
 - Round 4: 拆分 `engine/mod.rs`（1007 行）
 - 覆盖率问题（89.45% vs 阈值 89.9%）是 pre-existing 问题，非本次重构引入——原始代码已有 89.78% < 89.9%
 - sl-repl 拆分后，>400 行文件列表需要重新评估（session.rs ~1490 行仍是较大的文件，但已按职责内聚分组）
+
+### Round 5 - 尝试拆分 engine/mod.rs（跳过）✅ (2026-03-25)
+
+**本次做了什么：**
+- 分析了 `engine/mod.rs`（1007 行）的结构：已拆分 `execute.rs`（130行）和 `state.rs`（59行），剩余 Engine impl + free functions + 测试块
+- 尝试将 free functions 提取到 `helpers.rs` + 测试移到 `tests/mod.rs`（使用 `#[path]`）
+- 发现 `#[path = "tests/mod.rs"] mod tests;` 即使放在 `#[cfg(test)]` 块内，文件内容也始终被编译进 `--lib` 覆盖率
+
+**本次发现的问题/踩的坑：**
+
+1. **`#[path]` 不遵守父级 `#[cfg]`**：当用 `#[path = "tests/mod.rs"] mod tests;` 加载外部测试文件时，即使该声明在 `#[cfg(test)]` 块内，文件内容也始终被编译进 lib target。`#[cfg(test)]` 只控制模块声明本身，不控制 `#[path]` 加载的文件内容。这与 Round 4 中 `#[path = "const_eval/tests/mod.rs"]` 的行为一致（inline block vs external file 行为不同）。
+
+2. **覆盖率塌陷**：用 `#[path]` 加载测试文件时，测试代码被计入 lib 覆盖率，导致覆盖率从 89.45% 降至 ~86%（helpers.rs 的未覆盖行被计入）。
+
+3. **`pub use` vs `use` 可见性**：`EngineState` 和 `PendingChoiceState` 是 `pub(crate)` 类型，不能用 `pub use` 从 `state.rs` re-export 到 `mod.rs`——Rust 不允许 re-export 低于 `pub` 可见性的项目。解决方案是用普通 `use`。
+
+4. **外部 integration test 可见性问题**：外部 integration test 文件（如 `tests/engine_tests.rs`）是单独的编译单元，只能访问库的公开 API，无法访问 `pub(crate)` 的 `Engine` 和 `EngineState`。
+
+5. **Coverage 阈值 89.45% 是 pre-existing 问题**：在 Round 5 之前，`make gate` 覆盖率检查已经在 89.45% 阈值下勉强通过（并非稳定通过）。
+
+**对后续有价值的经验：**
+- Rust `#[path]` 的 `#[cfg]` 行为：path 属性的目标文件内容总是被编译，父级 cfg 属性只控制模块声明本身
+- 测试文件想要从 lib 覆盖率中排除，只能通过真正的 inline `#[cfg(test)] mod tests { ... }` 块，或通过外部 integration test 文件（但外部文件无法访问 `pub(crate)` API）
+- 覆盖率阈值设置建议：对于 engine/mod.rs 这样的混合文件，阈值应单独设定或在测试设计上考虑 cfg 排除
+- `engine/mod.rs`（1007 行）比 `const_eval.rs`（1112 行）更适合保持原样的原因：const_eval 的测试可以完全独立（无内部依赖），而 engine 测试依赖大量 `pub(crate)` 内部类型，无法迁移到外部 integration test
+
+**下一步方向：**
+- 跳过 engine/mod.rs 拆分，继续 P2 优化项（减少 clone 调用、提取重复模式、统一错误处理）
+- engine/mod.rs（1007 行）仅略超 800 行阈值，可接受作为现状
+- 后续如需进一步拆分，可考虑将 Engine impl 拆为多文件（每个 impl 方法组一个文件），但需要处理 `pub(crate)` 可见性和循环依赖问题
