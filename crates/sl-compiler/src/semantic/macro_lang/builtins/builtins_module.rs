@@ -10,6 +10,31 @@ use crate::semantic::macro_lang::{CtEnv, CtValue};
 use sl_core::ScriptLangError;
 use sl_core::{Form, FormField, FormMeta, FormValue, SourcePosition};
 
+/// Extract a module reference from the first argument (CtValue::String or CtValue::ModuleRef).
+/// Returns Err if args is empty or first arg is not String/ModuleRef.
+/// Uses `arg_count_msg` in the error message (e.g. "requires exactly 1 argument").
+fn expect_module_ref<'a>(
+    args: &'a [CtValue],
+    func_name: &str,
+    arg_count_msg: &str,
+) -> Result<&'a String, ScriptLangError> {
+    if args.is_empty() || args.len() > 1 {
+        return Err(ScriptLangError::Message {
+            message: format!("{func_name}() {arg_count_msg}"),
+        });
+    }
+    match &args[0] {
+        CtValue::String(s) => Ok(s),
+        CtValue::ModuleRef(s) => Ok(s),
+        other => Err(ScriptLangError::Message {
+            message: format!(
+                "{func_name}() argument must be string or module, got {}",
+                other.type_name()
+            ),
+        }),
+    }
+}
+
 /// `caller_env()`: Return a CtValue exposing the caller environment.
 pub(crate) fn builtin_caller_env(
     args: &[CtValue],
@@ -122,24 +147,8 @@ pub(crate) fn builtin_expand_alias(
     _expand_env: &mut ExpandEnv,
     _: &BuiltinRegistry,
 ) -> BuiltinResult {
-    if args.len() != 1 {
-        return Err(ScriptLangError::Message {
-            message: "expand_alias() requires exactly 1 argument".to_string(),
-        });
-    }
-
-    let module_ref = match &args[0] {
-        CtValue::String(s) => s.clone(),
-        CtValue::ModuleRef(s) => s.clone(),
-        other => {
-            return Err(ScriptLangError::Message {
-                message: format!(
-                    "expand_alias() argument must be string or module, got {}",
-                    other.type_name()
-                ),
-            });
-        }
-    };
+    let module_ref =
+        expect_module_ref(args, "expand_alias", "requires exactly 1 argument")?.clone();
 
     // Check aliases first
     if let Some(full_name) = macro_env.aliases.get(&module_ref) {
@@ -158,24 +167,8 @@ pub(crate) fn builtin_require_module(
     expand_env: &mut ExpandEnv,
     _: &BuiltinRegistry,
 ) -> BuiltinResult {
-    if args.len() != 1 {
-        return Err(ScriptLangError::Message {
-            message: "require_module() requires exactly 1 argument".to_string(),
-        });
-    }
-
-    let module_ref = match &args[0] {
-        CtValue::String(s) => s.clone(),
-        CtValue::ModuleRef(s) => s.clone(),
-        other => {
-            return Err(ScriptLangError::Message {
-                message: format!(
-                    "require_module() argument must be string or module, got {}",
-                    other.type_name()
-                ),
-            });
-        }
-    };
+    let module_ref =
+        expect_module_ref(args, "require_module", "requires exactly 1 argument")?.clone();
 
     // Expand alias if needed (e.g. "H" -> "helper")
     let full_name = macro_env
@@ -214,24 +207,8 @@ pub(crate) fn builtin_define_import(
     expand_env: &mut ExpandEnv,
     _: &BuiltinRegistry,
 ) -> BuiltinResult {
-    if args.len() != 1 {
-        return Err(ScriptLangError::Message {
-            message: "define_import() requires exactly 1 argument".to_string(),
-        });
-    }
-
-    let module_ref = match &args[0] {
-        CtValue::String(s) => s.clone(),
-        CtValue::ModuleRef(s) => s.clone(),
-        other => {
-            return Err(ScriptLangError::Message {
-                message: format!(
-                    "define_import() argument must be string or module, got {}",
-                    other.type_name()
-                ),
-            });
-        }
-    };
+    let module_ref =
+        expect_module_ref(args, "define_import", "requires exactly 1 argument")?.clone();
 
     // Expand alias if needed
     let full_name = macro_env
@@ -305,24 +282,8 @@ pub(crate) fn builtin_define_require(
     expand_env: &mut ExpandEnv,
     _: &BuiltinRegistry,
 ) -> BuiltinResult {
-    if args.len() != 1 {
-        return Err(ScriptLangError::Message {
-            message: "define_require() requires exactly 1 argument".to_string(),
-        });
-    }
-
-    let module_ref = match &args[0] {
-        CtValue::String(s) => s.clone(),
-        CtValue::ModuleRef(s) => s.clone(),
-        other => {
-            return Err(ScriptLangError::Message {
-                message: format!(
-                    "define_require() argument must be string or module, got {}",
-                    other.type_name()
-                ),
-            });
-        }
-    };
+    let module_ref =
+        expect_module_ref(args, "define_require", "requires exactly 1 argument")?.clone();
 
     // Expand alias if needed
     let full_name = macro_env
