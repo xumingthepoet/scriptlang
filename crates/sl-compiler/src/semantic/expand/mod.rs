@@ -29,6 +29,7 @@ pub(crate) use modules::ModuleCatalog;
 pub(crate) use program::analyze_program;
 pub(crate) use scope::{ConstCatalog, ModuleScope, QualifiedConstLookup, ScopeResolver};
 
+/// Expand a list of top-level forms into a `SemanticProgram`.
 pub(crate) fn expand_forms(forms: &[Form]) -> Result<SemanticProgram, ScriptLangError> {
     let mut env = ExpandEnv::default().with_phase(super::env::CompilePhase::Module);
     collect_program_macros(forms, &mut env)?;
@@ -36,6 +37,7 @@ pub(crate) fn expand_forms(forms: &[Form]) -> Result<SemanticProgram, ScriptLang
     analyze_program(&env.program)
 }
 
+/// Expand each form in the list, collecting errors. Updates `env` with module state.
 pub(super) fn expand_raw_forms(
     forms: &[Form],
     env: &mut ExpandEnv,
@@ -43,6 +45,7 @@ pub(super) fn expand_raw_forms(
     forms.iter().map(|form| expand_form(form, env)).collect()
 }
 
+/// Expand a single form: delegates `<module>` to `expand_module_form`, all others to rule dispatch.
 fn expand_form(form: &Form, env: &mut ExpandEnv) -> Result<Form, ScriptLangError> {
     if form.head == "module" {
         return expand_module_form(form, env);
@@ -50,6 +53,8 @@ fn expand_form(form: &Form, env: &mut ExpandEnv) -> Result<Form, ScriptLangError
     expand_with_rules(form, env, ExpandRuleScope::ModuleChild)
 }
 
+/// Extract the plain text content from a form's `children` field.
+/// Returns `None` if the children contain any nested forms (non-text items).
 pub(super) fn raw_body_text(form: &Form) -> Option<String> {
     let mut buffer = String::new();
     let mut saw_text = false;
