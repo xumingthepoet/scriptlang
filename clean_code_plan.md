@@ -47,7 +47,7 @@ sl-repl      → REPL 实现
 | 项目 | 状态 |
 |------|------|
 | 减少不必要的 `.clone()` 调用 | ✅ Round 6 完成 engine/mod.rs（BTreeMap clone 优化）|
-| 提取重复模式为通用辅助函数 | ✅ Round 7 完成 convert.rs，Round 10 完成 program.rs，Round 14 完成 alias_name 提取，Round 15 完成 dispatch.rs 函数合并，Round 16 完成 expand_temp_form 提取，Round 19 完成 rewrite_expr_pipeline，Round 21 完成 eval_const_form，Round 22 完成 try_qualified_export |
+| 提取重复模式为通用辅助函数 | ✅ Round 7 完成 convert.rs，Round 10 完成 program.rs，Round 14 完成 alias_name 提取，Round 15 完成 dispatch.rs 函数合并，Round 16 完成 expand_temp_form 提取，Round 19 完成 rewrite_expr_pipeline，Round 21 完成 eval_const_form，Round 22 完成 try_qualified_export，Round 24 完成 try_lookup_qualified_export |
 | 统一错误消息格式 | 🚧 部分完成（invalid_bool_attr_error 辅助函数）|
 | 添加缺失的文档注释 | ✅ Round 13 完成 expand/mod.rs（convert.rs + expand/mod.rs 均已完整）|
 
@@ -165,6 +165,14 @@ sl-repl      → REPL 实现
 
 ### Round 22: 提取 try_qualified_export 辅助函数 ✅
 - [x] `scope.rs`：新增 `try_qualified_export` 闭包辅助方法，将 `resolve_qualified_var_ref` 和 `resolve_qualified_function_ref` 共享的 ~9 行 preamble（normalize_module_path、contains、can_access_module、exports 调用）统一；两个原函数改为闭包调用 + 结果解包，净减少约 4 行
+- 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.72%)
+
+### Round 23: 检查 scope.rs can_access_module 优化可能性（跳过）✅ (2026-03-25)
+- [x] 分析 `can_access_module` aliases 分支是否可用 `contains_key` 优化 → **跳过**（语义不同，无法优化）
+- 状态：**完成**
+
+### Round 24: 提取 try_lookup_qualified_export 辅助函数 ✅ (2026-03-25)
+- [x] `scope.rs`：新增 `QualifiedExportLookup` 枚举 + `try_lookup_qualified_export` 静态辅助方法，封装 normalize/contains/can_access/exports 四步公共 preamble；`try_qualified_export` 和 `resolve_qualified_const` 均改为调用此 helper
 - 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.72%)
 
 ---
@@ -744,6 +752,35 @@ make gate
 - 当 plan 说"检查 X 是否可优化"时，分析后若发现无法优化，应如实记录为"跳过"而非强行制造优化
 
 **下一步方向：**
-- P2: 检查 `resolve_qualified_const`（ConstLookup impl）与 `try_qualified_export`（ScopeResolver impl）是否有可提取的公共 preamble（normalize_module_path / contains / can_access_module / exports）
+- [x] P2: 检查 `resolve_qualified_const`（ConstLookup impl）与 `try_qualified_export`（ScopeResolver impl）是否有可提取的公共 preamble（normalize_module_path / contains / can_access_module / exports）
 - P1: 考虑拆分 `scope.rs`（873 行，ModuleScope / ConstCatalog / ScopeResolver 三个 impl 分离到不同文件）
 - P2: 检查 `expand/mod.rs`（562 行）的测试块是否有可提取的辅助函数（已检查，helpers 均为本地特定，无提取价值）
+
+### Round 24 - 提取 try_lookup_qualified_export 辅助函数 ✅ (2026-03-25)
+
+**本次做了什么：**
+- 在 `scope.rs` 中新增 `QualifiedExportLookup<'a>` 枚举（NotFound / NotAccessible / Found），用于封装公共 preamble 的结果
+- 新增 `try_lookup_qualified_export<'c>(modules, scope, module_path)` 静态辅助方法（返回 `Result<QualifiedExportLookup<'c>, ScriptLangError>`），封装 normalize_module_path / contains / can_access / exports 四步 preamble
+- `try_qualified_export` 改为调用 helper：`NotFound → Ok(None)`，`NotAccessible → Err(...)`，`Found → closure`
+- `resolve_qualified_const` 改为调用 helper：`NotFound → NotModulePath`，`NotAccessible → HiddenModule`，`Found → 自己的可见性检查`
+- `scope.rs`：净减少约 12 行
+
+**本次发现的问题/踩的坑：**
+
+1. **闭包捕获 self 导致 borrow 冲突**：最初让 helper 接收 `&self`（`fn(&self, module_path) → Result<QualifiedExportLookup<'_>, ...>`），但在 `resolve_qualified_const`（`&mut self`）中调用时，helper 的 `&self` borrow 与后续 `self.const_catalog` 的可变 borrow 冲突。解决：helper 改为接收显式的 `modules: &'c ModuleCatalog<'c>` 和 `scope: &'c ModuleScope` 参数，而非 `&self`。
+
+2. **返回类型的 lifetime 约束**：`module_path: &str` 与返回类型 `QualifiedExportLookup<'c>` 的 lifetime 不匹配——`normalized` 来自 `scope.normalize_module_path()`（引用存在于 `scope`/`modules` 的 `'c` lifetime 中），而非来自 `module_path`。解决：`module_path` 也标为 `&'c str`（调用方均可满足此约束）。
+
+3. **`NotAccessible` 语义差异导致 HiddenModule 变成 dead code**：原始 `resolve_qualified_const` 对不可访问模块返回 `Ok(QualifiedConstLookup::HiddenModule)`，但若 helper 直接返回 `Err`，则 `HiddenModule` 不再被构造。解决：helper 返回 `QualifiedExportLookup::NotAccessible`（而非 `Err`），让两个调用方各自映射：`try_qualified_export` → `Err`，`resolve_qualified_const` → `Ok(HiddenModule)`。
+
+4. **`static` 方法借用 self 字段的技巧**：Rust impl 块中的 `fn`（非 `method`）可以接收显式 `self` 字段类型参数（如 `modules: &'c ModuleCatalog<'c>`）来借用字段，而非借用整个 `self`。这解决了"需要共享 preamble 但字段可变性与 self borrow 冲突"的问题。
+
+**对后续有价值的经验：**
+- 当 helper 函数需要访问 `self` 的多个字段、但调用方又需要可变访问 `self` 的其他字段时，用显式字段参数（`fn(modules, scope, path)`）代替 `&self`
+- `module_path: &str` vs `module_path: &'c str`：当返回引用（如 `QualifiedExportLookup<'c>`）时，输入参数也必须参与同一个 lifetime `'c`——即使 `module_path` 本身是调用方传入的，只要返回的 `normalized` 引用与 `module_path` 同源，就必须让两者共享 lifetime
+- 错误类型不同时用 enum 返回值而非 `Result`：`NotAccessible` 用 enum variant 而非 `Err(...)`，因为两个调用方对"不可访问"的处理不同
+
+**下一步方向：**
+- P1: 考虑拆分 `scope.rs`（900+ 行，ModuleScope / ConstCatalog / ScopeResolver 三个 impl 分离到不同文件）
+- P2: 检查 `expand/mod.rs`（562 行）是否有可提取的重复模式
+- P2: 统一错误消息格式（如 `duplicate ... declaration` 系列可考虑提取为 `duplicate_decl_error`）
