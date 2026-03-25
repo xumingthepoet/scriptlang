@@ -213,12 +213,13 @@ fn parse_skip_loop_control_capture_attr(form: &Form) -> Result<bool, ScriptLangE
     }
 }
 
-pub(super) fn rewrite_var_expr(
+fn rewrite_expr_pipeline(
     source: &str,
     const_env: &ConstEnv,
     resolver: &mut ScopeResolver<'_, '_>,
     remaining_const_names: &BTreeSet<String>,
     shadowed_names: &BTreeSet<String>,
+    with_vars: bool,
 ) -> Result<String, ScriptLangError> {
     let normalized = normalize_expr_escapes(source)?;
     let rewritten = rewrite_expr_with_consts(
@@ -230,7 +231,28 @@ pub(super) fn rewrite_var_expr(
     )?;
     let rewritten = rewrite_special_literals(&rewritten, resolver)?;
     let rewritten = rewrite_expr_function_calls(&rewritten, resolver, shadowed_names)?;
-    rewrite_expr_with_vars(&rewritten, resolver, shadowed_names)
+    if with_vars {
+        rewrite_expr_with_vars(&rewritten, resolver, shadowed_names)
+    } else {
+        Ok(rewritten)
+    }
+}
+
+pub(super) fn rewrite_var_expr(
+    source: &str,
+    const_env: &ConstEnv,
+    resolver: &mut ScopeResolver<'_, '_>,
+    remaining_const_names: &BTreeSet<String>,
+    shadowed_names: &BTreeSet<String>,
+) -> Result<String, ScriptLangError> {
+    rewrite_expr_pipeline(
+        source,
+        const_env,
+        resolver,
+        remaining_const_names,
+        shadowed_names,
+        true,
+    )
 }
 
 pub(super) fn rewrite_function_body(
@@ -240,16 +262,14 @@ pub(super) fn rewrite_function_body(
     remaining_const_names: &BTreeSet<String>,
     shadowed_names: &BTreeSet<String>,
 ) -> Result<String, ScriptLangError> {
-    let normalized = normalize_expr_escapes(source)?;
-    let rewritten = rewrite_expr_with_consts(
-        &normalized,
+    rewrite_expr_pipeline(
+        source,
         const_env,
         resolver,
         remaining_const_names,
         shadowed_names,
-    )?;
-    let rewritten = rewrite_special_literals(&rewritten, resolver)?;
-    rewrite_expr_function_calls(&rewritten, resolver, shadowed_names)
+        false,
+    )
 }
 
 fn rewrite_var_template(
