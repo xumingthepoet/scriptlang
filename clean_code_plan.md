@@ -46,8 +46,8 @@ sl-repl      → REPL 实现
 
 | 项目 | 状态 |
 |------|------|
-| 减少不必要的 `.clone()` 调用 | 🚧 Round 6 完成 engine/mod.rs（BTreeMap clone 优化）|
-| 提取重复模式为通用辅助函数 | ⬜ |
+| 减少不必要的 `.clone()` 调用 | ✅ Round 6 完成 engine/mod.rs（BTreeMap clone 优化）|
+| 提取重复模式为通用辅助函数 | 🚧 Round 7 完成 convert.rs（提取 extract_expr_forms）|
 | 统一错误消息格式 | ⬜ |
 | 添加缺失的文档注释 | ⬜ |
 
@@ -299,3 +299,24 @@ make gate
 - P2: 减少 `execute.rs` 中 `BuildChoice` 的 `rendered_prompt` 冗余 clone（但这需要改类型，收益有限）
 - P2: 继续在其他模块寻找可消除的 clone 调用（eval.rs、convert.rs 等）
 - P2: 统一错误消息格式、提取重复模式
+
+### Round 7 - 提取 convert.rs 重复模式 ✅ (2026-03-25)
+
+**本次做了什么：**
+- 在 `macro_lang/convert.rs` 中新增 `extract_expr_forms(children: &[FormItem]) -> Vec<CtExpr>` 辅助函数，将 form children 列表转换为 `CtExpr` Vec
+- 替换两处完全相同的 `filter_map` 模式：
+  1. `convert_form_to_stmt` 中 "builtin" 分支（lines 93-102）
+  2. `convert_let_form` 中 builtin provider 处理（lines 147-156）
+- `convert.rs`：597 → 593 行（净减少 4 行，消除了 copy-paste 重复）
+
+**本次发现的问题/踩的坑：**
+- `extract_expr_forms` 辅助函数放在 `single_child_form` 之前（均位于文件后半部分的辅助函数区域），与 `extract_form_children` 相邻，保持了良好的代码组织结构。
+
+**对后续有价值的经验：**
+- Rust 中 `filter_map` + `if let Some` 模式是处理"从 Vec<FormItem> 中提取 Form 项并转换"的惯用手法，将这个通用模式提取为独立函数可以让多处代码更清晰。
+- 提取辅助函数的时机：当两处代码除了输入参数外完全相同时，就是提取的最佳时机——这避免了后续维护时两处需要同步修改的风险。
+
+**下一步方向：**
+- P2: 继续在 `eval.rs`、`expand/mod.rs`、`expand/program.rs` 中寻找可提取的重复模式
+- P2: 添加 `convert.rs` 缺失的 doc 注释（convert_form_to_stmt、convert_if_form 等函数）
+- P1: 后续可考虑拆分 `expand/program.rs`（671 行，未拆分）
