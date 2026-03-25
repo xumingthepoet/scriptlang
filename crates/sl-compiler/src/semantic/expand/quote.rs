@@ -350,19 +350,28 @@ fn gensym(runtime: &mut MacroEnv, prefix: &str) -> String {
     )
 }
 
+/// Extract the next `${...}` slot from `source` starting at `cursor`.
+/// Returns `(key, after_brace, dollar_start)` where:
+/// - `key`: trimmed content between `${` and `}`
+/// - `after_brace`: index after the closing `}`
+/// - `dollar_start`: index of the `${`
+///
+/// Returns `None` if no `${` remains.
+fn next_slot(source: &str, cursor: usize) -> Option<(&str, usize, usize)> {
+    let start_rel = source[cursor..].find("${")?;
+    let dollar_start = cursor + start_rel;
+    let expr_start = dollar_start + 2;
+    let end_rel = source[expr_start..].find('}')?;
+    let after_brace = expr_start + end_rel + 1;
+    let key = source[expr_start..expr_start + end_rel].trim();
+    Some((key, after_brace, dollar_start))
+}
+
 fn splice_expr_slots(source: &str, runtime: &MacroEnv) -> Result<String, ScriptLangError> {
     let mut output = String::new();
     let mut cursor = 0usize;
-    while let Some(start_rel) = source[cursor..].find("${") {
-        let start = cursor + start_rel;
-        output.push_str(&source[cursor..start]);
-        let expr_start = start + 2;
-        let Some(end_rel) = source[expr_start..].find('}') else {
-            output.push_str(&source[start..]);
-            return Ok(output);
-        };
-        let end = expr_start + end_rel;
-        let key = source[expr_start..end].trim();
+    while let Some((key, after_brace, dollar_start)) = next_slot(source, cursor) {
+        output.push_str(&source[cursor..dollar_start]);
         let value = runtime.locals.get(key).ok_or_else(|| {
             ScriptLangError::message(format!(
                 "unknown macro local `{key}` referenced in expr slot"
@@ -381,7 +390,7 @@ fn splice_expr_slots(source: &str, runtime: &MacroEnv) -> Result<String, ScriptL
                 )));
             }
         }
-        cursor = end + 1;
+        cursor = after_brace;
     }
     output.push_str(&source[cursor..]);
     Ok(output)
@@ -390,16 +399,8 @@ fn splice_expr_slots(source: &str, runtime: &MacroEnv) -> Result<String, ScriptL
 fn splice_string_slots(source: &str, runtime: &MacroEnv) -> Result<String, ScriptLangError> {
     let mut output = String::new();
     let mut cursor = 0usize;
-    while let Some(start_rel) = source[cursor..].find("${") {
-        let start = cursor + start_rel;
-        output.push_str(&source[cursor..start]);
-        let expr_start = start + 2;
-        let Some(end_rel) = source[expr_start..].find('}') else {
-            output.push_str(&source[start..]);
-            return Ok(output);
-        };
-        let end = expr_start + end_rel;
-        let key = source[expr_start..end].trim();
+    while let Some((key, after_brace, dollar_start)) = next_slot(source, cursor) {
+        output.push_str(&source[cursor..dollar_start]);
         let value = runtime.locals.get(key).ok_or_else(|| {
             ScriptLangError::message(format!(
                 "unknown macro local `{key}` referenced in string slot"
@@ -428,7 +429,7 @@ fn splice_string_slots(source: &str, runtime: &MacroEnv) -> Result<String, Scrip
             // Nil renders as empty string (enables first-call without prior module state)
             MacroValue::Nil => {}
         }
-        cursor = end + 1;
+        cursor = after_brace;
     }
     output.push_str(&source[cursor..]);
     Ok(output)
