@@ -1,3 +1,8 @@
+//! Program semantic analysis.
+//!
+//! Splits `analyze_module` → [`analyze_module`]
+//! Splits `analyze_function` + parsing → [`analyze_function`]
+
 use std::collections::BTreeSet;
 
 use sl_core::{Form, ScriptLangError};
@@ -227,7 +232,7 @@ mod tests {
     use crate::semantic::expand::expand_raw_forms;
     use crate::semantic::types::{DeclaredType, SemanticStmt};
 
-    use super::{ProgramState, analyze_program};
+    use super::ProgramState;
     use crate::semantic::expand::test_helpers::{analyzed, child, node, text};
 
     #[test]
@@ -384,7 +389,7 @@ mod tests {
         )];
         let mut env = ExpandEnv::default();
         let _ = expand_raw_forms(&missing_type, &mut env).expect("expand");
-        let error = analyze_program(&env.program).expect_err("missing type should fail");
+        let error = super::analyze_program(&env.program).expect_err("missing type should fail");
         assert!(error.to_string().contains("<var> requires `type`"));
 
         let unknown_type = [node(
@@ -405,7 +410,7 @@ mod tests {
         )];
         let mut env = ExpandEnv::default();
         let _ = expand_raw_forms(&unknown_type, &mut env).expect("expand");
-        let error = analyze_program(&env.program).expect_err("unknown type should fail");
+        let error = super::analyze_program(&env.program).expect_err("unknown type should fail");
         assert!(error.to_string().contains("unsupported type `number`"));
 
         let bad_script_const = [node(
@@ -426,7 +431,7 @@ mod tests {
         )];
         let mut env = ExpandEnv::default();
         let _ = expand_raw_forms(&bad_script_const, &mut env).expect("expand");
-        let error = analyze_program(&env.program).expect_err("script const should fail");
+        let error = super::analyze_program(&env.program).expect_err("script const should fail");
         assert!(
             error
                 .to_string()
@@ -516,7 +521,7 @@ mod tests {
         )
         .expect("expand");
 
-        let invalid_child = analyze_program(&env.program).expect_err("invalid child");
+        let invalid_child = super::analyze_program(&env.program).expect_err("invalid child");
         assert!(
             invalid_child
                 .to_string()
@@ -525,7 +530,7 @@ mod tests {
 
         let mut broken = env.program.clone();
         broken.module_order.push("missing".to_string());
-        let missing = analyze_program(&broken).expect_err("missing module state");
+        let missing = super::analyze_program(&broken).expect_err("missing module state");
         assert!(missing.to_string().contains("missing expand-time state"));
     }
 
@@ -570,7 +575,7 @@ mod tests {
             &mut env,
         )
         .expect("expand");
-        let import_error = analyze_program(&env.program).expect_err("bad import");
+        let import_error = super::analyze_program(&env.program).expect_err("bad import");
         assert!(
             import_error
                 .to_string()
@@ -581,7 +586,7 @@ mod tests {
         if let Some(main) = broken.modules.get_mut("main") {
             main.module_name = None;
         }
-        let missing_name = analyze_program(&broken).expect_err("missing module name");
+        let missing_name = super::analyze_program(&broken).expect_err("missing module name");
         assert!(
             missing_name
                 .to_string()
@@ -594,7 +599,7 @@ mod tests {
         let mut broken = ProgramState::default();
         broken.module_order.push("main".to_string());
 
-        let error = analyze_program(&broken).expect_err("missing module state");
+        let error = super::analyze_program(&broken).expect_err("missing module state");
         assert!(
             error
                 .to_string()

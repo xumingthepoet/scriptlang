@@ -10,7 +10,7 @@ pub(crate) mod macros;
 pub(crate) mod module;
 pub(crate) mod module_reducer;
 mod modules;
-mod program;
+pub(crate) mod program;
 pub(crate) mod quote;
 mod scope;
 mod scripts;
@@ -25,6 +25,7 @@ use crate::semantic::children_items;
 pub(crate) use const_eval::{ConstEnv, ConstLookup, ConstValue, eval_const_form};
 pub(crate) use declared_types::{parse_declared_type_form, parse_declared_type_name};
 pub(crate) use dispatch::{ExpandRuleScope, expand_with_rules};
+#[allow(unused_imports)]
 pub(crate) use imports::{
     alias_name, validate_alias_target, validate_import_target, validate_require_target,
 };
