@@ -183,16 +183,14 @@ fn parse_function_type_from_segment(
     raw: &str,
     form: &Form,
 ) -> Result<(DeclaredType, String), ScriptLangError> {
+    let raw_err = || format!("invalid function arg declaration `{raw}`");
     let (declared_type, name) = raw
         .split_once(':')
-        .ok_or_else(|| error_at(form, format!("invalid function arg declaration `{raw}`")))?;
+        .ok_or_else(|| error_at(form, raw_err()))?;
     let declared_type = parse_function_type(Some(declared_type.trim()), form)?;
     let name = name.trim();
     if name.is_empty() {
-        return Err(error_at(
-            form,
-            format!("invalid function arg declaration `{raw}`"),
-        ));
+        return Err(error_at(form, raw_err()));
     }
     Ok((declared_type, name.to_string()))
 }

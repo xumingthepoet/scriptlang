@@ -59,24 +59,25 @@ fn invalid_bool_attr_error(form: &Form, attr_name: &str, value: &str) -> ScriptL
     )
 }
 
-/// Check if a form is marked as private.
-pub(crate) fn is_private(form: &Form) -> Result<bool, ScriptLangError> {
-    match attr(form, "private") {
+/// Parse a boolean attribute, returning Ok(false) for absent/empty, Ok(true) for "true",
+/// Err for any other non-empty value.
+fn parse_bool_attr(form: &Form, attr_name: &str) -> Result<bool, ScriptLangError> {
+    match attr(form, attr_name) {
         None => Ok(false),
         Some("true") => Ok(true),
         Some("false") => Ok(false),
-        Some(other) => Err(invalid_bool_attr_error(form, "private", other)),
+        Some(other) => Err(invalid_bool_attr_error(form, attr_name, other)),
     }
+}
+
+/// Check if a form is marked as private.
+pub(crate) fn is_private(form: &Form) -> Result<bool, ScriptLangError> {
+    parse_bool_attr(form, "private")
 }
 
 /// Check if a form is marked as hidden.
 pub(crate) fn is_hidden(form: &Form) -> Result<bool, ScriptLangError> {
-    match attr(form, "hidden") {
-        None => Ok(false),
-        Some("true") => Ok(true),
-        Some("false") => Ok(false),
-        Some(other) => Err(invalid_bool_attr_error(form, "hidden", other)),
-    }
+    parse_bool_attr(form, "hidden")
 }
 
 #[cfg(test)]
