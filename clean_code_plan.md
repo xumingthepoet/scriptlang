@@ -48,8 +48,8 @@ sl-repl      → REPL 实现
 | 项目 | 状态 |
 |------|------|
 | 减少不必要的 `.clone()` 调用 | ✅ Round 6 完成 engine/mod.rs（BTreeMap clone 优化）|
-| 提取重复模式为通用辅助函数 | ✅ Round 7 完成 convert.rs，Round 10 完成 program.rs，Round 14 完成 alias_name 提取，Round 15 完成 dispatch.rs 函数合并，Round 16 完成 expand_temp_form 提取，Round 19 完成 rewrite_expr_pipeline，Round 21 完成 eval_const_form，Round 22 完成 try_qualified_export，Round 24 完成 try_lookup_qualified_export |
-| 统一错误消息格式 | 🚧 部分完成（invalid_bool_attr_error + parse_bool_attr，Round 30 完成 bool 属性；Round 33 完成 convert.rs unsupported form 系列）|
+| 提取重复模式为通用辅助函数 | ✅ Round 7 完成 convert.rs，Round 10 完成 program.rs，Round 14 完成 alias_name 提取，Round 15 完成 dispatch.rs 函数合并，Round 16 完成 expand_temp_form 提取，Round 19 完成 rewrite_expr_pipeline，Round 21 完成 eval_const_form，Round 22 完成 try_qualified_export，Round 24 完成 try_lookup_qualified_export，Round 27 完成 meaningful_items，Round 28 完成 require_ast_type，Round 29 完成 require_no_children，Round 32 完成 compile_content_call，Round 34 完成 rewrite_text_source，Round 35 完成 direct_module_child_only，Round 36 完成 declare_member |
+| 统一错误消息格式 | 🚧 部分完成（invalid_bool_attr_error + parse_bool_attr，Round 30 完成 bool 属性；Round 33 完成 convert.rs unsupported form 系列；Round 36 完成 module_reducer.rs duplicate declaration 系列）|
 | 添加缺失的文档注释 | ✅ Round 13 完成 expand/mod.rs（convert.rs + expand/mod.rs 均已完整）|
 
 ---
@@ -196,6 +196,10 @@ sl-repl      → REPL 实现
 ### Round 32: 提取 convert.rs compile_content_call 辅助函数
 - [x] `macro_lang/convert.rs`：`convert_provider_to_expr` 和 `convert_expr_form` 两处 `"get-content"` 分支中完全相同的 7 行 `head_filter → args` 逻辑提取为 `compile_content_call(form) -> Vec<CtExpr>` 辅助函数，消除约 14 行重复
 - 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.87%)
+
+### Round 36: 提取 module_reducer.rs declare_member 辅助函数
+- [x] `module_reducer.rs`：`"script"`、`"function"`、`"var"` 三个 match 分支共享的 9 行重复代码（get name → process_hidden_helper → !is_private → duplicate error）提取为 `declare_member(form, env, name, is_public, member_type)` 辅助函数
+- 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.84%)
 
 ---
 
@@ -1001,7 +1005,9 @@ make gate
 - P2: 统一错误消息格式（如 `<quote>` / `<get-content>` 以外的 provider 错误消息）
 - P1: 检查 engine/mod.rs（sl-runtime，1006+ 行）拆分可行性（Round 5 跳过，coverage 临界问题）
 
-### Round 32 - 提取 compile_content_call 辅助函数 ✅ (2026-03-26)
+### Round 36: 提取 module_reducer.rs declare_member 辅助函数 ✅
+- [x] `module_reducer.rs`：提取 `declare_member` 辅助函数，统一 `script`/`function`/`var` 三分支重复的 9 行代码（+7 行 helper，-18 行消除重复）
+- 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.84%)
 
 **本次做了什么：**
 - `macro_lang/convert.rs`：新增 `compile_content_call(form: &Form) -> Vec<CtExpr>` 辅助函数，将 `attr(form, "head")` → `Some(head)` → keyword args 或 `None` → `vec![]` 的 7 行逻辑提取为共享实现
@@ -1098,4 +1104,31 @@ make gate
 - P1: 检查 engine/mod.rs（sl-runtime，1006+ 行）拆分可行性（Round 5 跳过，coverage 临界问题）
 - P2: 检查 `expand/mod.rs` facade 中是否有其他可提取的重复模式
 - P2: 检查 `scripts.rs` 中是否还有其他重复模式（如 `rewrite_expr_pipeline` 的 with_vars 参数是否值得拆分）
+
+### Round 36 - 提取 declare_member 辅助函数 ✅ (2026-03-26)
+
+**本次做了什么：**
+- `module_reducer.rs`：新增 `declare_member(form, env, name, is_public, member_type)` 私有辅助函数，统一 `"script"`、`"function"`、`"var"` 三个分支共用的 9 行重复代码（获取 name → process_hidden_helper → !is_private → duplicate error）
+- 三个 match 分支均替换为 `declare_member(&form, env, name, !is_private(&form)?, "script"|"function"|"var")?` 单行调用
+- `module_reducer.rs`：净减少约 11 行（9 行消除 − 7 行 helper + 一些保留的行）
+- `make gate` 通过（覆盖率 89.84% > 89.45% 阈值）
+
+**本次发现的问题/踩的坑：**
+
+1. **`declare_member` 的函数签名选择**：接收 `is_public: bool` 而非 `is_private: bool`，因为调用方表达式 `!is_private(&form)?` 已经是 `!` 后的结果，保持原样让调用方更简洁。
+
+2. **`member_type` 作为字符串参数而非泛型**：`match member_type` 用 `"script"|"function"|"var"` 分支，每个分支调用对应 `env.declare_X` 方法。相比泛型 `fn declare_member<T: Enum>` 方案，字符串参数更简单，且只有三种情况。
+
+3. **`unreachable!()` 用于非预期 member_type 的防御性编程**：`declare_member` 内部 match 到非预期 member_type 时用 `unreachable!()`，因为该函数是私有函数，调用方只传入有效值。
+
+**对后续有价值的经验：**
+- 当多个 match 分支共享"先调用 helper → 检查布尔值 → 失败时返回格式化错误"的完整共同结构时，提取为带 `bool` 参数的 helper 是最自然的方案
+- `unreachable!()` 用于私有辅助函数的非预期分支是 Rust 的惯用防御手段，不需要额外处理
+- `declare_member` 返回 `Result<(), ScriptLangError>` 而非 `bool`，让调用方用 `?` 传播错误，语义清晰
+
+**下一步方向：**
+- P1: 检查 engine/mod.rs（sl-runtime，1006+ 行）拆分可行性（Round 5 跳过，coverage 临界问题）
+- P2: 检查 `expand/mod.rs` facade 中是否有其他可提取的重复模式
+- P2: 检查 `scripts.rs` 中是否还有其他重复模式（如 `rewrite_expr_pipeline` 的 with_vars 参数是否值得拆分）
+
 
