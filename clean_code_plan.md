@@ -1046,3 +1046,30 @@ make gate
 - P2: 检查 `scripts.rs` 中是否还有未统一的错误消息格式
 - P1: 检查 engine/mod.rs（sl-runtime，1006+ 行）拆分可行性（Round 5 跳过，coverage 临界问题）
 - P2: 检查 expand/mod.rs 中是否有其他可提取的重复模式
+
+### Round 34 - 提取 rewrite_text_source 辅助函数 ✅ (2026-03-26)
+
+**本次做了什么：**
+- `scripts.rs`：新增 `rewrite_text_source(source: &str, ...)` 私有辅助函数，将 `parse_text_template(source)?` + `rewrite_var_template(template?, ...)` 两步合并为单次函数调用
+- `choice` 语句处理器（`"choice"` 分支）中两处重复的 `parse_text_template` + `rewrite_var_template` 模式均替换为 `rewrite_text_source(...)`：
+  - 选项文本：`rewrite_var_template(parse_text_template(required_attr(option, "text")?)?, ...)` → `rewrite_text_source(required_attr(option, "text")?, ...)`
+  - prompt 文本：`.map(parse_text_template).map(|template| rewrite_var_template(template?, ...))` → `.map(|src| rewrite_text_source(src, ...))`
+- `make gate` 通过（覆盖率 89.84% > 89.45% 阈值）
+
+**本次发现的问题/踩的坑：**
+
+1. **`choice` 语句的重复文本解析模式**：`<choice>` 处理程序中，`option` 的 `text` 属性和顶层 `text` 属性都经过完全相同的 `parse_text_template` + `rewrite_var_template` 处理链。这是同一 match 分支内的跨位置重复，属于典型的 DRY 优化机会。
+
+2. **`rustfmt` 对长行 `.map` 链的格式化规则**：rustfmt 会将超过行宽限制的单行 `.map(...).transpose()?` 链拆分为多行格式（参数各一行），因此长参数列表的闭包体应提前写成多行格式，避免 format check 失败。本轮首次提交后 `make gate` 的 fmt 检查失败，补救后通过。
+
+3. **`scripts.rs` 的错误消息无需跨文件统一**：Round 33 在 `convert.rs` 中统一了 "unsupported {} form <{}>" 格式，本轮分析了 `scripts.rs` 的错误消息（`<const>`/`<import>` 的 "only supported as direct child"、`<choice>` 的 "only supports <option> children"、unsupported statement 等），这些消息语义上下文不同，强行套用 `convert.rs` 的格式会降低可读性，不应统一。
+
+**对后续有价值的经验：**
+- **提取 helper 时机的判断**：当 `parse_X` + `process_X` 两步模式在同处出现多次时（即使是同一 match arm 的不同位置），提取为 `process_X_from_source` 函数是值得的；但若只在单处出现，即使步骤多也不提取（避免过度工程）
+- **rustfmt 长行参数规则可预测**：带 5 个引用参数的长行函数调用会被 rustfmt 拆分为每个参数一行，闭包体同理。预判这一点可将格式修复从"二次迭代"变为"一次到位"
+- **`scripts.rs` 错误消息格式应保持独立**：`convert.rs` 和 `scripts.rs` 服务于不同抽象层级（compile-time macro vs. script statement），错误格式不应跨层级统一
+
+**下一步方向：**
+- P1: 检查 engine/mod.rs（sl-runtime，1006+ 行）拆分可行性（Round 5 跳过，coverage 临界问题）
+- P2: 检查 `scripts.rs` 中是否还有其他可提取的重复模式（如 `<const>` 和 `<import>` 的 "only supported as direct <module> child" 消息是否值得提取为常量）
+- P2: 检查 `expand/mod.rs` facade 中是否有其他可提取的重复模式
