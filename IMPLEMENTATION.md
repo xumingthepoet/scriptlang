@@ -161,7 +161,10 @@ parser 不再承担 MVP 标签白名单和语义下沉；它当前只负责把 X
   - [`macros.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/macros.rs)：macro 定义收集、可见性查找和模板式宏展开
   - [`quote.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/quote.rs)：`quote / unquote`、AST splice 和最小 hygiene
   - [`modules.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/modules.rs)：module catalog 与 script / function 字面量查找
-  - [`scope.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/scope.rs)：module scope、const catalog 和 var/const 解析
+  - [`scope/`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/scope/)：module scope、const catalog 和 var/const 解析（906 行拆分为 facade + module_scope + scope_impl）
+    - [`scope/mod.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/scope/mod.rs)：facade，重新导出 `ModuleScope` / `ConstCatalog` / `ScopeResolver` / `QualifiedConstLookup`
+    - [`scope/module_scope.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/scope/module_scope.rs)：`ModuleScope` 结构体定义和 impl
+    - [`scope/scope_impl.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/scope/scope_impl.rs)：`ConstCatalog`、`ScopeResolver`、`ConstLookup for ScopeResolver` impl 及测试
   - [`program.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/program.rs)：program/module 级语义总调度
   - [`scripts.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/scripts.rs)：script body 和 statement lowering
   - [`declared_types.rs`](/Users/xuming/work/scriptlang-new/crates/sl-compiler/src/semantic/expand/declared_types.rs)：声明类型解析与 `<const>` 声明注册
