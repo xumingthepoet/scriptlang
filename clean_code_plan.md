@@ -152,6 +152,12 @@ sl-repl      → REPL 实现
 - [x] `scripts.rs`：`rewrite_var_expr` 和 `rewrite_function_body` 共享相同 4 步管道，提取为 `rewrite_expr_pipeline(with_vars: bool)`，消除约 14 行重复
 - 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.73%)
 
+### Round 20: 提取共享 test helpers 到 expand/tests/helpers.rs
+- [x] `program.rs`/`scripts.rs`/`scope.rs`/`declared_types.rs`：将 `meta`、`form`、`form_field`、`children`、`text`、`node`、`child`、`analyzed` 从 4 个文件提取到 `expand/tests/helpers.rs`
+- [x] `attr` 因与模块级语义 `attr` 命名冲突，保留在各地 test block 本地
+- [x] `scope.rs` 的 `const_form` 改用 `form_field`（helpers 中的 `attr` 重命名版本）
+- 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.65%)
+
 ---
 
 ## 约束条件
@@ -629,3 +635,36 @@ make gate
 - P2: 检查 `scope.rs` 中的 `compute_const` 和 `program.rs` 中的 `analyze_const` 是否有可共享的 const 处理逻辑
 - P2: 检查 test helper（`meta()`/`form()`/`attr()` 等）在 4 个文件中的重复问题，提取到 `tests/helpers.rs`
 - P1: 考虑拆分 `expand/program.rs`（666 行）
+
+### Round 20 - 提取共享 test helpers 到 expand/tests/helpers.rs ✅ (2026-03-25)
+
+**本次做了什么：**
+- 在 `expand/tests/helpers.rs`（74 行）新增共享 test helpers：`meta`、`form`、`form_field`（attr 重命名以避免命名冲突）、`children`、`text`、`node`、`child`、`analyzed`
+- 在 `expand/mod.rs` 中添加 `#[path = "tests/helpers.rs"] pub(crate) mod test_helpers;` facade 声明
+- `program.rs`：删除 58 行本地 helpers，改用 `use crate::semantic::expand::test_helpers::{analyzed, child, node, text};`（`attr` 保留本地）
+- `scripts.rs`：删除 57 行本地 helpers，改用 `use ...::test_helpers::{analyzed, child, node, text};`（`attr` 保留本地）
+- `scope.rs`：删除 ~52 行本地 helpers（`meta`/`form`/`attr`/`children`/`text`），改用 `use ...::test_helpers::{children, form, form_field, text};`；`const_form` 改用 `form_field` 替代 `attr`；`Form` 类型单独 import
+- `declared_types.rs`：删除 32 行本地 helpers（`meta`/`form`/`children`/`text`），改用 `use ...::test_helpers::{children, form, text};`（`attr` 保留本地）
+- helpers 文件中所有函数加 `#[allow(unused)]` 以消除 lib 编译模式的未使用警告
+- 净减少约 114 行
+
+**本次发现的问题/踩的坑：**
+
+1. **`attr` 命名冲突陷阱**：`program.rs` 和 `declared_types.rs` 在模块级导入了 `use crate::semantic::{attr, ...}`，在 test block 中 `use super::*` 会将这些导入带入 scope，与 test helper 中的 `attr` 函数冲突。`use super::*; use test_helpers::*;` 两者同时存在时，`attr` 因多次导入而产生歧义错误。解决方案：将 helpers 中的 `attr` 重命名为 `form_field`，并在 `scope.rs` 的 `const_form` 等处替换调用。
+
+2. **`replace_all` 的连锁破坏效应**：在 `scope.rs` 和 `declared_types.rs` 中对 `attr(` 做全局替换时，意外同时修改了非 test 代码（如 `required_attr(` → `required_form_field(`、`attr(form, ...)` → `form_field(form, ...)`）。教训：做批量替换前必须先确认目标模式在整个文件中是否唯一，或使用足够精确的上下文。
+
+3. **Rust 编译单元可见性规则**：`use super::*` 只导入父模块的 `pub`/`pub(crate)` 项，不导入父模块的 `use` 导入本身。`declared_types.rs` 的 test block 中 `use super::*` 不能直接访问 `sl_core` 类型（`FormField` 等），需要显式 `use sl_core::...`。
+
+4. **Test-only helpers 的 lib 编译模式警告**：helpers 在非 `#[cfg(test)]` 模块中定义，但只被 test block 引用。`#[allow(unused)]` 是最干净的解决方案，比 `#[cfg(test)]` 包装更简单（避免了模块嵌套路径问题）。
+
+**对后续有价值的经验：**
+- Test helper 共享的最佳实践：提取到一个非 `#[cfg(test)]` 模块但对所有 helper 加 `#[allow(unused)]`，避免 `#[cfg(test)]` 包装带来的模块嵌套路径问题
+- 名称冲突时的处理优先级：① 优先重命名 helpers 中的冲突名称（如 `attr` → `form_field`）；② 仅在必要时才做名称冲突的特殊处理
+- 批量字符串替换的风险控制：替换前用 `grep` 确认目标模式在文件中的唯一性；优先使用精确的上下文匹配而非全局替换
+- 显式导入优于 glob：`use test_helpers::{analyzed, child, ...};` 比 `use test_helpers::*;` 更安全（避免未来新加 helper 引入冲突）
+
+**下一步方向：**
+- P2: 检查 `scope.rs` 中的 `compute_const` 和 `program.rs` 中的 `analyze_const` 是否有可共享的 const 处理逻辑
+- P1: 考虑拆分 `expand/program.rs`（666 行）
+- P2: 检查 `scope.rs` 中的 `exports_with`/`program_state` 等 scope 特定 helpers 是否有进一步提取空间
