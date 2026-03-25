@@ -48,7 +48,7 @@ sl-repl      → REPL 实现
 | 项目 | 状态 |
 |------|------|
 | 减少不必要的 `.clone()` 调用 | ✅ Round 6 完成 engine/mod.rs（BTreeMap clone 优化）|
-| 提取重复模式为通用辅助函数 | ✅ Round 7 完成 convert.rs，Round 10 完成 program.rs，Round 14 完成 alias_name 提取，Round 15 完成 dispatch.rs 函数合并，Round 16 完成 expand_temp_form 提取，Round 19 完成 rewrite_expr_pipeline，Round 21 完成 eval_const_form，Round 22 完成 try_qualified_export，Round 24 完成 try_lookup_qualified_export，Round 27 完成 meaningful_items，Round 28 完成 require_ast_type，Round 29 完成 require_no_children，Round 32 完成 compile_content_call，Round 34 完成 rewrite_text_source，Round 35 完成 direct_module_child_only，Round 36 完成 declare_member |
+| 提取重复模式为通用辅助函数 | ✅ Round 7 完成 convert.rs，Round 10 完成 program.rs，Round 14 完成 alias_name 提取，Round 15 完成 dispatch.rs 函数合并，Round 16 完成 expand_temp_form 提取，Round 19 完成 rewrite_expr_pipeline，Round 21 完成 eval_const_form，Round 22 完成 try_qualified_export，Round 24 完成 try_lookup_qualified_export，Round 27 完成 meaningful_items，Round 28 完成 require_ast_type，Round 29 完成 require_no_children，Round 32 完成 compile_content_call，Round 34 完成 rewrite_text_source，Round 35 完成 direct_module_child_only，Round 36 完成 declare_member，Round 37 完成 expect_module_ref |
 | 统一错误消息格式 | 🚧 部分完成（invalid_bool_attr_error + parse_bool_attr，Round 30 完成 bool 属性；Round 33 完成 convert.rs unsupported form 系列；Round 36 完成 module_reducer.rs duplicate declaration 系列）|
 | 添加缺失的文档注释 | ✅ Round 13 完成 expand/mod.rs（convert.rs + expand/mod.rs 均已完整）|
 
@@ -200,6 +200,10 @@ sl-repl      → REPL 实现
 ### Round 36: 提取 module_reducer.rs declare_member 辅助函数
 - [x] `module_reducer.rs`：`"script"`、`"function"`、`"var"` 三个 match 分支共享的 9 行重复代码（get name → process_hidden_helper → !is_private → duplicate error）提取为 `declare_member(form, env, name, is_public, member_type)` 辅助函数
 - 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.84%)
+
+### Round 37: 提取 builtins_module.rs expect_module_ref 辅助函数
+- [x] `builtins_module.rs`：四个函数（expand_alias/require_module/define_import/define_require）共用的 10 行 args 解析重复模式提取为 `expect_module_ref(func_name, arg_count_msg)` 辅助函数
+- 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.89%)
 
 ---
 
@@ -1102,8 +1106,34 @@ make gate
 
 **下一步方向：**
 - P1: 检查 engine/mod.rs（sl-runtime，1006+ 行）拆分可行性（Round 5 跳过，coverage 临界问题）
-- P2: 检查 `expand/mod.rs` facade 中是否有其他可提取的重复模式
-- P2: 检查 `scripts.rs` 中是否还有其他重复模式（如 `rewrite_expr_pipeline` 的 with_vars 参数是否值得拆分）
+- P2: 检查 `expand/mod.rs` facade（84 行生产代码，已较精简）中是否有其他可提取的重复模式
+- P2: 检查 `scripts.rs` 中是否还有其他重复模式（如 `rewrite_expr_pipeline` 的 with_vars 参数，Round 31 分析过，建议跳过）
+- P2: 检查 `eval.rs` 中 `Let`/`Set` 分支的相似性（已分析，参数类型和返回类型不同，提取收益有限）
+
+### Round 37 - 提取 builtins_module.rs expect_module_ref 辅助函数 ✅ (2026-03-26)
+
+**本次做了什么：**
+- `builtins_module.rs`：新增 `expect_module_ref(args, func_name, arg_count_msg)` 私有辅助函数，将 `expand_alias`/`require_module`/`define_import`/`define_require` 四个函数中完全相同的 10 行 args 解析模式统一
+- 四个函数的 match 分支均替换为 `expect_module_ref(args, "function_name", "requires exactly 1 argument")?.clone()`
+- `builtins_module.rs`：净减少约 39 行（4×10 行消除 − 20 行 helper − 4 行调用点调整）
+
+**本次发现的问题/踩的坑：**
+
+1. **`expect_module_ref` 的返回类型设计**：最初设计为返回 `Result<&String, BuiltinResult>`，但调用方使用 `?` 时 Rust 的类型推导会要求错误类型为 `ScriptLangError` 而非 `BuiltinResult`（`Result<CtValue, ScriptLangError>`）。解决：helper 返回 `Result<&String, ScriptLangError>`，`?` 操作符自动完成 `Result<BuiltinResult, ScriptLangError>` 到 `ScriptLangError` 的转换。
+
+2. **`arg_count_msg` 参数保留精确错误消息**：由于测试断言使用 `"requires exactly 1"` 精确子串，helper 的错误消息必须精确匹配。传入 `"requires exactly 1 argument"` 作为 `arg_count_msg` 参数，而非泛化消息（如 "requires at least 1"），保持了与原测试的兼容性。
+
+3. **条件 `args.is_empty() || args.len() > 1` 的精确性**：原代码使用 `args.len() != 1`，我的 helper 使用 `args.is_empty() || args.len() > 1`，语义等价且更清晰（先处理空情况，再处理多余情况）。
+
+**对后续有价值的经验：**
+- 当多个函数共享"解析第一个参数"模式时，提取 `expect_X` helper 可以消除大量重复代码（本轮消除了 4×10 = 40 行重复）
+- Helper 返回类型的选择影响调用方写法：`Result<T, ScriptLangError>` 让调用方用 `?`，`Result<T, BuiltinResult>` 则需要 `.map_err(|e| e.into_inner())` 才能用 `?`
+- 错误消息格式与测试断言的关系：测试用 `contains` 做子串匹配时，helper 的 `arg_count_msg` 参数可以精确传入原始消息字符串，保持兼容性
+
+**下一步方向：**
+- P1: 检查 engine/mod.rs（sl-runtime，1006+ 行）拆分可行性（Round 5 跳过，coverage 临界问题）
+- P2: 检查 `expand/mod.rs` facade（84 行生产代码，已较精简）中是否有其他可提取的重复模式
+- P2: 检查 `scripts.rs` 中是否还有其他重复模式（如 `rewrite_expr_pipeline` 的 with_vars 参数，Round 31 分析过，建议跳过）
 
 ### Round 36 - 提取 declare_member 辅助函数 ✅ (2026-03-26)
 
