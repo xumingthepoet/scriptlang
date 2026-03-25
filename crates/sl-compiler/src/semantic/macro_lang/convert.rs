@@ -245,10 +245,7 @@ fn child_form_at<'a>(
     context: &Form,
     context_name: &str,
 ) -> Result<&'a Form, ScriptLangError> {
-    let meaningful: Vec<_> = children
-        .iter()
-        .filter(|item| !matches!(item, FormItem::Text(text) if text.trim().is_empty()))
-        .collect();
+    let meaningful = meaningful_items(children);
 
     let item = meaningful.get(index).ok_or_else(|| {
         error_at(
@@ -270,11 +267,7 @@ fn child_form_at<'a>(
 /// Used as fallback when `module` attribute is absent.
 fn parse_module_from_child(form: &Form) -> Result<CtExpr, ScriptLangError> {
     let children = extract_form_children(form)?;
-    // Skip leading whitespace-only text nodes (indentation in the source XML)
-    let meaningful: Vec<_> = children
-        .iter()
-        .filter(|item| !matches!(item, FormItem::Text(text) if text.trim().is_empty()))
-        .collect();
+    let meaningful = meaningful_items(&children);
     let child = meaningful.first().ok_or_else(|| {
         error_at(
             form,
@@ -309,7 +302,8 @@ fn parse_module_from_child(form: &Form) -> Result<CtExpr, ScriptLangError> {
 /// Used as fallback when `opts` attribute is absent.
 fn parse_opts_from_child(form: &Form) -> Result<CtExpr, ScriptLangError> {
     let children = extract_form_children(form)?;
-    let child = children
+    let meaningful = meaningful_items(&children);
+    let child = meaningful
         .iter()
         .find(|c| matches!(c, FormItem::Form(f) if f.head == "keyword_attr"))
         .ok_or_else(|| {
@@ -325,6 +319,14 @@ fn parse_opts_from_child(form: &Form) -> Result<CtExpr, ScriptLangError> {
             "<invoke_macro> child must be a form element",
         )),
     }
+}
+
+/// Extract meaningful (non-whitespace-text) FormItems from a sequence.
+fn meaningful_items(items: &[FormItem]) -> Vec<&FormItem> {
+    items
+        .iter()
+        .filter(|item| !matches!(item, FormItem::Text(text) if text.trim().is_empty()))
+        .collect()
 }
 
 /// Convert a provider form to a CtExpr based on its type.
@@ -574,10 +576,7 @@ fn extract_expr_forms(children: &[FormItem]) -> Vec<CtExpr> {
 /// Get the single meaningful child form, cloning it.
 fn single_child_form(form: &Form) -> Result<Form, ScriptLangError> {
     let children = extract_form_children(form)?;
-    let meaningful: Vec<_> = children
-        .iter()
-        .filter(|item| !matches!(item, FormItem::Text(text) if text.trim().is_empty()))
-        .collect();
+    let meaningful = meaningful_items(&children);
 
     if meaningful.len() != 1 {
         return Err(error_at(
