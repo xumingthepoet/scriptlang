@@ -1109,6 +1109,7 @@ make gate
 - P2: 检查 `expand/mod.rs` facade（84 行生产代码，已较精简）中是否有其他可提取的重复模式
 - P2: 检查 `scripts.rs` 中是否还有其他重复模式（如 `rewrite_expr_pipeline` 的 with_vars 参数，Round 31 分析过，建议跳过）
 - P2: 检查 `eval.rs` 中 `Let`/`Set` 分支的相似性（已分析，参数类型和返回类型不同，提取收益有限）
+- P2: 检查 `macros.rs`（527 行）重复模式（已分析，find_map 模式差异较大，提取收益有限）
 
 ### Round 37 - 提取 builtins_module.rs expect_module_ref 辅助函数 ✅ (2026-03-26)
 
