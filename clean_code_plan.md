@@ -148,6 +148,10 @@ sl-repl      → REPL 实现
 - [x] `dispatch.rs`：`"var"` 分支与 `_` catch-all 行为完全相同，移除冗余分支，净减少 1 行
 - 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.72%)
 
+### Round 19: 提取 rewrite_expr_pipeline 辅助函数
+- [x] `scripts.rs`：`rewrite_var_expr` 和 `rewrite_function_body` 共享相同 4 步管道，提取为 `rewrite_expr_pipeline(with_vars: bool)`，消除约 14 行重复
+- 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.73%)
+
 ---
 
 ## 约束条件
@@ -602,3 +606,26 @@ make gate
 - P2: 继续检查 `expand/mod.rs` 中是否有可提取的重复模式
 - P2: 检查 `dispatch.rs` 中 `is_macro_in_requires` 在 `dispatch_rule` 中的使用是否可以进一步优化
 - P1: 考虑拆分 `expand/program.rs`（671 行）
+
+### Round 19 - 提取 rewrite_expr_pipeline 辅助函数 ✅ (2026-03-25)
+
+**本次做了什么：**
+- 在 `scripts.rs` 中新增 `rewrite_expr_pipeline(source, const_env, resolver, remaining_const, shadowed, with_vars: bool)` 辅助函数，将 `rewrite_var_expr` 和 `rewrite_function_body` 共享的 4 步管道统一（normalize_expr_escapes → rewrite_expr_with_consts → rewrite_special_literals → rewrite_expr_function_calls），`with_vars` 参数控制是否执行最后一步 `rewrite_expr_with_vars`
+- 两个原函数改为薄 wrapper，调用新 helper 并分别传入 `with_vars=true` / `with_vars=false`
+- `scripts.rs`：净减少约 6 行，消除 copy-paste 重复
+
+**本次发现的问题/踩的坑：**
+
+1. **`rewrite_var_expr` vs `rewrite_function_body` 的差异只在最后一步**：`rewrite_function_body` 比 `rewrite_var_expr` 少调用 `rewrite_expr_with_vars`——这是有意设计（函数体表达式不需要变量替换），而非 bug。提取 helper 时用 `bool` 参数控制这个差异，保持了语义精确性。
+
+2. **两个函数都是 `pub(super)`**：`rewrite_var_expr` 被 `scripts.rs` 外部（`scope.rs`）调用，`rewrite_function_body` 只在 `scripts.rs` 内部使用。提取的 helper 设为 private（`fn`），只被两个 wrapper 调用，符合最小暴露原则。
+
+**对后续有价值的经验：**
+- 当两个函数的主体完全相同、只在某一步有条件差异时，用 `bool` 参数控制是比 closure 更轻量的方案（无额外泛型开销，调用点简洁）
+- 管道式处理函数（多个步骤顺序调用）是提取 helper 的良好候选，特别是当多个调用点共享相同步骤序列时
+- `pub(super)` 函数在模块边界上提取 helper 时，helper 本身可以是 `fn`（private），只被 wrapper 调用，避免不必要的 API 暴露
+
+**下一步方向：**
+- P2: 检查 `scope.rs` 中的 `compute_const` 和 `program.rs` 中的 `analyze_const` 是否有可共享的 const 处理逻辑
+- P2: 检查 test helper（`meta()`/`form()`/`attr()` 等）在 4 个文件中的重复问题，提取到 `tests/helpers.rs`
+- P1: 考虑拆分 `expand/program.rs`（666 行）
