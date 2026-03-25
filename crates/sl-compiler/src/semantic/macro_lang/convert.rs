@@ -90,16 +90,7 @@ fn convert_form_to_stmt(form: &Form) -> Result<CtStmt, ScriptLangError> {
         "builtin" => {
             let name = required_attr(form, "name")?;
             let children = extract_form_children(form)?;
-            let args: Vec<CtExpr> = children
-                .iter()
-                .filter_map(|item| {
-                    if let FormItem::Form(f) = item {
-                        convert_expr_form(f).ok()
-                    } else {
-                        None
-                    }
-                })
-                .collect();
+            let args = extract_expr_forms(&children);
             Ok(CtStmt::Expr {
                 expr: CtExpr::BuiltinCall {
                     name: name.to_string(),
@@ -144,16 +135,7 @@ fn convert_let_form(form: &Form) -> Result<CtStmt, ScriptLangError> {
     if provider.head.as_str() == "builtin" {
         let builtin_name = required_attr(&provider, "name")?;
         let children = extract_form_children(&provider)?;
-        let args: Vec<CtExpr> = children
-            .iter()
-            .filter_map(|item| {
-                if let FormItem::Form(f) = item {
-                    convert_expr_form(f).ok()
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let args = extract_expr_forms(&children);
         let value = CtExpr::BuiltinCall {
             name: builtin_name.to_string(),
             args,
@@ -573,6 +555,20 @@ fn convert_expr_form(form: &Form) -> Result<CtExpr, ScriptLangError> {
             format!("unsupported expression form <{}>", other),
         )),
     }
+}
+
+/// Convert form children to a list of CtExpr, skipping non-Form items.
+fn extract_expr_forms(children: &[FormItem]) -> Vec<CtExpr> {
+    children
+        .iter()
+        .filter_map(|item| {
+            if let FormItem::Form(f) = item {
+                convert_expr_form(f).ok()
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 /// Get the single meaningful child form, cloning it.
