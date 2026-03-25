@@ -137,6 +137,31 @@ fn process_hidden_helper(
     }
 }
 
+/// Helper for declaring a module member (script/function/var) after processing hidden
+/// hygiene. Calls `declare(member_type, name, is_public)`, returns error if duplicate.
+fn declare_member(
+    form: &Form,
+    env: &mut ExpandEnv,
+    name: String,
+    is_public: bool,
+    member_type: &str,
+) -> Result<(), ScriptLangError> {
+    let declare_ok = match member_type {
+        "script" => env.declare_script(name.clone(), is_public),
+        "function" => env.declare_function(name.clone(), is_public),
+        "var" => env.declare_var(name.clone(), is_public),
+        _ => unreachable!(),
+    };
+    if !declare_ok {
+        let module_name = env.module.module_name.as_deref().unwrap_or("<unknown>");
+        return Err(error_at(
+            form,
+            format!("duplicate {member_type} declaration `{module_name}.{name}`"),
+        ));
+    }
+    Ok(())
+}
+
 fn process_form(
     form: &Form,
     env: &mut ExpandEnv,
@@ -205,26 +230,14 @@ fn process_form(
         "script" => {
             let name = required_attr(form, "name")?.to_string();
             let (name, form) = process_hidden_helper(form, env, &name)?;
-            if !env.declare_script(name.clone(), !is_private(&form)?) {
-                let module_name = env.module.module_name.as_deref().unwrap_or("<unknown>");
-                return Err(error_at(
-                    &form,
-                    format!("duplicate script declaration `{module_name}.{name}`"),
-                ));
-            }
+            declare_member(&form, env, name, !is_private(&form)?, "script")?;
             let expanded = expand_form_items(&form, env, ExpandRuleScope::ModuleChild)?;
             Ok(ProcessedItem::Output(expanded))
         }
         "function" => {
             let name = required_attr(form, "name")?.to_string();
             let (name, form) = process_hidden_helper(form, env, &name)?;
-            if !env.declare_function(name.clone(), !is_private(&form)?) {
-                let module_name = env.module.module_name.as_deref().unwrap_or("<unknown>");
-                return Err(error_at(
-                    &form,
-                    format!("duplicate function declaration `{module_name}.{name}`"),
-                ));
-            }
+            declare_member(&form, env, name, !is_private(&form)?, "function")?;
             Ok(ProcessedItem::Output(vec![FormItem::Form(form)]))
         }
         "const" => {
@@ -238,13 +251,7 @@ fn process_form(
         "var" => {
             let name = required_attr(form, "name")?.to_string();
             let (name, form) = process_hidden_helper(form, env, &name)?;
-            if !env.declare_var(name.clone(), !is_private(&form)?) {
-                let module_name = env.module.module_name.as_deref().unwrap_or("<unknown>");
-                return Err(error_at(
-                    &form,
-                    format!("duplicate var declaration `{module_name}.{name}`"),
-                ));
-            }
+            declare_member(&form, env, name, !is_private(&form)?, "var")?;
             let expanded = expand_form_items(&form, env, ExpandRuleScope::ModuleChild)?;
             Ok(ProcessedItem::Output(expanded))
         }
