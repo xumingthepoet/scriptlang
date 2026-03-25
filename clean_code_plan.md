@@ -140,6 +140,14 @@ sl-repl      → REPL 实现
 - [x] `dispatch.rs`：`expand_module_child` 和 `expand_statement_child` 中 `temp` 分支提取为 `expand_temp_form`
 - 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.67%)
 
+### Round 17: 移除 expand_module_child 中的冗余 is_macro_in_requires 检查
+- [x] `dispatch.rs`：`expand_module_child` 的 `_` 分支中 `is_macro_in_requires` 检查是死代码（dispatch_rule 已路由，else 分支行为与直接走 _ 完全相同），移除后净减少 6 行
+- 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.72%)
+
+### Round 18: 移除 expand_module_child 冗余 "var" match arm
+- [x] `dispatch.rs`：`"var"` 分支与 `_` catch-all 行为完全相同，移除冗余分支，净减少 1 行
+- 状态：**完成** (make gate 通过，281 测试全通过，覆盖率 89.72%)
+
 ---
 
 ## 约束条件
@@ -565,6 +573,30 @@ make gate
 - 分析 match 分支冗余时，不能只盯着函数内部——要结合**调用点的 dispatch 逻辑**判断某个分支是否真的可能到达
 - 当某个检查在"调用链上游"（`dispatch_rule`）已经做过后，在"下游"（`expand_module_child`）的重复检查就变成了死代码
 - 控制流分析要找"路由点"：`dispatch_rule` 是路由入口，其返回值决定了后续的处理路径；在路由点下游重复路由逻辑是常见冗余模式
+
+**下一步方向：**
+- P2: 继续检查 `expand/mod.rs` 中是否有可提取的重复模式
+- P2: 检查 `dispatch.rs` 中 `is_macro_in_requires` 在 `dispatch_rule` 中的使用是否可以进一步优化
+- P1: 考虑拆分 `expand/program.rs`（671 行）
+
+### Round 18 - 移除 expand_module_child 冗余 "var" match arm ✅ (2026-03-25)
+
+**本次做了什么：**
+- 分析 `expand_module_child` 的 match 结构，发现 `"var" => Ok(vec![FormItem::Form(form.clone())])` 与 `_` 分支完全相同
+- `"var"` 是 `has_builtin_rule(ExpandRuleScope::ModuleChild)` 中明确定义的表单类型，会被路由到 `expand_module_child`，因此永远不会被 `_` 捕获——Rust match 穷尽性检查要求 `_` 只匹配未列出的值
+- 移除冗余的 `"var"` 分支，match 从 4 个分支减少到 3 个
+- dispatch.rs：净减少 1 行
+
+**本次发现的问题/踩的坑：**
+
+1. **Rust match 穷尽性 + catch-all 组合陷阱**：`match x { "script" => ..., "var" => ..., "temp" => ..., _ => ... }` 中，`_` 不会匹配任何已列出的字面量（`"script" | "var" | "temp"`）。即使 `"var"` 与 `_` 行为完全相同，编译器也不允许删除 `"var"` 后让 `_` 覆盖它——因为 `"var"` 是 match 的显式穷举项，删除后穷尽性检查会要求重新覆盖。但语义上两者确实等价，这是"有意列出的重复"而非"巧合相同"。
+
+2. **`has_builtin_rule` 的路由设计决定 match 分支覆盖范围**：`has_builtin_rule(ModuleChild)` 只返回 `true` for `"script" | "var" | "temp"`，其他表单走 `MacroHook`。这意味着 `expand_module_child` 的 match 中只可能收到这三种类型。`"var"` 与 `_` 逻辑相同，说明 `"var"` 确实是冗余的——它的存在是历史遗留，没有实际功能差异。
+
+**对后续有价值的经验：**
+- Rust match 中，当 `_` 与某个显式分支行为完全相同时，该显式分支是死代码——说明要么该分支永远不会被路由到（设计上可以合并到 `_`），要么 `_` 本就应该特化
+- 发现"某分支与 _ 行为相同"是识别死代码的重要信号，特别是在有 dispatch 路由的系统里
+- 分析 match 分支冗余时，必须结合上游 dispatch 逻辑（`has_builtin_rule`）判断哪些值会被路由到该函数
 
 **下一步方向：**
 - P2: 继续检查 `expand/mod.rs` 中是否有可提取的重复模式
