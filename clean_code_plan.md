@@ -918,7 +918,27 @@ make gate
 - 错误消息中的 `<{}>` 占位符允许通过参数传入 provider 名称，天然支持提取为泛型 helper
 - `rustfmt` 会自动格式化 helper 内的长 format 字符串（如将单行 format! 拆为多行），添加 helper 时应预判格式化结果
 
+### Round 29 - 提取 scripts.rs require_no_children 辅助函数 ✅ (2026-03-26)
+
+**本次做了什么：**
+- 在 `scripts.rs` 新增 `require_no_children(form, element) -> Result<(), ScriptLangError>` 私有辅助函数，封装"检查子节点是否为空"逻辑
+- `<break>` 和 `<continue>` 两个 match 分支均用 `require_no_children(form, "break")?` 和 `require_no_children(form, "continue")?` 替代原来各 7/8 行的重复代码块
+- `scripts.rs`：消除约 6 行净重复代码（15 行消除 − 9 行 helper）
+
+**本次发现的问题/踩的坑：**
+
+1. **两处完全相同的 6-9 行代码块**：`break` 和 `continue` 分支的重复不仅结构相同，连"调用 `child_forms(form)?` → 检查 `is_empty()` → 返回格式化错误"的逻辑链也完全相同。提取后两个调用点均变为 2 行，可读性显著提升。
+
+2. **`rustfmt` 对 format! 字符串的处理**：单行 `format!("<{element}> does not support nested statements")` 被 rustfmt 要求拆为多行，因为 `error_at(...)` 的参数列表超过了 rustfmt 的行宽限制。添加 helper 时应预判格式化结果。
+
+3. **helper 的返回类型选择**：`Result<(), ScriptLangError>` 比 `bool` 更好，因为内部已经需要 `?` 来传播错误，保持与调用点一致的错误处理风格。
+
+**对后续有价值的经验：**
+- 当两个 match 分支除了"返回不同的 SemanticStmt variant"外完全相同时，提取 helper 是最小侵入方案
+- 提取为 `fn(form, element_name) -> Result<(), E>` 而非 `fn(form) -> bool`，因为检查失败时需要立即返回错误
+- `scripts.rs` 中 `<break>`/`<continue>` 的"不支持嵌套语句"与 `program.rs` 的"unsupported child"语义不同（一个在 script 内，一个在 module 内），不适合跨文件统一
+
 **下一步方向：**
-- P2: 继续在其他模块（`expand/scripts.rs` 的 `<break>`/`<continue>` 嵌套检查、`program.rs` 的 unsupported child/stmt 消息）寻找可统一的错误消息
-- P2: 继续在 `expand/mod.rs`（84 行生产代码）中寻找可提取的重复模式
-- P1: 检查 engine/mod.rs（sl-runtime，1006 行）拆分可行性（Round 5 跳过，coverage 临界问题）
+- P2: 检查 `program.rs` 中是否有类似的可提取模式（如 `parse_function_type` 系列函数的重复 type-name 传递）
+- P2: 检查 `expand/mod.rs`（84 行生产代码）中是否有局部可提取的辅助函数
+- P1: 检查 engine/mod.rs（sl-runtime，1006+ 行）拆分可行性（Round 5 跳过，coverage 临界问题）
